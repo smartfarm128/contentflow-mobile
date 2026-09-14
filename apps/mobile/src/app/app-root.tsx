@@ -60,7 +60,7 @@ class CrashBoundary extends Component<
 			const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 			return (
 				<div className="kc-crash">
-					<p className="kc-crash__title">kneecap crashed</p>
+					<p className="kc-crash__title">ContentFlow crashed</p>
 					<pre className="kc-crash__detail">
 						{detail}
 						{this.state.stack ? `\n${this.state.stack}` : ""}
@@ -146,7 +146,7 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 	return (
 		<div className="kc-home" data-kneecap-theme="capcut-mobile">
 			<header className="kc-home__header">
-				<h1>kneecap</h1>
+				<h1>ContentFlow</h1>
 				<div className="kc-home__header-actions">
 					<button
 						type="button"
