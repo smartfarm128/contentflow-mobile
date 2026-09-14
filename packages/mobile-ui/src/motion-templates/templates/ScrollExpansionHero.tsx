@@ -1,11 +1,12 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function ScrollExpansionHeroTemplate({ progress, width, height, values }: HtmlTemplateProps) {
   // Read controls
   const mediaType = String(values.mediaType ?? "video");
-  const mediaSrc = String(values.mediaSrc ?? "https://me7aitdbxq.ufs.sh/f/2wsMIGDMQRdYuZ5R8ahEEZ4aQK56LizRdfBSqeDMsmUIrJN1");
-  const posterSrc = String(values.posterSrc ?? "https://images.pexels.com/videos/5752729/space-earth-universe-cosmos-5752729.jpeg");
-  const bgImageSrc = String(values.bgImageSrc ?? "https://me7aitdbxq.ufs.sh/f/2wsMIGDMQRdYMNjMlBUYHaeYpxduXPVNwf8mnFA61L7rkcoS");
+  const mediaSrc = String(values.mediaSrc ?? placeholderImage("DMsmUIrJN1"));
+  const posterSrc = String(values.posterSrc ?? placeholderImage("752729jpeg"));
+  const bgImageSrc = String(values.bgImageSrc ?? placeholderImage("A61L7rkcoS"));
   const title = String(values.title ?? "Immersive Video Experience");
   const date = String(values.date ?? "Cosmic Journey");
   const scrollToExpand = String(values.scrollToExpand ?? "Scroll/Scrub to Expand Demo");

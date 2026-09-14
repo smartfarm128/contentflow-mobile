@@ -1,10 +1,11 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const defaultSparks = [
-  { id: 1, imageSrc: "https://images.unsplash.com/photo-1621504450181-5d356f61d307?q=80&w=280&h=160&fit=crop", title: "Gen 2: Crypto is here to stay", count: 19, countLabel: "NO. OF SYMBOLS" },
-  { id: 2, imageSrc: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=280&h=160&fit=crop", title: "Proof of Work: Embracing the crunch", count: 27, countLabel: "NO. OF SYMBOLS" },
-  { id: 3, imageSrc: "https://images.unsplash.com/photo-1696960181433-68ca79ac8149?w=280&h=160&fit=crop", title: "Smart contracts: Make the smart move", count: 36, countLabel: "NO. OF SYMBOLS" },
-  { id: 4, imageSrc: "https://images.unsplash.com/photo-1639322537228-f710d846310a?q=80&w=280&h=160&fit=crop", title: "Web3 Infrastructure: The frontier", count: 42, countLabel: "NO. OF SYMBOLS" }
+  { id: 1, imageSrc: placeholderImage("160fitcrop"), title: "Gen 2: Crypto is here to stay", count: 19, countLabel: "NO. OF SYMBOLS" },
+  { id: 2, imageSrc: placeholderImage("160fitcrop"), title: "Proof of Work: Embracing the crunch", count: 27, countLabel: "NO. OF SYMBOLS" },
+  { id: 3, imageSrc: placeholderImage("160fitcrop"), title: "Smart contracts: Make the smart move", count: 36, countLabel: "NO. OF SYMBOLS" },
+  { id: 4, imageSrc: placeholderImage("160fitcrop"), title: "Web3 Infrastructure: The frontier", count: 42, countLabel: "NO. OF SYMBOLS" }
 ];
 
 export function SparksCarouselTemplate({ time, width, height, values }: HtmlTemplateProps) {

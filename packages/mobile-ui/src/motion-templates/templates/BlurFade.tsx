@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function BlurFadeTemplate({ time, width, height, values }: HtmlTemplateProps) {
   // Read controls
@@ -12,12 +13,12 @@ export function BlurFadeTemplate({ time, width, height, values }: HtmlTemplatePr
   const bgOpacity = Number(values.bgOpacity ?? 0.85);
 
   const images = useMemo(() => [
-    { id: "img-1", url: String(values.image1 ?? "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=400&q=80"), label: String(values.label1 ?? "Yosemite") },
-    { id: "img-2", url: String(values.image2 ?? "https://images.unsplash.com/photo-1511576661527-9a64e4a2266f?auto=format&fit=crop&w=400&q=80"), label: String(values.label2 ?? "Mountain Lake") },
-    { id: "img-3", url: String(values.image3 ?? "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=400&q=80"), label: String(values.label3 ?? "Forest") },
-    { id: "img-4", url: String(values.image4 ?? "https://images.unsplash.com/photo-1472214222541-d510753a8707?auto=format&fit=crop&w=400&q=80"), label: String(values.label4 ?? "Meadow") },
-    { id: "img-5", url: String(values.image5 ?? "https://images.unsplash.com/photo-1501854140801-50d01698950b?auto=format&fit=crop&w=400&q=80"), label: String(values.label5 ?? "Hills") },
-    { id: "img-6", url: String(values.image6 ?? "https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=400&q=80"), label: String(values.label6 ?? "Walkway") },
+    { id: "img-1", url: String(values.image1 ?? placeholderImage("ropw400q80")), label: String(values.label1 ?? "Yosemite") },
+    { id: "img-2", url: String(values.image2 ?? placeholderImage("ropw400q80")), label: String(values.label2 ?? "Mountain Lake") },
+    { id: "img-3", url: String(values.image3 ?? placeholderImage("ropw400q80")), label: String(values.label3 ?? "Forest") },
+    { id: "img-4", url: String(values.image4 ?? placeholderImage("ropw400q80")), label: String(values.label4 ?? "Meadow") },
+    { id: "img-5", url: String(values.image5 ?? placeholderImage("ropw400q80")), label: String(values.label5 ?? "Hills") },
+    { id: "img-6", url: String(values.image6 ?? placeholderImage("ropw400q80")), label: String(values.label6 ?? "Walkway") },
   ], [
     values.image1, values.label1,
     values.image2, values.label2,

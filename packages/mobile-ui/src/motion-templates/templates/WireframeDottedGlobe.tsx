@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function WireframeDottedGlobeTemplate({ progress, width, height, values }: HtmlTemplateProps) {
   // 1. Controls
@@ -85,7 +86,7 @@ export function WireframeDottedGlobeTemplate({ progress, width, height, values }
     async function loadData() {
       try {
         const response = await fetch(
-          "https://raw.githubusercontent.com/martynafford/natural-earth-geojson/refs/heads/master/110m/physical/ne_110m_land.json",
+          placeholderImage("0mlandjson"),
         );
         if (!response.ok) throw new Error("Failed to load map data");
         const json = await response.json();

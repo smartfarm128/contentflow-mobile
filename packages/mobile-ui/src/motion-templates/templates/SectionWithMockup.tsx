@@ -1,4 +1,5 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderLogo } from "../local-placeholder";
 
 // Linear interpolation helper
 function lerp(start: number, end: number, amt: number) {
@@ -15,8 +16,8 @@ export function SectionWithMockupTemplate({ progress, time, width, values }: Htm
     ? String(values.description) 
     : "Get a tailored Monday morning brief directly in\nyour inbox, crafted by your virtual personal\nanalyst, spotlighting essential watchlist stories\nand earnings for the week ahead.";
   
-  const primaryImageSrc = String(values.primaryImageSrc ?? "https://www.fey.com/marketing/_next/static/media/newsletter-desktop-2_4x.e594b737.png");
-  const secondaryImageSrc = String(values.secondaryImageSrc ?? "https://www.fey.com/marketing/_next/static/media/newsletter-desktop-1_4x.9cc114e6.png");
+  const primaryImageSrc = String(values.primaryImageSrc ?? placeholderLogo("594b737png"));
+  const secondaryImageSrc = String(values.secondaryImageSrc ?? placeholderLogo("cc114e6png"));
   const reverseLayout = !!(values.reverseLayout ?? false);
 
   // Responsive scaling factor relative to 1920px wide viewport

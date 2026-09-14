@@ -1,4 +1,5 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const easeOutBack = (x: number): number => {
   const c1 = 1.70158;
@@ -18,14 +19,14 @@ export function RevealTextTemplate({ time, width, height, values }: HtmlTemplate
   const fontSize = Math.max(28, 120 * scaleFactor);
 
   const letterImages = [
-    "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
-    "https://images.unsplash.com/photo-1469474968028-56623f02e42e?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
-    "https://images.unsplash.com/photo-1518837695005-2083093ee35b?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
-    "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
-    "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
-    "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
-    "https://images.unsplash.com/photo-1519904981063-b0cf448d479e?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
-    "https://images.unsplash.com/photo-1540979388789-6cee28a1cdc9?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80",
+    placeholderImage("opw2070q80"),
+    placeholderImage("opw2070q80"),
+    placeholderImage("opw2070q80"),
+    placeholderImage("opw2070q80"),
+    placeholderImage("opw2070q80"),
+    placeholderImage("opw2070q80"),
+    placeholderImage("opw2070q80"),
+    placeholderImage("opw2070q80"),
   ];
 
   // Auto-focused index moving left to right every 0.75 seconds to display background panning automatically

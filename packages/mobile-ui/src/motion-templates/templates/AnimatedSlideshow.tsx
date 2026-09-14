@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 // Helper to ease values
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -88,19 +89,19 @@ export function AnimatedSlideshowTemplate({ time, width, height, values }: HtmlT
   const slideDuration = Math.max(0.5, Number(values.slideDuration ?? 3.5));
 
   const title1 = String(values.title1 ?? "frontend dev");
-  const image1 = String(values.image1 ?? "https://images.unsplash.com/photo-1654618977232-a6c6dea9d1e8?q=80&w=600&auto=format&fit=crop");
+  const image1 = String(values.image1 ?? placeholderImage("matfitcrop"));
 
   const title2 = String(values.title2 ?? "backend dev");
-  const image2 = String(values.image2 ?? "https://images.unsplash.com/photo-1624996752380-8ec242e0f85d?q=80&w=600&auto=format&fit=crop");
+  const image2 = String(values.image2 ?? placeholderImage("matfitcrop"));
 
   const title3 = String(values.title3 ?? "UI UX design");
-  const image3 = String(values.image3 ?? "https://images.unsplash.com/photo-1688733720228-4f7a18681c4f?q=80&w=600&auto=format&fit=crop");
+  const image3 = String(values.image3 ?? placeholderImage("matfitcrop"));
 
   const title4 = String(values.title4 ?? "video editing");
-  const image4 = String(values.image4 ?? "https://images.unsplash.com/photo-1574717025058-2f8737d2e2b7?q=80&w=600&auto=format&fit=crop");
+  const image4 = String(values.image4 ?? placeholderImage("matfitcrop"));
 
   const title5 = String(values.title5 ?? "SEO optimization");
-  const image5 = String(values.image5 ?? "https://images.unsplash.com/photo-1726066012698-bb7a3abce786?q=80&w=600&auto=format&fit=crop");
+  const image5 = String(values.image5 ?? placeholderImage("matfitcrop"));
 
   const slides = useMemo(() => {
     return [

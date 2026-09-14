@@ -1,22 +1,23 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function RetroTestimonialTemplate({ progress, width, height, values }: HtmlTemplateProps) {
   // Read controls
   const name1 = String(values.name1 ?? "Sarah Chen");
   const designation1 = String(values.designation1 ?? "Senior Frontend Developer");
   const description1 = String(values.description1 ?? "The component library has revolutionized our development workflow. The pre-built components are beautiful and saved us countless hours.");
-  const image1 = String(values.image1 ?? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80");
+  const image1 = String(values.image1 ?? placeholderImage("ropw200q80"));
 
   const name2 = String(values.name2 ?? "Michael Rodriguez");
   const designation2 = String(values.designation2 ?? "Founder, TechStart");
   const description2 = String(values.description2 ?? "As a startup founder, I needed a quick way to build a professional-looking product. This was exactly what I needed. Production-ready code.");
-  const image2 = String(values.image2 ?? "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80");
+  const image2 = String(values.image2 ?? placeholderImage("ropw200q80"));
 
   const name3 = String(values.name3 ?? "David Kim");
   const designation3 = String(values.designation3 ?? "UI/UX Lead");
   const description3 = String(values.description3 ?? "The attention to detail in these components is impressive. From accessibility features to responsive design, everything is well thought out.");
-  const image3 = String(values.image3 ?? "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80");
+  const image3 = String(values.image3 ?? placeholderImage("ropw200q80"));
 
   const bgOpacity = Number(values.bgOpacity ?? 0.85);
 

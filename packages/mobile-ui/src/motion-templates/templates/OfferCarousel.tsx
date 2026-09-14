@@ -1,11 +1,12 @@
 import type { HtmlTemplateProps } from "../types";
 import { ArrowRight, Tag } from "lucide-react";
+import { placeholderImage } from "../local-placeholder";
 
 const defaultOffers = [
-  { id: 1, imageSrc: "https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?q=80&w=600", tag: "Discount", title: "Up to ₹3000 OFF", description: "On International Flights.", brandName: "Ease My Trip", promoCode: "EMTWID" },
-  { id: 2, imageSrc: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=600", tag: "Discount", title: "Snack more. Save more.", description: "Get ₹75 OFF on purchases of ₹299+.", brandName: "McD", promoCode: "TWID75" },
-  { id: 3, imageSrc: "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?q=80&w=600", tag: "Discount", title: "Flat ₹550 OFF", description: "Times Prime Membership offer.", brandName: "Timesprime", promoCode: "TWID550" },
-  { id: 4, imageSrc: "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?q=80&w=600", tag: "Cashback", title: "10% Instant Cashback", description: "On RuPay Credit Cards.", brandName: "Rupay CC", promoCode: "RCC10" }
+  { id: 1, imageSrc: placeholderImage("6f9q80w600"), tag: "Discount", title: "Up to ₹3000 OFF", description: "On International Flights.", brandName: "Ease My Trip", promoCode: "EMTWID" },
+  { id: 2, imageSrc: placeholderImage("8cdq80w600"), tag: "Discount", title: "Snack more. Save more.", description: "Get ₹75 OFF on purchases of ₹299+.", brandName: "McD", promoCode: "TWID75" },
+  { id: 3, imageSrc: placeholderImage("1d7q80w600"), tag: "Discount", title: "Flat ₹550 OFF", description: "Times Prime Membership offer.", brandName: "Timesprime", promoCode: "TWID550" },
+  { id: 4, imageSrc: placeholderImage("eafq80w600"), tag: "Cashback", title: "10% Instant Cashback", description: "On RuPay Credit Cards.", brandName: "Rupay CC", promoCode: "RCC10" }
 ];
 
 export function OfferCarouselTemplate({ time, width, height, values }: HtmlTemplateProps) {

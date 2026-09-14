@@ -1,8 +1,9 @@
 import type { HtmlTemplateProps } from "../types";
 import { ArrowRight } from "lucide-react";
+import { placeholderImage } from "../local-placeholder";
 
 export function Card21Template({ time, values }: HtmlTemplateProps) {
-  const imageUrl = String(values.imageUrl ?? "https://images.unsplash.com/photo-1524675053444-52c3ca294ad2?q=80&w=900");
+  const imageUrl = String(values.imageUrl ?? placeholderImage("ad2q80w900"));
   const location = String(values.location ?? "Indonesia");
   const flag = String(values.flag ?? "🇮🇩");
   const stats = String(values.stats ?? "1,345 Hotels • 24 Packages");

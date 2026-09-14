@@ -1,9 +1,10 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function Card26Template({ time, width, height, values }: HtmlTemplateProps) {
   const title = String(values.title ?? "LinkedIn");
   const description = String(values.description ?? "I am not posting that often on LinkedIn, but hey, let's connect.");
-  const imageUrl = String(values.imageUrl ?? "https://images.unsplash.com/photo-1616469829581-73993eb86b02?w=300&fit=crop");
+  const imageUrl = String(values.imageUrl ?? placeholderImage("300fitcrop"));
   
   const cycleDuration = Number(values.cycleDuration ?? 4.0);
   const backgroundColor = String(values.backgroundColor ?? "#09090b");

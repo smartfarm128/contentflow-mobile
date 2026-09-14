@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function LinkPreviewTemplate({ progress, time, width, values }: HtmlTemplateProps) {
   const text = String(values.text ?? "Visit Aceternity UI for amazing Tailwind and Framer Motion components.");
   const highlightWord = String(values.highlightWord ?? "Aceternity UI");
-  const imageSrc = String(values.imageSrc ?? "https://images.unsplash.com/photo-1614680376593-902f74fa0d41?q=80&w=640&auto=format&fit=crop");
+  const imageSrc = String(values.imageSrc ?? placeholderImage("matfitcrop"));
   const accentColor = String(values.accentColor ?? "#a855f7");
 
   const scale = width / 1920;

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderAvatar, placeholderImage } from "../local-placeholder";
 
 // Linear interpolation helper
 function lerp(start: number, end: number, amt: number) {
@@ -9,32 +10,32 @@ function lerp(start: number, end: number, amt: number) {
 export function LiquidGlassTemplate({ progress, time, width, values }: HtmlTemplateProps) {
   // Read customizable values
   const buttonText = values.buttonText !== undefined ? String(values.buttonText) : "How can i help you today?";
-  const bgImageSrc = String(values.bgImageSrc ?? "https://images.unsplash.com/photo-1432251407527-504a6b4174a2?q=80&w=1480&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D");
+  const bgImageSrc = String(values.bgImageSrc ?? placeholderImage("fHx8fA3D3D"));
 
   // Dynamic Dock Icons
   const dockIcons = useMemo(() => [
     {
-      src: String(values.icon1 ?? "https://parsefiles.back4app.com/JPaQcFfEEQ1ePBxbf6wvzkPMEqKYHhPYv8boI1Rc/a13d1acfd046f503f987c1c95af582c8_low_res_Claude.png"),
+      src: String(values.icon1 ?? placeholderAvatar("sClaudepng")),
       alt: "Claude",
     },
     {
-      src: String(values.icon2 ?? "https://parsefiles.back4app.com/JPaQcFfEEQ1ePBxbf6wvzkPMEqKYHhPYv8boI1Rc/9e80c50a5802d3b0a7ec66f3fe4ce348_low_res_Finder.png"),
+      src: String(values.icon2 ?? placeholderAvatar("sFinderpng")),
       alt: "Finder",
     },
     {
-      src: String(values.icon3 ?? "https://parsefiles.back4app.com/JPaQcFfEEQ1ePBxbf6wvzkPMEqKYHhPYv8boI1Rc/c2c4a538c2d42a8dc0927d7d6530d125_low_res_ChatGPT___Liquid_Glass__Default_.png"),
+      src: String(values.icon3 ?? placeholderAvatar("Defaultpng")),
       alt: "Chatgpt",
     },
     {
-      src: String(values.icon4 ?? "https://parsefiles.back4app.com/JPaQcFfEEQ1ePBxbf6wvzkPMEqKYHhPYv8boI1Rc/6d26d432bd65c522b0708185c0768ec3_low_res_Maps.png"),
+      src: String(values.icon4 ?? placeholderAvatar("resMapspng")),
       alt: "Maps",
     },
     {
-      src: String(values.icon5 ?? "https://parsefiles.back4app.com/JPaQcFfEEQ1ePBxbf6wvzkPMEqKYHhPYv8boI1Rc/7c59c945731aecf4f91eb8c2c5f867ce_low_res_Safari.png"),
+      src: String(values.icon5 ?? placeholderAvatar("sSafaripng")),
       alt: "Safari",
     },
     {
-      src: String(values.icon6 ?? "https://parsefiles.back4app.com/JPaQcFfEEQ1ePBxbf6wvzkPMEqKYHhPYv8boI1Rc/b7f24edc7183f63dbe34c1943bef2967_low_res_Steam___Liquid_Glass__Default_.png"),
+      src: String(values.icon6 ?? placeholderAvatar("Defaultpng")),
       alt: "Steam",
     },
   ], [values]);

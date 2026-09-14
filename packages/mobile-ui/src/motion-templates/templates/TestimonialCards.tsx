@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
 import { Quote, Star } from "lucide-react";
+import { placeholderAvatar } from "../local-placeholder";
 
 export function TestimonialCardsTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const accentColor = String(values.accentColor ?? "#6366f1");
@@ -187,7 +188,7 @@ export function TestimonialCardsTemplate({ time, width, height, values }: HtmlTe
 
               {/* Avatar image */}
               <img
-                src={`https://i.pravatar.cc/150?img=${test.id + 10}`}
+                src={placeholderAvatar(String(test.id))}
                 alt={test.name}
                 style={{
                   width: `${avatarSize}px`,

@@ -1,10 +1,11 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const defaultImages = [
-  'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1617869763329-8e8160d32adb?q=80&w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1705675742522-b0bdc228f2ed?q=80&w=600&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1705615791178-d32cc2cdcd9c?q=80&w=600&auto=format&fit=crop',
+  placeholderImage("matfitcrop"),
+  placeholderImage("matfitcrop"),
+  placeholderImage("matfitcrop"),
+  placeholderImage("matfitcrop"),
 ];
 
 export function ImagePlayerTemplate({ time, width, height, values }: HtmlTemplateProps) {

@@ -12,6 +12,7 @@ import {
   Check,
   Loader2,
 } from "lucide-react";
+import { placeholderImage } from "../local-placeholder";
 
 export function ProductCardTemplate({ time, width, height, values }: HtmlTemplateProps) {
   // 1. Controls
@@ -33,9 +34,9 @@ export function ProductCardTemplate({ time, width, height, values }: HtmlTemplat
   const color4 = String(values.color4 ?? "#10b981");
 
   // Images
-  const img1 = String(values.image1 ?? "https://images.unsplash.com/photo-1543508282-6319a3e2621f?q=80&w=1315&auto=format&fit=crop");
-  const img2 = String(values.image2 ?? "https://images.unsplash.com/photo-1656230259229-aa2634e3352c?q=80&w=1350&auto=format&fit=crop");
-  const img3 = String(values.image3 ?? "https://images.unsplash.com/photo-1579338559194-a162d19bf842?q=80&w=1287&auto=format&fit=crop");
+  const img1 = String(values.image1 ?? placeholderImage("matfitcrop"));
+  const img2 = String(values.image2 ?? placeholderImage("matfitcrop"));
+  const img3 = String(values.image3 ?? placeholderImage("matfitcrop"));
 
   const colors = useMemo(() => [color1, color2, color3, color4].filter(Boolean), [color1, color2, color3, color4]);
   const images = useMemo(() => [img1, img2, img3].filter(img => img && img.trim() !== ""), [img1, img2, img3]);

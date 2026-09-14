@@ -1,4 +1,5 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderAvatar } from "../local-placeholder";
 
 export function TestimonialCardTemplate({
   progress,
@@ -19,7 +20,7 @@ export function TestimonialCardTemplate({
       name: String(values.name1 ?? "Sarah Chen"),
       role: String(values.role1 ?? "Lead Designer at Figma"),
       avatar: String(
-        values.avatar1 ?? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80"
+        values.avatar1 ?? placeholderAvatar("ropw200q80")
       ),
       description: String(
         values.description1 ??
@@ -31,7 +32,7 @@ export function TestimonialCardTemplate({
       name: String(values.name2 ?? "Michael Rodriguez"),
       role: String(values.role2 ?? "Founder, TechStart"),
       avatar: String(
-        values.avatar2 ?? "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80"
+        values.avatar2 ?? placeholderAvatar("ropw200q80")
       ),
       description: String(
         values.description2 ??
@@ -43,7 +44,7 @@ export function TestimonialCardTemplate({
       name: String(values.name3 ?? "David Kim"),
       role: String(values.role3 ?? "UI/UX Lead"),
       avatar: String(
-        values.avatar3 ?? "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80"
+        values.avatar3 ?? placeholderAvatar("ropw200q80")
       ),
       description: String(
         values.description3 ??

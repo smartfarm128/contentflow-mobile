@@ -1,17 +1,18 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderAvatar } from "../local-placeholder";
 
 export function XGradientCardTemplate({ progress, time, width, height, values }: HtmlTemplateProps) {
   // Read controls
   const authorName = String(values.authorName ?? "Dorian");
   const authorHandle = String(values.authorHandle ?? "dorian_baffier");
-  const authorImage = String(values.authorImage ?? "https://pbs.twimg.com/profile_images/1854916060807675904/KtBJsyWr_400x400.jpg");
+  const authorImage = String(values.authorImage ?? placeholderAvatar("400x400jpg"));
   const line1 = String(values.line1 ?? "All components from KokonutUI can now be open in @v0 🎉");
   const line2 = String(values.line2 ?? "1. Click on 'Open in V0'");
   const line3 = String(values.line3 ?? "2. Customize with prompts");
   const line4 = String(values.line4 ?? "3. Deploy to your app");
   const replyName = String(values.replyName ?? "shadcn");
   const replyHandle = String(values.replyHandle ?? "shadcn");
-  const replyImage = String(values.replyImage ?? "https://pbs.twimg.com/profile_images/1593304942210478080/TUYae5z7_400x400.jpg");
+  const replyImage = String(values.replyImage ?? placeholderAvatar("400x400jpg"));
   const replyContent = String(values.replyContent ?? "Awesome.");
   const glowColor1 = String(values.glowColor1 ?? "#3b82f6");
   const glowColor2 = String(values.glowColor2 ?? "#ec4899");

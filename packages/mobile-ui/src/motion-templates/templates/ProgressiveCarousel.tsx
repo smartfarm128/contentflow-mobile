@@ -1,28 +1,29 @@
 "use client";
 
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const items = [
   {
-    img: "https://images.unsplash.com/photo-1709949908058-a08659bfa922?q=80&w=1170&auto=format&fit=crop",
+    img: placeholderImage("matfitcrop"),
     title: "Bridge",
     desc: "A breathtaking view of a city illuminated by countless lights, showcasing the vibrant and bustling nightlife.",
     sliderName: "bridge",
   },
   {
-    img: "https://images.unsplash.com/photo-1518972734183-c5b490a7c637?q=80&w=1170&auto=format&fit=crop",
+    img: placeholderImage("matfitcrop"),
     title: "Mountains View",
     desc: "A serene lake reflecting the surrounding mountains and trees, creating a mirror-like surface.",
     sliderName: "mountains",
   },
   {
-    img: "https://images.unsplash.com/photo-1548192746-dd526f154ed9?q=80&w=1170&auto=format&fit=crop",
+    img: placeholderImage("matfitcrop"),
     title: "Autumn",
     desc: "A picturesque path winding through a dense forest adorned with vibrant autumn foliage.",
     sliderName: "autumn",
   },
   {
-    img: "https://images.unsplash.com/photo-1628965882741-570e75becd5d?q=80&w=687&auto=format&fit=crop",
+    img: placeholderImage("matfitcrop"),
     title: "Foggy",
     sliderName: "foggy",
     desc: "A stunning foggy view over the forest, with the sun casting a golden glow across the canopy.",

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 interface MediaItemType {
   id: number;
@@ -34,7 +35,7 @@ export function InteractiveBentoGalleryTemplate({ time, width, height, values }:
       type: "image",
       title: String(values.title1 ?? "Vibrant Forest Path"),
       desc: String(values.desc1 ?? "Mystical forest trail under golden morning sunlight."),
-      url: String(values.image1 ?? "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=800&auto=format&fit=crop"),
+      url: String(values.image1 ?? placeholderImage("matfitcrop")),
       gridStyle: { gridColumn: "span 1", gridRow: "span 3" },
     },
     {
@@ -42,7 +43,7 @@ export function InteractiveBentoGalleryTemplate({ time, width, height, values }:
       type: "image",
       title: String(values.title2 ?? "Mountain Lake"),
       desc: String(values.desc2 ?? "Crystal clear water reflecting snow capped alpine peaks."),
-      url: String(values.image2 ?? "https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=800&auto=format&fit=crop"),
+      url: String(values.image2 ?? placeholderImage("matfitcrop")),
       gridStyle: { gridColumn: "span 2", gridRow: "span 2" },
     },
     {
@@ -50,7 +51,7 @@ export function InteractiveBentoGalleryTemplate({ time, width, height, values }:
       type: "image",
       title: String(values.title3 ?? "Ocean Breeze"),
       desc: String(values.desc3 ?? "Soft turquoise waves crashing gently on a sandy tropical beach."),
-      url: String(values.image3 ?? "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=800&auto=format&fit=crop"),
+      url: String(values.image3 ?? placeholderImage("matfitcrop")),
       gridStyle: { gridColumn: "span 1", gridRow: "span 3" },
     },
     {
@@ -58,7 +59,7 @@ export function InteractiveBentoGalleryTemplate({ time, width, height, values }:
       type: "image",
       title: String(values.title4 ?? "Golden Desert"),
       desc: String(values.desc4 ?? "Rolling sand dunes glowing orange under the setting sun."),
-      url: String(values.image4 ?? "https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?q=80&w=800&auto=format&fit=crop"),
+      url: String(values.image4 ?? placeholderImage("matfitcrop")),
       gridStyle: { gridColumn: "span 2", gridRow: "span 2" },
     },
     {
@@ -66,7 +67,7 @@ export function InteractiveBentoGalleryTemplate({ time, width, height, values }:
       type: "image",
       title: String(values.title5 ?? "Neon Tokyo"),
       desc: String(values.desc5 ?? "Bustling city streets illuminated by colorful neon advertisements."),
-      url: String(values.image5 ?? "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?q=80&w=800&auto=format&fit=crop"),
+      url: String(values.image5 ?? placeholderImage("matfitcrop")),
       gridStyle: { gridColumn: "span 1", gridRow: "span 3" },
     },
     {
@@ -74,7 +75,7 @@ export function InteractiveBentoGalleryTemplate({ time, width, height, values }:
       type: "image",
       title: String(values.title6 ?? "Starlit Sky"),
       desc: String(values.desc6 ?? "The Milky Way galaxy shining bright over a quiet pine forest."),
-      url: String(values.image6 ?? "https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?q=80&w=800&auto=format&fit=crop"),
+      url: String(values.image6 ?? placeholderImage("matfitcrop")),
       gridStyle: { gridColumn: "span 2", gridRow: "span 2" },
     },
   ], [

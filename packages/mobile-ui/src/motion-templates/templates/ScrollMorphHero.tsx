@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const TOTAL_IMAGES = 20;
 
@@ -15,26 +16,26 @@ export function ScrollMorphHeroTemplate({ progress, width, height, values }: Htm
   const backgroundColor = String(values.backgroundColor ?? "#FAFAFA");
 
   const IMAGES = useMemo(() => [
-    String(values.image1 ?? "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=300&q=80"),
-    String(values.image2 ?? "https://images.unsplash.com/photo-1519710164239-da123dc03ef4?w=300&q=80"),
-    String(values.image3 ?? "https://images.unsplash.com/photo-1497366216548-37526070297c?w=300&q=80"),
-    String(values.image4 ?? "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=300&q=80"),
-    String(values.image5 ?? "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=300&q=80"),
-    String(values.image6 ?? "https://images.unsplash.com/photo-1506765515384-028b60a970df?w=300&q=80"),
-    String(values.image7 ?? "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=300&q=80"),
-    String(values.image8 ?? "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=300&q=80"),
-    String(values.image9 ?? "https://images.unsplash.com/photo-1500485035595-cbe6f645feb1?w=300&q=80"),
-    String(values.image10 ?? "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=300&q=80"),
-    String(values.image11 ?? "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=300&q=80"),
-    String(values.image12 ?? "https://images.unsplash.com/photo-1518020382113-a7e8fc38eac9?w=300&q=80"),
-    String(values.image13 ?? "https://images.unsplash.com/photo-1465146344425-f00d5f5c8f07?w=300&q=80"),
-    String(values.image14 ?? "https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?w=300&q=80"),
-    String(values.image15 ?? "https://images.unsplash.com/photo-1493246507139-91e8fad9978e?w=300&q=80"),
-    String(values.image16 ?? "https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?w=300&q=80"),
-    String(values.image17 ?? "https://images.unsplash.com/photo-1483729558449-99ef09a8c325?w=300&q=80"),
-    String(values.image18 ?? "https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=300&q=80"),
-    String(values.image19 ?? "https://images.unsplash.com/photo-1523961131990-5ea7c61b2107?w=300&q=80"),
-    String(values.image20 ?? "https://images.unsplash.com/photo-1496568816309-51d7c20e3b21?w=300&q=80"),
+    String(values.image1 ?? placeholderImage("1abw300q80")),
+    String(values.image2 ?? placeholderImage("ef4w300q80")),
+    String(values.image3 ?? placeholderImage("97cw300q80")),
+    String(values.image4 ?? placeholderImage("3fbw300q80")),
+    String(values.image5 ?? placeholderImage("e05w300q80")),
+    String(values.image6 ?? placeholderImage("0dfw300q80")),
+    String(values.image7 ?? placeholderImage("b6ew300q80")),
+    String(values.image8 ?? placeholderImage("98ew300q80")),
+    String(values.image9 ?? placeholderImage("eb1w300q80")),
+    String(values.image10 ?? placeholderImage("42ew300q80")),
+    String(values.image11 ?? placeholderImage("0faw300q80")),
+    String(values.image12 ?? placeholderImage("ac9w300q80")),
+    String(values.image13 ?? placeholderImage("f07w300q80")),
+    String(values.image14 ?? placeholderImage("fa8w300q80")),
+    String(values.image15 ?? placeholderImage("78ew300q80")),
+    String(values.image16 ?? placeholderImage("f85w300q80")),
+    String(values.image17 ?? placeholderImage("325w300q80")),
+    String(values.image18 ?? placeholderImage("d9fw300q80")),
+    String(values.image19 ?? placeholderImage("107w300q80")),
+    String(values.image20 ?? placeholderImage("b21w300q80")),
   ], [values]);
 
   // 2. Sizing Constants & Scale Factor

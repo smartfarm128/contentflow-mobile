@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function InteractiveImageAccordionTemplate({ progress, width, height, values }: HtmlTemplateProps) {
   // 1. Controls
@@ -12,27 +13,27 @@ export function InteractiveImageAccordionTemplate({ progress, width, height, val
     {
       id: 1,
       title: String(values.title1 ?? "Voice Assistant"),
-      imageUrl: String(values.image1 ?? "https://images.unsplash.com/photo-1628258334105-2a0b3d6efee1?q=80&w=600&auto=format&fit=crop"),
+      imageUrl: String(values.image1 ?? placeholderImage("matfitcrop")),
     },
     {
       id: 2,
       title: String(values.title2 ?? "AI Image Generation"),
-      imageUrl: String(values.image2 ?? "https://images.unsplash.com/photo-1677756119517-756a188d2d94?q=80&w=600&auto=format&fit=crop"),
+      imageUrl: String(values.image2 ?? placeholderImage("matfitcrop")),
     },
     {
       id: 3,
       title: String(values.title3 ?? "AI Chatbot + Local RAG"),
-      imageUrl: String(values.image3 ?? "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?q=80&w=600&auto=format&fit=crop"),
+      imageUrl: String(values.image3 ?? placeholderImage("matfitcrop")),
     },
     {
       id: 4,
       title: String(values.title4 ?? "AI Agent"),
-      imageUrl: String(values.image4 ?? "https://images.unsplash.com/photo-1526628953301-3e589a6a8b74?q=80&w=600&auto=format&fit=crop"),
+      imageUrl: String(values.image4 ?? placeholderImage("matfitcrop")),
     },
     {
       id: 5,
       title: String(values.title5 ?? "Visual Understanding"),
-      imageUrl: String(values.image5 ?? "https://images.unsplash.com/photo-1554415707-6e8cfc93fe23?q=80&w=600&auto=format&fit=crop"),
+      imageUrl: String(values.image5 ?? placeholderImage("matfitcrop")),
     },
   ], [values]);
 
@@ -189,7 +190,7 @@ export function InteractiveImageAccordionTemplate({ progress, width, height, val
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.onerror = null;
-                    target.src = 'https://placehold.co/400x450/2d3748/ffffff?text=Image+Error';
+                    target.src = placeholderImage("ImageError");
                   }}
                 />
                 

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function FeatureCarouselTemplate({ progress, width, height, values }: HtmlTemplateProps) {
   // 1. Controls
@@ -8,23 +9,23 @@ export function FeatureCarouselTemplate({ progress, width, height, values }: Htm
   
   const images = useMemo(() => [
     {
-      src: String(values.image1 ?? "https://images.unsplash.com/photo-1504051771394-dd2e66b2e08f?w=900&auto=format&fit=crop&q=60"),
+      src: String(values.image1 ?? placeholderImage("fitcropq60")),
       alt: "Photo 1",
     },
     {
-      src: String(values.image2 ?? "https://images.unsplash.com/photo-1526510747491-58f928ec870f?w=900&auto=format&fit=crop&q=60"),
+      src: String(values.image2 ?? placeholderImage("fitcropq60")),
       alt: "Photo 2",
     },
     {
-      src: String(values.image3 ?? "https://plus.unsplash.com/premium_photo-1670282392820-e3590c1c5c54?w=900&auto=format&fit=crop&q=60"),
+      src: String(values.image3 ?? placeholderImage("fitcropq60")),
       alt: "Photo 3",
     },
     {
-      src: String(values.image4 ?? "https://images.unsplash.com/photo-1581403341630-a6e0b9d2d257?w=900&auto=format&fit=crop&q=60"),
+      src: String(values.image4 ?? placeholderImage("fitcropq60")),
       alt: "Photo 4",
     },
     {
-      src: String(values.image5 ?? "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=900&auto=format&fit=crop&q=60"),
+      src: String(values.image5 ?? placeholderImage("fitcropq60")),
       alt: "Photo 5",
     },
   ], [values]);
@@ -170,7 +171,7 @@ export function FeatureCarouselTemplate({ progress, width, height, values }: Htm
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.onerror = null;
-                    target.src = 'https://placehold.co/260x420/2d3748/ffffff?text=Image+Error';
+                    target.src = placeholderImage("ImageError");
                   }}
                 />
               </div>

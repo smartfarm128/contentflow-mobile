@@ -1,4 +1,5 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderLogo } from "../local-placeholder";
 
 const defaultEvents = [
   { countryCode: "US", time: "21:30", eventName: "15-Year Mortgage", actual: "10.59", forecast: null, prior: "5.49%", impact: "medium" },
@@ -122,7 +123,7 @@ export function EconomicCalendarTemplate({ time, width, height, values }: HtmlTe
 
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
                   <img
-                    src={`https://flagcdn.com/w40/${evt.countryCode.toLowerCase()}.png`}
+                    src={placeholderLogo("werCasepng")}
                     alt="flag"
                     style={{ width: "32px", height: "32px", borderRadius: "50%", objectFit: "cover" }}
                   />

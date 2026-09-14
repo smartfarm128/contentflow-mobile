@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderLogo } from "../local-placeholder";
 
 export function LogoCloudTemplate({ time, width, height, values }: HtmlTemplateProps) {
   // 1. Read controls
@@ -11,14 +12,14 @@ export function LogoCloudTemplate({ time, width, height, values }: HtmlTemplateP
   const accentColor = String(values.accentColor ?? "#94a3b8");
 
   // Read logo images
-  const logo1 = String(values.logo1 ?? "https://svgl.app/library/nvidia-wordmark-light.svg");
-  const logo2 = String(values.logo2 ?? "https://svgl.app/library/supabase_wordmark_light.svg");
-  const logo3 = String(values.logo3 ?? "https://svgl.app/library/openai_wordmark_light.svg");
-  const logo4 = String(values.logo4 ?? "https://svgl.app/library/turso-wordmark-light.svg");
-  const logo5 = String(values.logo5 ?? "https://svgl.app/library/vercel_wordmark.svg");
-  const logo6 = String(values.logo6 ?? "https://svgl.app/library/github_wordmark_light.svg");
-  const logo7 = String(values.logo7 ?? "https://svgl.app/library/claude-ai-wordmark-icon_light.svg");
-  const logo8 = String(values.logo8 ?? "https://svgl.app/library/clerk-wordmark-light.svg");
+  const logo1 = String(values.logo1 ?? placeholderLogo("rklightsvg"));
+  const logo2 = String(values.logo2 ?? placeholderLogo("rklightsvg"));
+  const logo3 = String(values.logo3 ?? placeholderLogo("rklightsvg"));
+  const logo4 = String(values.logo4 ?? placeholderLogo("rklightsvg"));
+  const logo5 = String(values.logo5 ?? placeholderLogo("ordmarksvg"));
+  const logo6 = String(values.logo6 ?? placeholderLogo("rklightsvg"));
+  const logo7 = String(values.logo7 ?? placeholderLogo("onlightsvg"));
+  const logo8 = String(values.logo8 ?? placeholderLogo("rklightsvg"));
 
   const logos = useMemo(() => {
     return [logo1, logo2, logo3, logo4, logo5, logo6, logo7, logo8].filter(Boolean);

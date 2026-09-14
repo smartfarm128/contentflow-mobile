@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage, placeholderLogo } from "../local-placeholder";
 
 export function Card7Template({ time, values }: HtmlTemplateProps) {
   const title = String(values.title ?? "Nike M2K Tekno");
@@ -9,10 +10,10 @@ export function Card7Template({ time, values }: HtmlTemplateProps) {
   const price = String(values.price ?? "$149");
   const imageUrl = String(
     values.imageUrl ??
-      "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=2070&auto=format&fit=crop"
+      placeholderImage("matfitcrop")
   );
   const logoUrl = String(
-    values.logoUrl ?? "https://upload.wikimedia.org/wikipedia/commons/a/a6/Logo_NIKE.svg"
+    values.logoUrl ?? placeholderLogo("ogoNIKEsvg")
   );
   const cycleDuration = Number(values.cycleDuration ?? 6.0);
 

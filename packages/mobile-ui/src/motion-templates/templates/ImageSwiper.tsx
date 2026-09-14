@@ -1,14 +1,15 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderAvatar, placeholderImage } from "../local-placeholder";
 
 export function ImageSwiperTemplate({ time, width, height, values }: HtmlTemplateProps) {
   // 1. Controls
-  const img1 = String(values.image1 ?? "https://img.freepik.com/premium-photo/3d-cartoon_975306-1.jpg?w=2000");
-  const img2 = String(values.image2 ?? "https://img.freepik.com/premium-photo/3d-cartoon-boy-avatar_113255-5540.jpg");
-  const img3 = String(values.image3 ?? "https://th.bing.com/th/id/OIP.OmBLyKbo8iixJ2SeS12xxwHaE7?w=626&h=417&rs=1&pid=ImgDetMain");
-  const img4 = String(values.image4 ?? "https://thumbs.dreamstime.com/b/animated-academic-cheerful-cartoon-scholar-301088562.jpg");
-  const img5 = String(values.image5 ?? "https://img.freepik.com/premium-psd/3d-cute-young-business-man-character-generative-ai_43614-1027.jpg");
-  const img6 = String(values.image6 ?? "https://img.freepik.com/premium-photo/arafed-cartoon-man-suit-tie-standing-with-his-hands-his-hips_988987-15581.jpg");
+  const img1 = String(values.image1 ?? placeholderImage("61jpgw2000"));
+  const img2 = String(values.image2 ?? placeholderAvatar("2555540jpg"));
+  const img3 = String(values.image3 ?? placeholderImage("ImgDetMain"));
+  const img4 = String(values.image4 ?? placeholderImage("1088562jpg"));
+  const img5 = String(values.image5 ?? placeholderImage("6141027jpg"));
+  const img6 = String(values.image6 ?? placeholderImage("8715581jpg"));
 
   const baseCardWidth = Number(values.cardWidth ?? 256);
   const baseCardHeight = Number(values.cardHeight ?? 352);

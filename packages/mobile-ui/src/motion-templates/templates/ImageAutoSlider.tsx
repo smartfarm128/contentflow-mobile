@@ -1,4 +1,5 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function ImageAutoSliderTemplate({
   progress,
@@ -11,14 +12,14 @@ export function ImageAutoSliderTemplate({
   const gap = 24 * scaleFactor;
 
   const images = [
-    String(values.image1 ?? "https://images.unsplash.com/photo-1518495973542-4542c06a5843?q=80&w=640&auto=format&fit=crop"),
-    String(values.image2 ?? "https://images.unsplash.com/photo-1472396961693-142e6e269027?q=80&w=640&auto=format&fit=crop"),
-    String(values.image3 ?? "https://images.unsplash.com/photo-1505142468610-359e7d316be0?q=80&w=640&auto=format&fit=crop"),
-    String(values.image4 ?? "https://images.unsplash.com/photo-1482881497185-d4a9ddbe4151?q=80&w=640&auto=format&fit=crop"),
-    String(values.image5 ?? "https://plus.unsplash.com/premium_photo-1673264933212-d78737f38e48?q=80&w=640&auto=format&fit=crop"),
-    String(values.image6 ?? "https://plus.unsplash.com/premium_photo-1711434824963-ca894373272e?q=80&w=640&auto=format&fit=crop"),
-    String(values.image7 ?? "https://plus.unsplash.com/premium_photo-1675705721263-0bbeec261c49?q=80&w=640&auto=format&fit=crop"),
-    String(values.image8 ?? "https://images.unsplash.com/photo-1524799526615-766a9833dec0?q=80&w=640&auto=format&fit=crop"),
+    String(values.image1 ?? placeholderImage("matfitcrop")),
+    String(values.image2 ?? placeholderImage("matfitcrop")),
+    String(values.image3 ?? placeholderImage("matfitcrop")),
+    String(values.image4 ?? placeholderImage("matfitcrop")),
+    String(values.image5 ?? placeholderImage("matfitcrop")),
+    String(values.image6 ?? placeholderImage("matfitcrop")),
+    String(values.image7 ?? placeholderImage("matfitcrop")),
+    String(values.image8 ?? placeholderImage("matfitcrop")),
   ];
 
   // Repeat for a seamless loop

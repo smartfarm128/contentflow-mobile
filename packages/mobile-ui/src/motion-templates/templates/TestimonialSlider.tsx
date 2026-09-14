@@ -1,5 +1,6 @@
 import { Star, Quote } from "lucide-react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function TestimonialSliderTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const slideDuration = Number(values.slideDuration ?? 4.0);
@@ -11,21 +12,21 @@ export function TestimonialSliderTemplate({ time, width, height, values }: HtmlT
       quote: String(values.quote1 ?? "This is a game-changer. The design is intuitive, and the performance is unparalleled. It has streamlined our workflow significantly."),
       name: String(values.name1 ?? "Emily Thomas"),
       role: String(values.role1 ?? "Product Designer"),
-      image: String(values.image1 ?? "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?q=80&w=600&auto=format&fit=crop"),
+      image: String(values.image1 ?? placeholderImage("matfitcrop")),
       rating: Number(values.rating1 ?? 5),
     },
     {
       quote: String(values.quote2 ?? "An incredible experience from start to finish. The team was responsive, and the final product exceeded all our expectations. Highly recommended!"),
       name: String(values.name2 ?? "Michael Chen"),
       role: String(values.role2 ?? "Lead Developer"),
-      image: String(values.image2 ?? "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=600&auto=format&fit=crop"),
+      image: String(values.image2 ?? placeholderImage("matfitcrop")),
       rating: Number(values.rating2 ?? 5),
     },
     {
       quote: String(values.quote3 ?? "The attention to detail is what sets this apart. Every feature feels thoughtfully designed and implemented. It's a pleasure to use every day."),
       name: String(values.name3 ?? "Sophia Rodriguez"),
       role: String(values.role3 ?? "UX Researcher"),
-      image: String(values.image3 ?? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=600&auto=format&fit=crop"),
+      image: String(values.image3 ?? placeholderImage("matfitcrop")),
       rating: Number(values.rating3 ?? 4),
     },
   ];

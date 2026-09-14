@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 function continuousOffset(i: number, virtualActive: number, len: number, loop: boolean) {
   let off = i - virtualActive;
@@ -15,23 +16,23 @@ export function CardStackTemplate({ progress, width, height, values }: HtmlTempl
   // Read controls
   const card1_title = String(values.card1_title ?? "Luxury Performance");
   const card1_desc = String(values.card1_desc ?? "Experience the thrill of precision engineering");
-  const card1_image = String(values.card1_image ?? "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?q=80&w=600");
+  const card1_image = String(values.card1_image ?? placeholderImage("738q80w600"));
 
   const card2_title = String(values.card2_title ?? "Elegant Design");
   const card2_desc = String(values.card2_desc ?? "Where beauty meets functionality");
-  const card2_image = String(values.card2_image ?? "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?q=80&w=600");
+  const card2_image = String(values.card2_image ?? placeholderImage("b09q80w600"));
 
   const card3_title = String(values.card3_title ?? "Power & Speed");
   const card3_desc = String(values.card3_desc ?? "Unleash the true potential of the road");
-  const card3_image = String(values.card3_image ?? "https://images.unsplash.com/photo-1517048676732-d65bc937f952?q=80&w=600");
+  const card3_image = String(values.card3_image ?? placeholderImage("952q80w600"));
 
   const card4_title = String(values.card4_title ?? "Timeless Craftsmanship");
   const card4_desc = String(values.card4_desc ?? "Built with passion, driven by excellence");
-  const card4_image = String(values.card4_image ?? "https://images.unsplash.com/photo-1521737711867-e3b97375f902?q=80&w=600");
+  const card4_image = String(values.card4_image ?? placeholderImage("902q80w600"));
 
   const card5_title = String(values.card5_title ?? "Future of Mobility");
   const card5_desc = String(values.card5_desc ?? "Innovation that moves you forward");
-  const card5_image = String(values.card5_image ?? "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=600");
+  const card5_image = String(values.card5_image ?? placeholderImage("0faq80w600"));
 
   const items = useMemo(() => [
     { title: card1_title, desc: card1_desc, image: card1_image },

@@ -1,4 +1,5 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function TestimonalSliderTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const cycleDuration = Number(values.cycleDuration ?? 4);
@@ -8,19 +9,19 @@ export function TestimonalSliderTemplate({ time, width, height, values }: HtmlTe
 
   const defaultTestimonials = [
     {
-      img: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80",
+      img: placeholderImage("ropw256q80"),
       quote: "ContentFlow components make building motion graphics effortless!",
       name: "Jessie J",
       role: "Acme LTD",
     },
     {
-      img: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80",
+      img: placeholderImage("ropw256q80"),
       quote: "Simplifies complex designs with ready-to-use motion layouts.",
       name: "Nick V",
       role: "Malika Inc.",
     },
     {
-      img: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80",
+      img: placeholderImage("ropw256q80"),
       quote: "With ContentFlow templates, creating responsive text and video overlays is a breeze.",
       name: "Amelia W",
       role: "Panda AI",

@@ -1,6 +1,7 @@
 "use client";
 
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function HoverPeekTemplate({ time, values }: HtmlTemplateProps) {
   const linkText = String(values.linkText ?? "21st.dev");
@@ -10,7 +11,7 @@ export function HoverPeekTemplate({ time, values }: HtmlTemplateProps) {
   const lensSize = Number(values.lensSize ?? 100);
   const lensZoomFactor = Number(values.lensZoomFactor ?? 1.75);
 
-  const imageUrl = String(values.imageSrc ?? "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&fit=crop");
+  const imageUrl = String(values.imageSrc ?? placeholderImage("600fitcrop"));
 
   const progress = (time % cycleDuration) / cycleDuration;
 

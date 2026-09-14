@@ -1,7 +1,8 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function FeatureHighlightCardTemplate({ time, width, height, values }: HtmlTemplateProps) {
-  const imageSrc = String(values.imageSrc ?? "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&fit=crop");
+  const imageSrc = String(values.imageSrc ?? placeholderImage("600fitcrop"));
   const title = String(values.title ?? "Perfect Your Timing");
   const description = String(values.description ?? "Utilize advanced technical indicators to pinpoint ideal entry and exit points. Clearly identify overbought and oversold conditions in real-time.");
   const buttonText = String(values.buttonText ?? "Try Now for Free");

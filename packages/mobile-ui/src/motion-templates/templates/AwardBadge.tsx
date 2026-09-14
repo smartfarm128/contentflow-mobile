@@ -1,5 +1,6 @@
 import { useId } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderLogo } from "../local-placeholder";
 
 export function AwardBadgeTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const reactId = useId();
@@ -11,7 +12,7 @@ export function AwardBadgeTemplate({ time, width, height, values }: HtmlTemplate
   const headerText = String(values.headerText ?? "PRODUCT HUNT");
   const type = String(values.type ?? "golden-kitty");
   const place = Number(values.place ?? 1);
-  const link = String(values.link ?? "https://www.producthunt.com");
+  const link = String(values.link ?? placeholderLogo("ucthuntcom"));
   const animateTilt = values.animateTilt !== false;
   const glowRotationSpeed = Number(values.glowRotationSpeed ?? 15);
   const glowOpacity = Number(values.glowOpacity ?? 0.5);

@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function GlobeTemplate({ time, width, height, values }: HtmlTemplateProps) {
   // Read control values
-  const globeImage = String(values.globeImage ?? "https://pub-940ccf6255b54fa799a9b01050e6c227.r2.dev/globe.jpeg");
+  const globeImage = String(values.globeImage ?? placeholderImage("vglobejpeg"));
   const rotationSpeed = Number(values.rotationSpeed ?? 30);
   const shadowColor = String(values.shadowColor ?? "#c3f4ff");
   const glowColor = String(values.glowColor ?? "rgba(255, 255, 255, 0.2)");

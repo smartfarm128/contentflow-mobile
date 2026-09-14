@@ -3,11 +3,12 @@
 import { useMemo } from "react";
 import { Rocket } from "lucide-react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function StateTemplate({ time, values }: HtmlTemplateProps) {
   const imageUrl = String(
     values.imageUrl ??
-      "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?q=80&w=2074&auto=format&fit=crop"
+      placeholderImage("matfitcrop")
   );
   const title = String(values.title ?? "Your mail is full");
   const description = String(

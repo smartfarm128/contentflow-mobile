@@ -1,6 +1,7 @@
 "use client";
 
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 interface ImageData {
   title: string;
@@ -8,12 +9,12 @@ interface ImageData {
 }
 
 const defaultImages: ImageData[] = [
-  { title: "Mini canine", url: "https://images.unsplash.com/photo-1583551536442-0fc55ac443f6?w=600&h=600&fit=crop" },
-  { title: "Wheely tent", url: "https://images.unsplash.com/photo-1583797227225-4233106c5a2a?w=600&h=600&fit=crop" },
-  { title: "Red food things", url: "https://images.unsplash.com/photo-1561626450-730502dba332?w=600&h=600&fit=crop" },
-  { title: "Sand boat", url: "https://images.unsplash.com/photo-1585221454166-ce690e60465f?w=600&h=600&fit=crop" },
-  { title: "Screen thing", url: "https://images.unsplash.com/photo-1585427795543-33cf23ea2853?w=600&h=600&fit=crop" },
-  { title: "Horse tornado", url: "https://images.unsplash.com/photo-1507160874687-6fe86a78b22e?w=600&h=600&fit=crop" },
+  { title: "Mini canine", url: placeholderImage("600fitcrop") },
+  { title: "Wheely tent", url: placeholderImage("600fitcrop") },
+  { title: "Red food things", url: placeholderImage("600fitcrop") },
+  { title: "Sand boat", url: placeholderImage("600fitcrop") },
+  { title: "Screen thing", url: placeholderImage("600fitcrop") },
+  { title: "Horse tornado", url: placeholderImage("600fitcrop") },
 ];
 
 export function CarouselCircularImageGalleryTemplate({ time, values }: HtmlTemplateProps) {

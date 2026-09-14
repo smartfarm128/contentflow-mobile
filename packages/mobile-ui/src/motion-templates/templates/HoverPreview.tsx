@@ -1,18 +1,19 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const previewData = {
   midjourney: {
-    image: "https://images.unsplash.com/photo-1695144244472-a4543101ef35?w=560&h=320&fit=crop",
+    image: placeholderImage("320fitcrop"),
     title: "Midjourney",
     subtitle: "Create stunning AI-generated artwork",
   },
   stable: {
-    image: "https://images.unsplash.com/photo-1712002641088-9d76f9080889?w=560&h=320&fit=crop",
+    image: placeholderImage("320fitcrop"),
     title: "Stable Diffusion",
     subtitle: "Open-source generative AI model",
   },
   leonardo: {
-    image: "https://images.unsplash.com/photo-1718241905696-cb34c2c07bed?w=560&h=320&fit=crop",
+    image: placeholderImage("320fitcrop"),
     title: "Leonardo AI",
     subtitle: "Production-ready creative assets",
   },

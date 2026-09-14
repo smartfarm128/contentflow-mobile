@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
 import { Button } from "../ui/button";
+import { placeholderAvatar } from "../local-placeholder";
 
 // Dependency-free inline Avatar component to avoid radix-ui package mismatch errors
 function Avatar({ src, alt, fallback }: { src: string; alt: string; fallback: string }) {
@@ -41,9 +42,9 @@ export function HeroSectionTemplate({ time, width, height, values }: HtmlTemplat
     values.phrases ?? "in digital marketing?, with content creation?, through e-commerce, by mastering SEO"
   );
   
-  const avatar1 = String(values.avatar1 ?? "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80");
-  const avatar2 = String(values.avatar2 ?? "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80");
-  const avatar3 = String(values.avatar3 ?? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80");
+  const avatar1 = String(values.avatar1 ?? placeholderAvatar("fitcropq80"));
+  const avatar2 = String(values.avatar2 ?? placeholderAvatar("fitcropq80"));
+  const avatar3 = String(values.avatar3 ?? placeholderAvatar("fitcropq80"));
 
   const phrases = useMemo(() => {
     return phrasesRaw.split(",").map((s) => s.trim()).filter(Boolean);

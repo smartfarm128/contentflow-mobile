@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 // Linear interpolation helper
 function lerp(start: number, end: number, amt: number) {
@@ -37,7 +38,7 @@ export function FocusRailTemplate({ progress, time: _time, width, height, values
       title: String(values.title1 ?? "Neon Tokyo"),
       description: String(values.desc1 ?? "Experience the vibrant nightlife and illuminated streets of Shinjuku."),
       meta: String(values.meta1 ?? "Urban • Travel"),
-      imageSrc: String(values.image1 ?? "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?q=80&w=1000&auto=format&fit=crop"),
+      imageSrc: String(values.image1 ?? placeholderImage("matfitcrop")),
       href: "#tokyo",
     },
     {
@@ -45,7 +46,7 @@ export function FocusRailTemplate({ progress, time: _time, width, height, values
       title: String(values.title2 ?? "Nordic Silence"),
       description: String(values.desc2 ?? "Minimalist architecture meeting the raw beauty of the Icelandic coast."),
       meta: String(values.meta2 ?? "Design • Nature"),
-      imageSrc: String(values.image2 ?? "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?q=80&w=1000&auto=format&fit=crop"),
+      imageSrc: String(values.image2 ?? placeholderImage("matfitcrop")),
       href: "#nordic",
     },
     {
@@ -53,7 +54,7 @@ export function FocusRailTemplate({ progress, time: _time, width, height, values
       title: String(values.title3 ?? "Sahara Echoes"),
       description: String(values.desc3 ?? "Wandering through the timeless dunes under an endless golden sun."),
       meta: String(values.meta3 ?? "Adventure • Heat"),
-      imageSrc: String(values.image3 ?? "https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?q=80&w=1000&auto=format&fit=crop"),
+      imageSrc: String(values.image3 ?? placeholderImage("matfitcrop")),
       href: "#sahara",
     },
     {
@@ -61,7 +62,7 @@ export function FocusRailTemplate({ progress, time: _time, width, height, values
       title: String(values.title4 ?? "Cyber Future"),
       description: String(values.desc4 ?? "A glimpse into a technological singularity where AI meets humanity."),
       meta: String(values.meta4 ?? "Tech • AI"),
-      imageSrc: String(values.image4 ?? "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=1000&auto=format&fit=crop"),
+      imageSrc: String(values.image4 ?? placeholderImage("matfitcrop")),
       href: "#cyber",
     },
     {
@@ -69,7 +70,7 @@ export function FocusRailTemplate({ progress, time: _time, width, height, values
       title: String(values.title5 ?? "Deep Ocean"),
       description: String(values.desc5 ?? "The crushing pressure and alien beauty of the Mariana Trench."),
       meta: String(values.meta5 ?? "Science • Deep"),
-      imageSrc: String(values.image5 ?? "https://images.unsplash.com/photo-1682687220742-aba13b6e50ba?q=80&w=1000&auto=format&fit=crop"),
+      imageSrc: String(values.image5 ?? placeholderImage("matfitcrop")),
       href: "#ocean",
     },
   ], [values]);

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
 import { Github, Twitter, Youtube, Linkedin } from "lucide-react";
+import { placeholderImage } from "../local-placeholder";
 
 // Helper to ease values
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -12,7 +13,7 @@ export function ProfileCardTestimonialCarouselTemplate({ time, width, height, va
   const name1 = String(values.name1 ?? "Michael Chen");
   const title1 = String(values.title1 ?? "Senior Software Engineer, Cloud Infrastructure");
   const desc1 = String(values.desc1 ?? "Working with this team completely changed our infrastructure game. The support and expertise were incredible. They delivered beyond our expectations and helped us scale to millions of users.");
-  const image1 = String(values.image1 ?? "https://plus.unsplash.com/premium_photo-1689977807477-a579eda91fa2?q=80&w=300&auto=format&fit=crop");
+  const image1 = String(values.image1 ?? placeholderImage("matfitcrop"));
   const github1 = String(values.github1 ?? "#");
   const twitter1 = String(values.twitter1 ?? "#");
   const linkedin1 = String(values.linkedin1 ?? "#");
@@ -21,7 +22,7 @@ export function ProfileCardTestimonialCarouselTemplate({ time, width, height, va
   const name2 = String(values.name2 ?? "Jessica Roberts");
   const title2 = String(values.title2 ?? "Lead Data Scientist, InsightX");
   const desc2 = String(values.desc2 ?? "The data analytics platform they built gave our team the confidence and tools needed for true data-driven decisions. Their dashboarding capabilities went above and beyond our expectations.");
-  const image2 = String(values.image2 ?? "https://images.unsplash.com/photo-1511367461989-f85a21fda167?auto=format&fit=crop&w=300&q=80");
+  const image2 = String(values.image2 ?? placeholderImage("ropw300q80"));
   const github2 = String(values.github2 ?? "#");
   const twitter2 = String(values.twitter2 ?? "#");
   const linkedin2 = String(values.linkedin2 ?? "#");
@@ -30,7 +31,7 @@ export function ProfileCardTestimonialCarouselTemplate({ time, width, height, va
   const name3 = String(values.name3 ?? "William Carter");
   const title3 = String(values.title3 ?? "VP Product, NovaLabs");
   const desc3 = String(values.desc3 ?? "NovaLabs helped our products find the perfect market fit. Their engineering team exceeded every delivery milestone and provided exceptional technical leadership.");
-  const image3 = String(values.image3 ?? "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=300&q=80");
+  const image3 = String(values.image3 ?? placeholderImage("ropw300q80"));
   const github3 = String(values.github3 ?? "#");
   const twitter3 = String(values.twitter3 ?? "#");
   const linkedin3 = String(values.linkedin3 ?? "#");

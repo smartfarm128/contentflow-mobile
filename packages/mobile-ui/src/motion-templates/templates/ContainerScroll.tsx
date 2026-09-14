@@ -1,8 +1,9 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function ContainerScrollTemplate({ progress, width, values }: HtmlTemplateProps) {
   const title = String(values.title ?? "Unleash the power of\nScroll Animations");
-  const imageSrc = String(values.imageSrc ?? "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop");
+  const imageSrc = String(values.imageSrc ?? placeholderImage("matfitcrop"));
   const accentColor = String(values.accentColor ?? "#6c6c6c");
 
   const scale = width / 1920;

@@ -1,5 +1,6 @@
 import { useId, useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 function mapRange(
   value: number,
@@ -29,7 +30,7 @@ export function EtherealShadowTemplate({ time, width, values }: HtmlTemplateProp
 
   const text = String(values.text ?? "Ethereal Shadows");
   const textColor = String(values.textColor ?? "#ffffff");
-  const maskImage = "https://framerusercontent.com/images/ceBGguIpUU8luwByxuQz79t7To.png";
+  const maskImage = placeholderImage("z79t7Topng");
 
   const animationEnabled = animationScale > 0;
   
@@ -167,7 +168,7 @@ export function EtherealShadowTemplate({ time, width, values }: HtmlTemplateProp
           style={{
             position: "absolute",
             inset: 0,
-            backgroundImage: `url("https://framerusercontent.com/images/g0QcWrxr87K0ufOxIUFBakwYA8.png")`,
+            backgroundImage: `url(placeholderImage("BakwYA8png"))`,
             backgroundSize: `${noiseScale * 200 * Math.max(0.5, scaleFactor)}px`,
             backgroundRepeat: "repeat",
             opacity: noiseOpacity / 2,

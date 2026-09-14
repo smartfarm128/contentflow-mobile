@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const CELL = 121.33;
 const GAP = 8;
@@ -127,15 +128,15 @@ export function ScrollReelTestimonialsTemplate({ time, width, height, values }: 
 
   const quote1 = String(values.quote1 ?? "Working with this team completely changed our infrastructure game. The support and expertise were incredible.");
   const author1 = String(values.author1 ?? "Michael Chen — Cloud Architecture");
-  const img1 = String(values.image1 ?? "https://plus.unsplash.com/premium_photo-1689977807477-a579eda91fa2?q=80&w=300&auto=format&fit=crop");
+  const img1 = String(values.image1 ?? placeholderImage("matfitcrop"));
 
   const quote2 = String(values.quote2 ?? "The data analytics platform they built gave our team the confidence and tools needed for true data-driven decisions.");
   const author2 = String(values.author2 ?? "Jessica Roberts — VP Product");
-  const img2 = String(values.image2 ?? "https://images.unsplash.com/photo-1511367461989-f85a21fda167?auto=format&fit=crop&w=300&q=80");
+  const img2 = String(values.image2 ?? placeholderImage("ropw300q80"));
 
   const quote3 = String(values.quote3 ?? "NovaLabs helped our products find the perfect market-fit. Their engineering team exceeded every delivery milestone.");
   const author3 = String(values.author3 ?? "William Carter — Design Partner");
-  const img3 = String(values.image3 ?? "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=300&q=80");
+  const img3 = String(values.image3 ?? placeholderImage("ropw300q80"));
 
   const testimonials = useMemo(() => {
     return [

@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function ImageRevealTemplate({ time, width, height, values }: HtmlTemplateProps) {
-  const imageSrc = String(values.imageSrc ?? "https://images.unsplash.com/photo-1638551145269-f7925c37e672?q=80&w=1200&auto=format&fit=crop");
+  const imageSrc = String(values.imageSrc ?? placeholderImage("matfitcrop"));
   const maxRadius = Number(values.maxRadius ?? 120);
   const speed = Number(values.speed ?? 1.0);
   const orbitRadius = Number(values.orbitRadius ?? 220);

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage, placeholderLogo } from "../local-placeholder";
 
 function isVideoUrl(url: string): boolean {
   if (!url) return false;
@@ -158,15 +159,15 @@ export function DynamicFrameLayoutTemplate({ time, width, height, values }: Html
   const borderSize = Math.min(100, Math.max(50, Number(values.borderSize ?? 92.0)));
   const mediaSize = Number(values.mediaSize ?? 1.0);
 
-  const media1 = String(values.media1 ?? "https://static.cdn-luma.com/files/981e483f71aa764b/Company%20Thing%20Exported.mp4");
-  const media2 = String(values.media2 ?? "https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=800&auto=format&fit=crop");
-  const media3 = String(values.media3 ?? "https://static.cdn-luma.com/files/58ab7363888153e3/Jitter%20Exported%20Poster.mp4");
-  const media4 = String(values.media4 ?? "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=800&auto=format&fit=crop");
-  const media5 = String(values.media5 ?? "https://static.cdn-luma.com/files/58ab7363888153e3/Logo%20Exported.mp4");
-  const media6 = String(values.media6 ?? "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?q=80&w=800&auto=format&fit=crop");
-  const media7 = String(values.media7 ?? "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=800&auto=format&fit=crop");
-  const media8 = String(values.media8 ?? "https://static.cdn-luma.com/files/58ab7363888153e3/Art%20Direction%20Exported.mp4");
-  const media9 = String(values.media9 ?? "https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?q=80&w=800&auto=format&fit=crop");
+  const media1 = String(values.media1 ?? placeholderImage("xportedmp4"));
+  const media2 = String(values.media2 ?? placeholderImage("matfitcrop"));
+  const media3 = String(values.media3 ?? placeholderImage("0Postermp4"));
+  const media4 = String(values.media4 ?? placeholderImage("matfitcrop"));
+  const media5 = String(values.media5 ?? placeholderLogo("xportedmp4"));
+  const media6 = String(values.media6 ?? placeholderImage("matfitcrop"));
+  const media7 = String(values.media7 ?? placeholderImage("matfitcrop"));
+  const media8 = String(values.media8 ?? placeholderImage("xportedmp4"));
+  const media9 = String(values.media9 ?? placeholderImage("matfitcrop"));
 
   const mediaList = useMemo(() => {
     return [media1, media2, media3, media4, media5, media6, media7, media8, media9];

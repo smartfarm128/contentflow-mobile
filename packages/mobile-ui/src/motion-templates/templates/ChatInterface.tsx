@@ -1,18 +1,19 @@
 import type { HtmlTemplateProps } from "../types";
 import { Link2 } from "lucide-react";
+import { placeholderAvatar, placeholderImage } from "../local-placeholder";
 
 const defaultMessages = [
   { id: 1, sender: "left" as const, type: "text" as const, content: "Hey Sarah! Have you checked out the new ContentFlow editor?" },
   { id: 2, sender: "right" as const, type: "text" as const, content: "Yes! The real-time playback and overlay motion graphics are stunning." },
-  { id: 3, sender: "left" as const, type: "image" as const, content: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&h=300&fit=crop" },
+  { id: 3, sender: "left" as const, type: "image" as const, content: placeholderImage("300fitcrop") },
   { id: 4, sender: "right" as const, type: "text-with-links" as const, content: "Wow, that looks amazing. Where can I try it?", links: [{ text: "contentflow.dev" }, { text: "Docs" }] }
 ];
 
 export function ChatInterfaceTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const leftName = String(values.leftName ?? "Ali Imam");
-  const leftAvatar = String(values.leftAvatar ?? "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop");
+  const leftAvatar = String(values.leftAvatar ?? placeholderAvatar("100fitcrop"));
   const rightName = String(values.rightName ?? "Sarah Chen");
-  const rightAvatar = String(values.rightAvatar ?? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop");
+  const rightAvatar = String(values.rightAvatar ?? placeholderAvatar("100fitcrop"));
 
   const cycleDuration = Number(values.cycleDuration ?? 8.0);
   const accentColor = String(values.accentColor ?? "#6366f1");

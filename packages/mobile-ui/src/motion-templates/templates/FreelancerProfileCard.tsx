@@ -1,11 +1,12 @@
 import { Star, Bookmark, LayoutTemplate, Palette } from "lucide-react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderAvatar, placeholderImage } from "../local-placeholder";
 
 export function FreelancerProfileCardTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const name = String(values.name ?? "Henrie Ekemezie");
   const titleText = String(values.title ?? "Web & UI/UX Designer");
-  const avatarSrc = String(values.avatarSrc ?? "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop&q=80");
-  const bannerSrc = String(values.bannerSrc ?? "https://images.unsplash.com/photo-1750682053165-ed96153fb0b2?auto=format&fit=crop&q=60&w=900");
+  const avatarSrc = String(values.avatarSrc ?? placeholderAvatar("fitcropq80"));
+  const bannerSrc = String(values.bannerSrc ?? placeholderImage("ropq60w900"));
   const rating = Number(values.rating ?? 4.0);
   const duration = String(values.duration ?? "8 Days");
   const rate = String(values.rate ?? "$40/hr");

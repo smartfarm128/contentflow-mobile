@@ -34,6 +34,14 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 const WEB_ROOT = join(REPO_ROOT, "apps/web");
 const SRC_DIR = join(WEB_ROOT, "src");
+// ContentFlow: the mobile app and its UI package ship the real product now,
+// so they must be held to the same offline guarantee as apps/web. Without
+// these the audit was green while never having looked at a line of mobile
+// code — the AI Director's fetch lived in an unscanned directory.
+const MOBILE_SRC_DIRS = [
+	join(REPO_ROOT, "apps/mobile/src"),
+	join(REPO_ROOT, "packages/mobile-ui/src"),
+];
 const NEXT_STATIC_DIR = join(WEB_ROOT, ".next/static");
 const NEXT_STANDALONE_DIR = join(WEB_ROOT, ".next/standalone");
 
@@ -87,6 +95,15 @@ const ALLOWED_HOSTS = new Set([
 	// M8's export sheet (apps/web/src/app/dev/mobile-editor) is the first
 	// browser-bundled code path to import `@kneecap/editor-core/edl`.
 	"kneecap.dev",
+	// ContentFlow AI Director — the ONE deliberate outbound call in this fork.
+	// Editing, playback, captions (on-device STT) and export all remain fully
+	// offline; this host is contacted ONLY when the user has pasted their own
+	// Anthropic API key into the Director panel and then sends a prompt. No
+	// key => zero requests (askAIDirector short-circuits to a local keyword
+	// handler). It is never called on launch, import, playback or export, and
+	// no telemetry/analytics rides along. See
+	// packages/mobile-ui/src/ai-director/ai-agent.ts.
+	"api.anthropic.com",
 ]);
 
 // Known-bad hosts that must NEVER reappear, checked explicitly (independent
@@ -334,6 +351,9 @@ function main() {
 
 	// Full source tree (components, services, engine, everything).
 	merge(scanTree("source", SRC_DIR));
+	for (const dir of MOBILE_SRC_DIRS) {
+		if (existsSync(dir)) merge(scanTree("source", dir));
+	}
 	// scripts/ (this script and friends) and top-level web config
 	// (next.config.ts, content-collections.ts, ...), non-recursive so it
 	// doesn't re-descend into src/ or node_modules/.

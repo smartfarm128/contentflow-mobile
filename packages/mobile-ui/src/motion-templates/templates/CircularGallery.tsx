@@ -1,4 +1,5 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function CircularGalleryTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const radius = Number(values.radius ?? 600);
@@ -11,14 +12,14 @@ export function CircularGalleryTemplate({ time, width, height, values }: HtmlTem
   const cardHeight = 400 * scale;
 
   const defaultItems = [
-    { common: 'Lion', binomial: 'Panthera leo', photo: { url: 'https://images.unsplash.com/photo-1583499871880-de841d1ace2a?w=900&auto=format&fit=crop&q=80', by: 'Clément Roy' } },
-    { common: 'Asiatic elephant', binomial: 'Elephas maximus', photo: { url: 'https://images.unsplash.com/photo-1571406761758-9a3eed5338ef?w=900&auto=format&fit=crop&q=80', by: 'Alex Azabache' } },
-    { common: 'Red-tailed black cockatoo', binomial: 'Calyptorhynchus banksii', photo: { url: 'https://images.unsplash.com/photo-1619664208054-41eefeab29e9?w=900&auto=format&fit=crop&q=80', by: 'David Clode' } },
-    { common: 'Dromedary', binomial: 'Camelus dromedarius', photo: { url: 'https://images.unsplash.com/photo-1662841238473-f4b137e123cb?w=900&auto=format&fit=crop&q=80', by: 'Moaz Tobok' } },
-    { common: 'Polar bear', binomial: 'Ursus maritimus', photo: { url: 'https://images.unsplash.com/photo-1589648751789-c8ecb7a88bd5?w=900&auto=format&fit=crop&q=80', by: 'Hans-Jurgen Mager' } },
-    { common: 'Giant panda', binomial: 'Ailuropoda melanoleuca', photo: { url: 'https://images.unsplash.com/photo-1659540181281-1d89d6112832?w=900&auto=format&fit=crop&q=80', by: 'Jiachen Lin' } },
-    { common: 'Grévy\'s zebra', binomial: 'Equus grevyi', photo: { url: 'https://images.unsplash.com/photo-1526095179574-86e545346ae6?w=900&auto=format&fit=crop&q=80', by: 'Jeff Griffith' } },
-    { common: 'Cheetah', binomial: 'Acinonyx jubatus', photo: { url: 'https://images.unsplash.com/photo-1541707519942-08fd2f6480ba?w=900&auto=format&fit=crop&q=80', by: 'Mike Bird' } }
+    { common: 'Lion', binomial: 'Panthera leo', photo: { url: placeholderImage("fitcropq80"), by: 'Clément Roy' } },
+    { common: 'Asiatic elephant', binomial: 'Elephas maximus', photo: { url: placeholderImage("fitcropq80"), by: 'Alex Azabache' } },
+    { common: 'Red-tailed black cockatoo', binomial: 'Calyptorhynchus banksii', photo: { url: placeholderImage("fitcropq80"), by: 'David Clode' } },
+    { common: 'Dromedary', binomial: 'Camelus dromedarius', photo: { url: placeholderImage("fitcropq80"), by: 'Moaz Tobok' } },
+    { common: 'Polar bear', binomial: 'Ursus maritimus', photo: { url: placeholderImage("fitcropq80"), by: 'Hans-Jurgen Mager' } },
+    { common: 'Giant panda', binomial: 'Ailuropoda melanoleuca', photo: { url: placeholderImage("fitcropq80"), by: 'Jiachen Lin' } },
+    { common: 'Grévy\'s zebra', binomial: 'Equus grevyi', photo: { url: placeholderImage("fitcropq80"), by: 'Jeff Griffith' } },
+    { common: 'Cheetah', binomial: 'Acinonyx jubatus', photo: { url: placeholderImage("fitcropq80"), by: 'Mike Bird' } }
   ];
 
   let items = defaultItems;

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderLogo } from "../local-placeholder";
 
 export function Logos3Template({ time, width, height, values }: HtmlTemplateProps) {
   // Read controls
@@ -11,14 +12,14 @@ export function Logos3Template({ time, width, height, values }: HtmlTemplateProp
 
   const logos = useMemo(() => {
     const list = [
-      { id: "logo-1", name: "Astro", url: String(values.logo1 ?? "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/logos/astro-wordmark.svg") },
-      { id: "logo-2", name: "Figma", url: String(values.logo2 ?? "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/logos/figma-wordmark.svg") },
-      { id: "logo-3", name: "NextJS", url: String(values.logo3 ?? "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/logos/nextjs-wordmark.svg") },
-      { id: "logo-4", name: "React", url: String(values.logo4 ?? "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/logos/react-wordmark.svg") },
-      { id: "logo-5", name: "Shadcn", url: String(values.logo5 ?? "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/logos/shadcn-ui-wordmark.svg") },
-      { id: "logo-6", name: "Supabase", url: String(values.logo6 ?? "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/logos/supabase-wordmark.svg") },
-      { id: "logo-7", name: "Tailwind", url: String(values.logo7 ?? "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/logos/tailwind-wordmark.svg") },
-      { id: "logo-8", name: "Vercel", url: String(values.logo8 ?? "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/logos/vercel-wordmark.svg") },
+      { id: "logo-1", name: "Astro", url: String(values.logo1 ?? placeholderLogo("ordmarksvg")) },
+      { id: "logo-2", name: "Figma", url: String(values.logo2 ?? placeholderLogo("ordmarksvg")) },
+      { id: "logo-3", name: "NextJS", url: String(values.logo3 ?? placeholderLogo("ordmarksvg")) },
+      { id: "logo-4", name: "React", url: String(values.logo4 ?? placeholderLogo("ordmarksvg")) },
+      { id: "logo-5", name: "Shadcn", url: String(values.logo5 ?? placeholderLogo("ordmarksvg")) },
+      { id: "logo-6", name: "Supabase", url: String(values.logo6 ?? placeholderLogo("ordmarksvg")) },
+      { id: "logo-7", name: "Tailwind", url: String(values.logo7 ?? placeholderLogo("ordmarksvg")) },
+      { id: "logo-8", name: "Vercel", url: String(values.logo8 ?? placeholderLogo("ordmarksvg")) },
     ];
     return list.filter(item => item.url && item.url.trim() !== "");
   }, [

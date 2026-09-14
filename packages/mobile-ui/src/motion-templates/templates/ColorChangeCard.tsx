@@ -3,27 +3,28 @@
 import { useMemo } from "react";
 import { ArrowRight } from "lucide-react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const defaultCards = [
   {
     heading: "Plan",
     description: "Lorem ipsum dolor sit amet consectetur adipisicing elit. Cumque, exercitationem.",
-    imgSrc: "https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=600&auto=format&fit=crop",
+    imgSrc: placeholderImage("matfitcrop"),
   },
   {
     heading: "Play",
     description: "Lorem ipsum dolor sit amet consectetur adipisicing elit. Cumque, exercitationem.",
-    imgSrc: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop",
+    imgSrc: placeholderImage("matfitcrop"),
   },
   {
     heading: "Connect",
     description: "Lorem ipsum dolor sit amet consectetur adipisicing elit. Cumque, exercitationem.",
-    imgSrc: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&auto=format&fit=crop",
+    imgSrc: placeholderImage("matfitcrop"),
   },
   {
     heading: "Support",
     description: "Lorem ipsum dolor sit amet consectetur adipisicing elit. Cumque, exercitationem.",
-    imgSrc: "https://images.unsplash.com/photo-1521791136368-1a8684704333?w=600&auto=format&fit=crop",
+    imgSrc: placeholderImage("matfitcrop"),
   },
 ];
 

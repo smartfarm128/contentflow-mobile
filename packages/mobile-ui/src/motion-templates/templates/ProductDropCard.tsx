@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 interface DropItem {
   time: string;
@@ -16,31 +17,31 @@ const defaultDrops: DropItem[] = [
     time: "14:00",
     name: "Lemonade AF1",
     collection: "Off-White Air Force",
-    imageSrc: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&fit=crop",
+    imageSrc: placeholderImage("400fitcrop"),
   },
   {
     time: "17:00",
     name: "University Blue",
     collection: "Off-White Air Force",
-    imageSrc: "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=400&fit=crop",
+    imageSrc: placeholderImage("400fitcrop"),
   },
   {
     time: "18:00",
     name: "Brooklyn Green",
     collection: "Off-White Air Force",
-    imageSrc: "https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400&fit=crop",
+    imageSrc: placeholderImage("400fitcrop"),
   },
   {
     time: "19:00",
     name: "Chicago Jordan 1",
     collection: "Off-White Air Jordan",
-    imageSrc: "https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?w=400&fit=crop",
+    imageSrc: placeholderImage("400fitcrop"),
   },
   {
     time: "20:00",
     name: "Mocha Scott",
     collection: "Travis Scott Jordan",
-    imageSrc: "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=400&fit=crop",
+    imageSrc: placeholderImage("400fitcrop"),
   },
 ];
 

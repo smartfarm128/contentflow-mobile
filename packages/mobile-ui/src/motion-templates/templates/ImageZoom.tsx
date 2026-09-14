@@ -1,8 +1,9 @@
 import type { HtmlTemplateProps } from "../types";
 import { Plus } from "lucide-react";
+import { placeholderImage } from "../local-placeholder";
 
 export function ImageZoomTemplate({ time, width, height, values }: HtmlTemplateProps) {
-  const imageUrl = String(values.imageUrl ?? "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=700&h=700&fit=crop");
+  const imageUrl = String(values.imageUrl ?? placeholderImage("700fitcrop"));
   const authorName = String(values.authorName ?? "Ali Imam");
   const cycleDuration = Number(values.cycleDuration ?? 6.0);
   const accentColor = String(values.accentColor ?? "#fff200");

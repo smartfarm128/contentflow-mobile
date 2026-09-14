@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { placeholderImage } from "../local-placeholder";
 
 export function CircularTestimonialsTemplate({ time, width, height, values }: HtmlTemplateProps) {
   // Read controls
@@ -20,19 +21,19 @@ export function CircularTestimonialsTemplate({ time, width, height, values }: Ht
       quote: String(values.quote1 ?? "I was impressed by the food! And I could really tell that they use high-quality ingredients. The staff was friendly and attentive. I'll definitely be back for more!"),
       name: String(values.name1 ?? "Tamar Mendelson"),
       designation: String(values.designation1 ?? "Restaurant Critic"),
-      src: String(values.image1 ?? "https://images.unsplash.com/photo-1512316609839-ce289d3eba0a?q=80&w=640&auto=format&fit=crop"),
+      src: String(values.image1 ?? placeholderImage("matfitcrop")),
     },
     {
       quote: String(values.quote2 ?? "This place exceeded all expectations! The atmosphere is inviting, and the staff truly goes above and beyond. I'll keep returning for more exceptional dining experience."),
       name: String(values.name2 ?? "Joe Charlescraft"),
       designation: String(values.designation2 ?? "Frequent Visitor"),
-      src: String(values.image2 ?? "https://images.unsplash.com/photo-1628749528992-f5702133b686?q=80&w=640&auto=format&fit=crop"),
+      src: String(values.image2 ?? placeholderImage("matfitcrop")),
     },
     {
       quote: String(values.quote3 ?? "Shining Yam is a hidden gem! The impeccable service and overall attention to detail created a memorable experience. I highly recommend it!"),
       name: String(values.name3 ?? "Martina Edelweist"),
       designation: String(values.designation3 ?? "Satisfied Customer"),
-      src: String(values.image3 ?? "https://images.unsplash.com/photo-1524267213992-b76e8577d046?q=80&w=640&auto=format&fit=crop"),
+      src: String(values.image3 ?? placeholderImage("matfitcrop")),
     },
   ], [
     values.quote1, values.name1, values.designation1, values.image1,

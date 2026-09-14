@@ -3,12 +3,13 @@
 import { useMemo } from "react";
 import { SparklesIcon } from "lucide-react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 const defaultCarouselImages = [
-  { src: "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=500&auto=format&fit=crop", alt: "Slide 1" },
-  { src: "https://images.unsplash.com/photo-1617869763329-8e8160d32adb?w=500&auto=format&fit=crop", alt: "Slide 2" },
-  { src: "https://images.unsplash.com/photo-1705675742522-b0bdc228f2ed?w=500&auto=format&fit=crop", alt: "Slide 3" },
-  { src: "https://images.unsplash.com/photo-1705615791178-d32cc2cdcd9c?w=500&auto=format&fit=crop", alt: "Slide 4" },
+  { src: placeholderImage("matfitcrop"), alt: "Slide 1" },
+  { src: placeholderImage("matfitcrop"), alt: "Slide 2" },
+  { src: placeholderImage("matfitcrop"), alt: "Slide 3" },
+  { src: placeholderImage("matfitcrop"), alt: "Slide 4" },
 ];
 
 export function CardCarouselTemplate({ time, values }: HtmlTemplateProps) {

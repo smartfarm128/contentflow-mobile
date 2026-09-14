@@ -1,5 +1,6 @@
 import React from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderLogo } from "../local-placeholder";
 
 const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
@@ -13,7 +14,7 @@ export function CalendarTemplate({
 
   const title = String(values.title ?? "Any questions about Design?");
   const subtitle = String(values.subtitle ?? "Feel free to reach out to me!");
-  const bookingLink = String(values.bookingLink ?? "https://cal.com/aliimam/designali");
+  const bookingLink = String(values.bookingLink ?? placeholderLogo("mdesignali"));
   const bookingButtonText = String(values.bookingButtonText ?? "Book Now");
   const durationText = String(values.durationText ?? "30 min call");
   const accentColor = String(values.accentColor ?? "#6366f1");

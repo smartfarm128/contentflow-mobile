@@ -1,67 +1,68 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderAvatar } from "../local-placeholder";
 
 const testimonials = [
   {
     name: "Ava Green",
     username: "@ava",
     body: "Cascade AI made my workflow 10x faster!",
-    img: "https://randomuser.me/api/portraits/women/32.jpg",
+    img: placeholderAvatar("women32jpg"),
     country: "🇦🇺 Australia",
   },
   {
     name: "Ana Miller",
     username: "@ana",
     body: "Vertical marquee is a game changer!",
-    img: "https://randomuser.me/api/portraits/women/68.jpg",
+    img: placeholderAvatar("women68jpg"),
     country: "🇩🇪 Germany",
   },
   {
     name: "Mateo Rossi",
     username: "@mat",
     body: "Animations are buttery smooth!",
-    img: "https://randomuser.me/api/portraits/men/51.jpg",
+    img: placeholderAvatar("tsmen51jpg"),
     country: "🇮🇹 Italy",
   },
   {
     name: "Maya Patel",
     username: "@maya",
     body: "Setup was a breeze!",
-    img: "https://randomuser.me/api/portraits/women/53.jpg",
+    img: placeholderAvatar("women53jpg"),
     country: "🇮🇳 India",
   },
   {
     name: "Noah Smith",
     username: "@noah",
     body: "Best marquee component!",
-    img: "https://randomuser.me/api/portraits/men/33.jpg",
+    img: placeholderAvatar("tsmen33jpg"),
     country: "🇺🇸 USA",
   },
   {
     name: "Lucas Stone",
     username: "@luc",
     body: "Very customizable and smooth.",
-    img: "https://randomuser.me/api/portraits/men/22.jpg",
+    img: placeholderAvatar("tsmen22jpg"),
     country: "🇫🇷 France",
   },
   {
     name: "Haruto Sato",
     username: "@haru",
     body: "Impressive performance on mobile!",
-    img: "https://randomuser.me/api/portraits/men/85.jpg",
+    img: placeholderAvatar("tsmen85jpg"),
     country: "🇯🇵 Japan",
   },
   {
     name: "Emma Lee",
     username: "@emma",
     body: "Love the pause on hover feature!",
-    img: "https://randomuser.me/api/portraits/women/45.jpg",
+    img: placeholderAvatar("women45jpg"),
     country: "🇨🇦 Canada",
   },
   {
     name: "Carlos Ray",
     username: "@carl",
     body: "Great for testimonials and logos.",
-    img: "https://randomuser.me/api/portraits/men/61.jpg",
+    img: placeholderAvatar("tsmen61jpg"),
     country: "🇪🇸 Spain",
   },
 ];

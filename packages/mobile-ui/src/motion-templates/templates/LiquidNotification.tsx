@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { cn } from "../../lib/cn";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage, placeholderLogo } from "../local-placeholder";
 
 export function LiquidNotificationTemplate({ time, values }: HtmlTemplateProps) {
   const cycleDuration = Number(values.cycleDuration ?? 8.0);
@@ -109,7 +110,7 @@ export function LiquidNotificationTemplate({ time, values }: HtmlTemplateProps) 
       className="flex h-full w-full items-center justify-center p-8 bg-zinc-950 rounded-2xl border border-zinc-800"
       style={{
         background:
-          'url("https://images.unsplash.com/photo-1534259070436-a95806b8621a?q=80&w=1170&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D") center / cover no-repeat',
+          'url(placeholderImage("fHx8fA3D3D")) center / cover no-repeat',
       }}
     >
       <div className="hidden">
@@ -185,7 +186,7 @@ export function LiquidNotificationTemplate({ time, values }: HtmlTemplateProps) 
             {/* App Icon */}
             <div className="flex-shrink-0 mr-4">
               <img
-                src="https://ui-layouts.com/apple-touch-icon.png"
+                src={placeholderLogo("uchiconpng")}
                 alt="icon"
                 width={56}
                 height={56}
@@ -205,7 +206,7 @@ export function LiquidNotificationTemplate({ time, values }: HtmlTemplateProps) 
           {isExpanded && (
             <div className="w-full flex-grow pb-4 px-4 overflow-hidden">
               <img
-                src="https://ui-layouts.com/og.jpg"
+                src={placeholderLogo("tscomogjpg")}
                 alt="og"
                 width={400}
                 height={400}

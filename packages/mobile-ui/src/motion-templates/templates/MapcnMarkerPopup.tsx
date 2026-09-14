@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
 import { Clock, Star } from "lucide-react";
+import { placeholderImage } from "../local-placeholder";
 
 export function MapcnMarkerPopupTemplate({ time, width, height, values }: HtmlTemplateProps) {
   // Read inputs from values (or fallback to defaults)
@@ -32,7 +33,7 @@ export function MapcnMarkerPopupTemplate({ time, width, height, values }: HtmlTe
       rating: 4.8,
       reviews: "12,453",
       hours: "10:00 AM - 5:00 PM",
-      image: "https://images.unsplash.com/photo-1575223970966-76ae61ee7838?w=300&h=200&fit=crop",
+      image: placeholderImage("200fitcrop"),
       lng: -73.9632,
       lat: 40.7794,
       showStart: 0.1,
@@ -47,7 +48,7 @@ export function MapcnMarkerPopupTemplate({ time, width, height, values }: HtmlTe
       rating: 4.9,
       reviews: "8,234",
       hours: "Open 24 hours",
-      image: "https://images.unsplash.com/photo-1496588152823-86ff7695e68f?w=300&h=200&fit=crop",
+      image: placeholderImage("200fitcrop"),
       lng: -73.9969,
       lat: 40.7061,
       showStart: 0.38,
@@ -62,7 +63,7 @@ export function MapcnMarkerPopupTemplate({ time, width, height, values }: HtmlTe
       rating: 4.7,
       reviews: "5,621",
       hours: "5:15 AM - 2:00 AM",
-      image: "https://images.unsplash.com/photo-1534430480872-3498386e7856?w=300&h=200&fit=crop",
+      image: placeholderImage("200fitcrop"),
       lng: -73.9772,
       lat: 40.7527,
       showStart: 0.66,

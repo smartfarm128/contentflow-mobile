@@ -1,5 +1,6 @@
 import React from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function FlipGalleryTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const slideDuration = Number(values.slideDuration ?? 3.5);
@@ -11,11 +12,11 @@ export function FlipGalleryTemplate({ time, width, height, values }: HtmlTemplat
   const cardHeight = 560 * scale;
 
   const defaultImages = [
-    { title: "Joshua Hibbert", url: "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?q=80&w=600&auto=format&fit=crop" },
-    { title: "Joshua Earle", url: "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?q=80&w=600&auto=format&fit=crop" },
-    { title: "Antoine Beauvillain", url: "https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?q=80&w=600&auto=format&fit=crop" },
-    { title: "Greg Rakozy", url: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=600&auto=format&fit=crop" },
-    { title: "Ramiro Checchi", url: "https://images.unsplash.com/photo-1682687220742-aba13b6e50ba?q=80&w=600&auto=format&fit=crop" }
+    { title: "Joshua Hibbert", url: placeholderImage("matfitcrop") },
+    { title: "Joshua Earle", url: placeholderImage("matfitcrop") },
+    { title: "Antoine Beauvillain", url: placeholderImage("matfitcrop") },
+    { title: "Greg Rakozy", url: placeholderImage("matfitcrop") },
+    { title: "Ramiro Checchi", url: placeholderImage("matfitcrop") }
   ];
 
   let images = defaultImages;

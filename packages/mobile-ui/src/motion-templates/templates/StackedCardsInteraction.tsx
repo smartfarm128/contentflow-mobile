@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function StackedCardsInteractionTemplate({ progress, width, height, values }: HtmlTemplateProps) {
   // 1. Controls
@@ -7,19 +8,19 @@ export function StackedCardsInteractionTemplate({ progress, width, height, value
   const rotationAngle = Number(values.rotationAngle ?? 5);
 
   const card1 = {
-    image: String(values.image1 ?? "https://images.unsplash.com/photo-1528741254566-d718e868201f?q=80&w=600&auto=format&fit=crop"),
+    image: String(values.image1 ?? placeholderImage("matfitcrop")),
     title: String(values.title1 ?? "Card 1"),
     description: String(values.description1 ?? "This is the first card"),
   };
 
   const card2 = {
-    image: String(values.image2 ?? "https://images.unsplash.com/photo-1567016376408-0226e4d0c1ea?q=80&w=600&auto=format&fit=crop"),
+    image: String(values.image2 ?? placeholderImage("matfitcrop")),
     title: String(values.title2 ?? "Card 2"),
     description: String(values.description2 ?? "This is the second card"),
   };
 
   const card3 = {
-    image: String(values.image3 ?? "https://images.unsplash.com/photo-1526827826797-7b05204a22ef?q=80&w=600&auto=format&fit=crop"),
+    image: String(values.image3 ?? placeholderImage("matfitcrop")),
     title: String(values.title3 ?? "Card 3"),
     description: String(values.description3 ?? "This is the third card"),
   };

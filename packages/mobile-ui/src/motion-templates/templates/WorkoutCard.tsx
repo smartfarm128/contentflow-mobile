@@ -2,20 +2,21 @@
 
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderIcon } from "../local-placeholder";
 
 const exercisesData = [
   {
-    iconSrc: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=320&auto=format&fit=crop",
+    iconSrc: placeholderIcon("matfitcrop"),
     name: "Jumping Jacks",
     detail: "2 minutes",
   },
   {
-    iconSrc: "https://images.unsplash.com/photo-1538805060514-97d9cc17730c?q=80&w=320&auto=format&fit=crop",
+    iconSrc: placeholderIcon("matfitcrop"),
     name: "High Knees",
     detail: "4 minutes",
   },
   {
-    iconSrc: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=320&auto=format&fit=crop",
+    iconSrc: placeholderIcon("matfitcrop"),
     name: "Bicycle Crunches",
     detail: "20 reps",
   },

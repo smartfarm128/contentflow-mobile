@@ -1,4 +1,5 @@
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function GlassTestimonialSwiperTemplate({ time, width, height, values }: HtmlTemplateProps) {
   const slideDuration = Number(values.slideDuration ?? 3.5);
@@ -45,7 +46,7 @@ export function GlassTestimonialSwiperTemplate({ time, width, height, values }: 
         style={{
           position: "absolute",
           inset: 0,
-          backgroundImage: 'url("https://res.cloudinary.com/drhx7imeb/image/upload/v1756215257/gradient-optimized_nfrakk.svg")',
+          backgroundImage: 'url(placeholderImage("dnfrakksvg"))',
           backgroundSize: "cover",
           backgroundPosition: "bottom",
           backgroundRepeat: "no-repeat",

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { HtmlTemplateProps } from '../types';
+import { placeholderImage } from "../local-placeholder";
 
 export const ELECTRIC_CONFIG = {
   svg: {
@@ -223,8 +224,8 @@ function DeterministicShaderCanvas({ className = '', time }: { className?: strin
 
 export function LightningSplitTemplate({ progress, time, width, height, values }: HtmlTemplateProps) {
   // Read controls
-  const leftImage = String(values.leftImage ?? "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?q=80&w=1200");
-  const rightImage = String(values.rightImage ?? "https://images.unsplash.com/photo-1517048676732-d65bc937f952?q=80&w=1200");
+  const leftImage = String(values.leftImage ?? placeholderImage("09q80w1200"));
+  const rightImage = String(values.rightImage ?? placeholderImage("52q80w1200"));
   const leftText = String(values.leftText ?? "SUSTAINABLE");
   const rightText = String(values.rightText ?? "COMMUNITY");
   const clipOffset = Number(values.clipOffset ?? 25);

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 // Linear interpolation helper
 function lerp(start: number, end: number, amt: number) {
@@ -31,27 +32,27 @@ export function VerticalImageStackTemplate({ progress, width, height, values }: 
   const images = useMemo(() => [
     {
       id: 1,
-      src: String(values.image1 ?? "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/attachments/gen-images/public/luxury-black-sneaker-with-red-sole-on-grey-backgro-hj40sZT8MUUSeLz18VN7EjhcnV0kSD.jpg"),
+      src: String(values.image1 ?? placeholderImage("cnV0kSDjpg")),
       alt: String(values.caption1 ?? "Black sneaker with red sole"),
     },
     {
       id: 2,
-      src: String(values.image2 ?? "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/attachments/gen-images/public/white-minimalist-sneaker-on-light-background-xQxkXgGrSrAe6pvLPNC6yrh20Atqoa.jpg"),
+      src: String(values.image2 ?? placeholderImage("20Atqoajpg")),
       alt: String(values.caption2 ?? "White minimalist sneaker"),
     },
     {
       id: 3,
-      src: String(values.image3 ?? "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/attachments/gen-images/public/navy-blue-running-shoe-on-gradient-background-E1spqSK9gDvh3gTNwASkttEg76nZgm.jpg"),
+      src: String(values.image3 ?? placeholderImage("g76nZgmjpg")),
       alt: String(values.caption3 ?? "Navy blue running shoe"),
     },
     {
       id: 4,
-      src: String(values.image4 ?? "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/attachments/gen-images/public/red-athletic-sneaker-on-dark-background-skamDX1NbCRW4jvHxijkfmCnHGr6NJ.jpg"),
+      src: String(values.image4 ?? placeholderImage("nHGr6NJjpg")),
       alt: String(values.caption4 ?? "Red athletic sneaker"),
     },
     {
       id: 5,
-      src: String(values.image5 ?? "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/attachments/gen-images/public/green-forest-hiking-boot-on-natural-background-T41PNLzI60G2u6rFIRxeCbKT6RWKOH.jpg"),
+      src: String(values.image5 ?? placeholderImage("T6RWKOHjpg")),
       alt: String(values.caption5 ?? "Green hiking boot"),
     },
   ], [values]);

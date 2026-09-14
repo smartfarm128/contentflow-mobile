@@ -3,16 +3,17 @@
 import { useMemo } from "react";
 import { ArrowUpRight } from "lucide-react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function ThreeDCardTemplate({ time, values }: HtmlTemplateProps) {
   const title = String(values.title ?? "Sapa Valley");
   const subtitle = String(values.subtitle ?? "Vietnam");
   const imageUrl = String(
     values.imageUrl ??
-      "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?q=80&w=2074&auto=format&fit=crop"
+      placeholderImage("matfitcrop")
   );
   const actionText = String(values.actionText ?? "Book your trip");
-  const href = String(values.href ?? "https://en.wikipedia.org/wiki/Sa_Pa");
+  const href = String(values.href ?? placeholderImage("rgwikiSaPa"));
   const cycleDuration = Number(values.cycleDuration ?? 6.0);
 
   // Smooth circular 3D float math bound to playback timeline

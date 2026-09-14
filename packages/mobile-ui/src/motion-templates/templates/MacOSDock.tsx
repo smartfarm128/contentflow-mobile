@@ -1,59 +1,60 @@
 import { useMemo } from "react";
 import type { HtmlTemplateProps } from "../types";
 import { MacOSDock } from "../ui/mac-os-dock";
+import { placeholderImage, placeholderLogo } from "../local-placeholder";
 
 const DEFAULT_APPS = [
   { 
     id: 'finder', 
     name: 'Finder', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/finder-2021-09-10.png?rf=1024' 
+    icon: placeholderLogo("0pngrf1024") 
   },
   { 
     id: 'calculator', 
     name: 'Calculator', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/calculator-2021-04-29.png?rf=1024' 
+    icon: placeholderLogo("9pngrf1024") 
   },
   { 
     id: 'terminal', 
     name: 'Terminal', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/terminal-2021-06-03.png?rf=1024' 
+    icon: placeholderLogo("3pngrf1024") 
   },
   { 
     id: 'mail', 
     name: 'Mail', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/mail-2021-05-25.png?rf=1024' 
+    icon: placeholderLogo("5pngrf1024") 
   },
   { 
     id: 'notes', 
     name: 'Notes', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/notes-2021-05-25.png?rf=1024' 
+    icon: placeholderLogo("5pngrf1024") 
   },
   { 
     id: 'safari', 
     name: 'Safari', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/safari-2021-06-02.png?rf=1024' 
+    icon: placeholderLogo("2pngrf1024") 
   },
   { 
     id: 'photos', 
     name: 'Photos', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/photos-2021-05-28.png?rf=1024' 
+    icon: placeholderLogo("8pngrf1024") 
   },
   { 
     id: 'music', 
     name: 'Music', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/music-2021-05-25.png?rf=1024' 
+    icon: placeholderLogo("5pngrf1024") 
   },
   { 
     id: 'calendar', 
     name: 'Calendar', 
-    icon: 'https://cdn.jim-nielsen.com/macos/1024/calendar-2021-04-29.png?rf=1024' 
+    icon: placeholderLogo("9pngrf1024") 
   },
 ];
 
 export function MacOSDockTemplate({ progress, width, height, values }: HtmlTemplateProps) {
   // Read controls
   const activeAppsList = String(values.activeApps ?? "finder,safari,terminal");
-  const bgImage = String(values.bgImage ?? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=1200");
+  const bgImage = String(values.bgImage ?? placeholderImage("09q80w1200"));
   const desktopTitle = String(values.desktopTitle ?? "Creative Workspace");
 
   const openApps = useMemo(() => {

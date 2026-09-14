@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Settings, Plus, Edit2, ChevronLeft, ChevronRight } from "lucide-react";
 import { format, isToday, startOfMonth } from "date-fns";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function GlassCalendarTemplate({ time, values }: HtmlTemplateProps) {
   const cycleDuration = Number(values.cycleDuration ?? 10.0);
@@ -43,7 +44,7 @@ export function GlassCalendarTemplate({ time, values }: HtmlTemplateProps) {
     return days;
   }, [currentMonth, selectedDayOffset]);
 
-  const backgroundImageUrl = "https://plus.unsplash.com/premium_photo-1673873438024-81d29f555b95?w=900&auto=format&fit=crop&q=60";
+  const backgroundImageUrl = placeholderImage("fitcropq60");
 
   return (
     <div

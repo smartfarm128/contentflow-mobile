@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { HtmlTemplateProps } from "../types";
+import { placeholderImage } from "../local-placeholder";
 
 export function PixelArtImageTemplate({ time, width, height, values }: HtmlTemplateProps) {
-  const src = String(values.src ?? "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop");
+  const src = String(values.src ?? placeholderImage("matfitcrop"));
   const cellSize = Number(values.cellSize ?? 4);
   const dotScale = Number(values.dotScale ?? 0.9);
   const shape = String(values.shape ?? "square") as "circle" | "square";
