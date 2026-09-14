@@ -30,6 +30,7 @@ import {
 	setCaptionHighlightEnabled,
 	setCaptionBorderEnabled,
 } from "../editor/captions-actions";
+import { generateVoiceover, listVoiceoverVoices } from "../editor/voiceover-actions";
 import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { getAllHtmlTemplates, getHtmlTemplate } from "../motion-templates/registry";
 import { AI_TOOL_NAMES } from "./ai-tools";
@@ -278,6 +279,37 @@ export async function executeTool(
 			if (!exists) return `Error: no motion-graphic clip with id "${id}".`;
 			useHtmlTemplateStore.getState().removeClip(id);
 			return `Removed motion-graphic clip ${id}.`;
+		}
+
+		// ── Voiceover ────────────────────────────────────────────────────────
+		case "list_voices": {
+			const voices = await listVoiceoverVoices();
+			if (voices.length === 0) {
+				return "No on-device voices available here. Voiceover needs the iOS or Android app — the browser cannot render speech to a timeline clip.";
+			}
+			return `${voices.length} voice(s) installed:\n${voices
+				.slice(0, 30)
+				.map((v) => `- ${v.id} | ${v.name} | ${v.language} | ${v.quality}`)
+				.join("\n")}`;
+		}
+
+		case "add_voiceover": {
+			const text = String(input.text ?? "").trim();
+			if (!text) return "Error: text is required for add_voiceover.";
+			try {
+				const res = await generateVoiceover({
+					editor,
+					text,
+					voiceId: input.voice_id,
+					languageHint: input.language_hint,
+					rate: input.rate !== undefined ? Number(input.rate) : 1,
+					startSeconds: input.start_seconds !== undefined ? Number(input.start_seconds) : undefined,
+				});
+				return `Rendered voiceover on-device (${res.durationSec.toFixed(1)}s) and placed it on an audio track.`;
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return `Could not render voiceover: ${msg}`;
+			}
 		}
 
 		// ── Look ─────────────────────────────────────────────────────────────

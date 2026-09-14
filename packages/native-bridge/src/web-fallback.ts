@@ -24,6 +24,9 @@ import type {
 	PickMediaOptions,
 	ProxyProgress,
 	ProxySpec,
+	SpeakOptions,
+	SpeechResult,
+	SpeechVoice,
 	ThumbnailStrip,
 	ThumbnailStripSpec,
 	TranscribeOptions,
@@ -212,6 +215,27 @@ export function createWebFallbackBridge(): NativeBridge {
 			});
 		},
 
+		/**
+		 * `listVoices` still enumerates the browser's voices so a dev running
+		 * the web preview sees a realistic picker; `speak` is the honest
+		 * boundary — see the `supportsOnDeviceTts` comment below.
+		 */
+		async listVoices(): Promise<SpeechVoice[]> {
+			if (typeof speechSynthesis === "undefined") return [];
+			return speechSynthesis.getVoices().map((v) => ({
+				id: v.voiceURI,
+				name: v.name,
+				language: v.lang,
+				quality: "standard" as const,
+			}));
+		},
+		async speak(_opts: SpeakOptions): Promise<SpeechResult> {
+			throw new NativeBridgeError({
+				code: "UNSUPPORTED",
+				message:
+					"Voiceover rendering requires the iOS or Android app — the browser's speech API can play audio but cannot render it to a file for the timeline.",
+			});
+		},
 		async *transcribe({
 			handle,
 		}: {
@@ -270,6 +294,12 @@ export function createWebFallbackBridge(): NativeBridge {
 				codecs,
 				supportsNativeExport: false,
 				supportsOnDeviceStt: false,
+				// The Web Speech API can SPEAK but cannot render to a file
+				// (no MediaStream on the synthesis path), and a voiceover has
+				// to become a real timeline clip. So: honestly false here, and
+				// `speak` rejects UNSUPPORTED rather than playing audio that
+				// never lands on the timeline.
+				supportsOnDeviceTts: false,
 			};
 		},
 	};

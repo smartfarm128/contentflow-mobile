@@ -97,6 +97,9 @@ import type {
 	Platform,
 	ProxyProgress,
 	ProxySpec,
+	SpeakOptions,
+	SpeechResult,
+	SpeechVoice,
 	ThumbnailStrip,
 	ThumbnailStripSpec,
 	TranscribeOptions,
@@ -250,6 +253,15 @@ interface NativeBridgePluginSpec {
 		modelSize: "tiny" | "base";
 		languageHint?: string;
 	}): Promise<NativeTranscribeResult>;
+	/** ContentFlow TTS — see `AppleSpeechSynthesizer.swift` / `SpeechSynthesizer.kt`. */
+	listVoices(): Promise<{ voices: SpeechVoice[] }>;
+	speak(params: {
+		text: string;
+		voiceId?: string;
+		languageHint?: string;
+		rate: number;
+		pitch: number;
+	}): Promise<{ audioUri: string; durationSec?: number }>;
 }
 
 /** `generateProxy` filters its event stream on `handle.id` — a domain
@@ -654,6 +666,33 @@ export function createCapacitorBridge({
 			}
 		},
 
+		/**
+		 * ContentFlow TTS. `listVoices` degrades to an empty list rather than
+		 * throwing, so a picker can render "no voices installed" instead of
+		 * the whole panel erroring on older native builds.
+		 */
+		async listVoices(): Promise<SpeechVoice[]> {
+			try {
+				const res = await NativeBridgePlugin.listVoices();
+				return (res?.voices ?? []) as SpeechVoice[];
+			} catch {
+				return [];
+			}
+		},
+		async speak(opts: SpeakOptions): Promise<SpeechResult> {
+			try {
+				const res = await NativeBridgePlugin.speak({
+					text: opts.text,
+					voiceId: opts.voiceId,
+					languageHint: opts.languageHint,
+					rate: opts.rate ?? 1,
+					pitch: opts.pitch ?? 1,
+				});
+				return { audioUri: res.audioUri, durationSec: res.durationSec ?? 0 };
+			} catch (error) {
+				throw toNativeBridgeError({ err: error, method: "speak" });
+			}
+		},
 		async *transcribe({
 			opts,
 			handle,
@@ -720,6 +759,9 @@ export function createCapacitorBridge({
 				// answers `false` for its own reasons).
 				supportsNativeExport: platform === "ios" || platform === "android",
 				supportsOnDeviceStt: false, // flips true when M10 lands.
+				// ContentFlow: AVSpeechSynthesizer (iOS) / TextToSpeech
+				// (Android) are OS-provided and offline on both platforms.
+				supportsOnDeviceTts: platform === "ios" || platform === "android",
 			};
 		},
 	};

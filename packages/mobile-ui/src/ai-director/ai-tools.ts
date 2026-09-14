@@ -2,12 +2,12 @@
  * Claude tool schemas for the mobile AI Director.
  *
  * Every tool here maps to a REAL function in `../editor/actions.ts`,
- * `../editor/captions-actions.ts`, or the motion-template store — there are no
- * decorative entries. If a capability does not exist on mobile yet (TTS,
- * stock b-roll, generative video), it is deliberately ABSENT rather than
- * declared-and-stubbed: a tool Claude can call but that cannot act is worse
- * than no tool, because the model reports success for an edit that never
- * landed on the timeline.
+ * `../editor/captions-actions.ts`, `../editor/voiceover-actions.ts`, or the
+ * motion-template store — there are no decorative entries. If a capability
+ * does not exist on mobile yet (stock b-roll, generative video), it is
+ * deliberately ABSENT rather than declared-and-stubbed: a tool Claude can call
+ * but that cannot act is worse than no tool, because the model reports success
+ * for an edit that never landed on the timeline.
  */
 
 export interface ClaudeTool {
@@ -201,6 +201,33 @@ export const AI_TOOLS: ClaudeTool[] = [
 			type: "object",
 			properties: { clip_id: { type: "string" } },
 			required: ["clip_id"],
+		},
+	},
+
+	// ── Voiceover (on-device TTS) ────────────────────────────────────────────
+	{
+		name: "list_voices",
+		description:
+			"List text-to-speech voices installed on this device for voiceover narration. " +
+			"Call before add_voiceover if the user asks for a specific voice or language.",
+		input_schema: { type: "object", properties: {}, required: [] },
+	},
+	{
+		name: "add_voiceover",
+		description:
+			"Speak narration on-device and place it on the timeline as a real audio clip. " +
+			"Runs offline and free — no API key, no cloud. Use for intros, explainers, or when the user asks you to 'narrate', " +
+			"'read this out', or 'add a voiceover'. Keep narration tight; write for the ear, not the page.",
+		input_schema: {
+			type: "object",
+			properties: {
+				text: { type: "string", description: "What should be said. Write conversationally." },
+				voice_id: { type: "string", description: "Voice id from list_voices. Omit for the device default." },
+				language_hint: { type: "string", description: "BCP-47 tag like 'en-US' when no voice_id is given." },
+				rate: { type: "number", description: "Speed multiplier 0.5–2.0. 1 = natural." },
+				start_seconds: { type: "number", description: "Where to place it. Defaults to the playhead." },
+			},
+			required: ["text"],
 		},
 	},
 

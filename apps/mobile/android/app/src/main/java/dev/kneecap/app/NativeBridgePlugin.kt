@@ -129,6 +129,56 @@ class NativeBridgePlugin : Plugin() {
 	 *  dir is stable, but the same relative scheme keeps the two platforms'
 	 *  persistence identical. Root here = `noBackupFilesDir`, the parent of
 	 *  MediaImporter/ProxyTranscoder/ThumbnailStripGenerator's subdirs. */
+	/**
+	 * ContentFlow: on-device TTS voiceover. Renders to a WAV in media custody
+	 * (same dir family as getMediaRoot below) and returns a native handle the
+	 * engine imports as a normal audio clip. Offline, free, no API key —
+	 * matching how transcription works on this platform.
+	 */
+	@PluginMethod
+	fun listVoices(call: PluginCall) {
+		SpeechSynthesizer.listVoices(context) { voices ->
+			val arr = JSArray()
+			voices.forEach { v ->
+				val o = JSObject()
+				v.forEach { (k, value) -> o.put(k, value) }
+				arr.put(o)
+			}
+			val ret = JSObject()
+			ret.put("voices", arr)
+			call.resolve(ret)
+		}
+	}
+
+	@PluginMethod
+	fun speak(call: PluginCall) {
+		val text = call.getString("text")
+		if (text.isNullOrBlank()) {
+			call.reject("speak requires non-empty text", "IO_ERROR")
+			return
+		}
+		val mediaDir = java.io.File(context.noBackupFilesDir, "Media")
+		SpeechSynthesizer.synthesize(
+			context = context,
+			text = text,
+			voiceId = call.getString("voiceId"),
+			languageHint = call.getString("languageHint"),
+			rate = (call.getDouble("rate") ?: 1.0).toFloat(),
+			pitch = (call.getDouble("pitch") ?: 1.0).toFloat(),
+			outputDirectory = mediaDir,
+			onSuccess = { result ->
+				val ret = JSObject()
+				ret.put("audioUri", result.audioUri)
+				ret.put("durationSec", result.durationSec)
+				call.resolve(ret)
+			},
+			onError = { error ->
+				val code = if (error is SpeechSynthesizer.UnsupportedException) "UNSUPPORTED" else "IO_ERROR"
+				call.reject(error.message ?: "Speech synthesis failed", code)
+			},
+		)
+	}
+
 	@PluginMethod
 	fun getMediaRoot(call: PluginCall) {
 		val result = JSObject()

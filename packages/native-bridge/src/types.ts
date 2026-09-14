@@ -174,6 +174,44 @@ export interface ThumbnailStrip {
 	timestampsMicros: number[];
 }
 
+
+/**
+ * ContentFlow — on-device text-to-speech (AI Director voiceovers).
+ *
+ * Deliberately native-only: iOS `AVSpeechSynthesizer` and Android
+ * `TextToSpeech` ship with the OS, run in airplane mode, cost nothing and
+ * need no API key. A cloud TTS would put a network call and a billing
+ * account in front of a basic voiceover, which this app's local-first
+ * guarantee does not allow.
+ */
+export interface SpeechVoice {
+	/** Platform voice identifier passed back to `speak`. */
+	id: string;
+	/** Human-readable name for the picker. */
+	name: string;
+	/** BCP-47 tag, e.g. "en-US". */
+	language: string;
+	/** Rough tier so the UI can badge the better-sounding voices. */
+	quality: "standard" | "enhanced" | "premium";
+}
+
+export interface SpeakOptions {
+	text: string;
+	/** Omit to use the best installed voice for `languageHint`. */
+	voiceId?: string;
+	languageHint?: string;
+	/** Speed multiplier, 0.5–2.0 (1 = natural). */
+	rate?: number;
+	/** Pitch multiplier, 0.5–2.0 (1 = natural). */
+	pitch?: number;
+}
+
+export interface SpeechResult {
+	/** Native handle for the rendered WAV — import it like any other asset. */
+	audioUri: string;
+	durationSec: number;
+}
+
 export interface TranscribeOptions {
 	modelSize: "tiny" | "base";
 	languageHint?: string;
@@ -225,6 +263,8 @@ export interface DeviceCapabilities {
 	codecs: { decode: string[]; encode: string[] };
 	supportsNativeExport: boolean;
 	supportsOnDeviceStt: boolean;
+	/** ContentFlow: offline text-to-speech available (AI Director voiceovers). */
+	supportsOnDeviceTts: boolean;
 }
 
 export const NATIVE_BRIDGE_ERROR_CODES = [
@@ -348,5 +388,15 @@ export interface NativeBridge {
 		handle: MediaHandle;
 		spec: ThumbnailStripSpec;
 	}): Promise<ThumbnailStrip>;
+	/**
+	 * Lists text-to-speech voices installed on this device. Empty array when
+	 * the platform has no offline TTS (web fallback without SpeechSynthesis).
+	 */
+	listVoices(): Promise<SpeechVoice[]>;
+	/**
+	 * Renders `text` to an audio file on device and resolves its native
+	 * handle. Rejects with UNSUPPORTED where no offline voice exists.
+	 */
+	speak(opts: SpeakOptions): Promise<SpeechResult>;
 	capabilities(): Promise<DeviceCapabilities>;
 }
