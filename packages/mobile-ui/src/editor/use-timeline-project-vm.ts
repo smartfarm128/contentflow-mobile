@@ -212,7 +212,7 @@ function mapTrack({
 		retimeRate:
 			"retime" in element && element.retime ? element.retime.rate : undefined,
 		waveformPeaks:
-			element.type === "audio" && "mediaId" in element
+			(element.type === "audio" || (element.type === "video" && assetById.get(element.mediaId)?.hasAudio)) && "mediaId" in element
 				? audioClipPeaks({ element, asset: assetById.get(element.mediaId) })
 				: undefined,
 		// Round 47: one diamond per clip-keyframe TIME (the group model in

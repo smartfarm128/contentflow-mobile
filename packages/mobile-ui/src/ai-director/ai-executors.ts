@@ -31,6 +31,7 @@ import {
 	setCaptionBorderEnabled,
 } from "../editor/captions-actions";
 import { generateVoiceover, listVoiceoverVoices } from "../editor/voiceover-actions";
+import { searchPexelsVideos, importPexelsMediaToTimeline } from "../editor/stock-media-actions";
 import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { getAllHtmlTemplates, getHtmlTemplate } from "../motion-templates/registry";
 import { AI_TOOL_NAMES } from "./ai-tools";
@@ -279,6 +280,33 @@ export async function executeTool(
 			if (!exists) return `Error: no motion-graphic clip with id "${id}".`;
 			useHtmlTemplateStore.getState().removeClip(id);
 			return `Removed motion-graphic clip ${id}.`;
+		}
+
+		// ── Stock B-Roll ─────────────────────────────────────────────────────
+		case "add_broll": {
+			const query = String(input.query ?? "").trim();
+			if (!query) return "Error: query is required for add_broll.";
+			try {
+				const videos = await searchPexelsVideos({ query, perPage: 4 });
+				if (videos.length === 0) return `No stock B-roll found on Pexels for "${query}".`;
+				const topVideo = videos[0];
+				const dur = input.duration_seconds !== undefined ? Number(input.duration_seconds) : 4;
+				const start = input.start_seconds !== undefined ? Number(input.start_seconds) : ctx.currentTimeSeconds;
+				const ref = await importPexelsMediaToTimeline({
+					editor,
+					downloadUrl: topVideo.downloadUrl,
+					name: `B-Roll: ${query}`,
+					type: "video",
+					durationSec: Math.min(dur, topVideo.durationSec || dur),
+					startSeconds: start,
+				});
+				return ref
+					? `Downloaded and placed B-roll for "${query}" on overlay track at ${start.toFixed(2)}s.`
+					: `Downloaded B-roll for "${query}" but could not place it on timeline.`;
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return `Could not add B-roll: ${msg}`;
+			}
 		}
 
 		// ── Voiceover ────────────────────────────────────────────────────────

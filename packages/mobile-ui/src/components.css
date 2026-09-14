@@ -1563,3 +1563,14 @@
 .cc-text-content-input:focus {
 	border-color: var(--cc-accent, #00cae0);
 }
+
+.cc-timeline__video-waveform {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 2px;
+	height: 16px;
+	pointer-events: none;
+	opacity: 0.8;
+	z-index: 2;
+}

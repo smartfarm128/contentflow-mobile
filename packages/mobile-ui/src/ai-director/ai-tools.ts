@@ -204,6 +204,23 @@ export const AI_TOOLS: ClaudeTool[] = [
 		},
 	},
 
+	// ── Stock B-Roll (Pexels) ──────────────────────────────────────────────
+	{
+		name: "add_broll",
+		description:
+			"Search Pexels for stock B-Roll video matching query and place it on an overlay track at the playhead. " +
+			"Use when the user asks for B-roll ('add B-roll of coffee', 'show footage of skyscrapers', etc.).",
+		input_schema: {
+			type: "object",
+			properties: {
+				query: { type: "string", description: "Search query for B-roll (e.g. 'coding laptop', 'city sunset')." },
+				duration_seconds: { type: "number", description: "How long the B-roll should play. Default 4." },
+				start_seconds: { type: "number", description: "Start time on the timeline. Defaults to playhead." },
+			},
+			required: ["query"],
+		},
+	},
+
 	// ── Voiceover (on-device TTS) ────────────────────────────────────────────
 	{
 		name: "list_voices",

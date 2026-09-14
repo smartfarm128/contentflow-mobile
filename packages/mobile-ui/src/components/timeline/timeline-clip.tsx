@@ -402,6 +402,15 @@ export function TimelineClip({
 					effectiveDurationSec={effectiveDurationSec}
 				/>
 			)}
+			{clip.kind === "video" && clip.waveformPeaks && (
+				<div className="cc-timeline__video-waveform">
+					<AudioWaveformMini
+						peaks={clip.waveformPeaks}
+						widthPx={widthPx}
+						heightPx={16}
+					/>
+				</div>
+			)}
 			{clip.kind === "audio" && clip.waveformPeaks && (
 				<AudioWaveformMini
 					peaks={clip.waveformPeaks}

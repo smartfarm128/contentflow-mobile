@@ -13,6 +13,7 @@ import { executeTool, type ToolContext } from "./ai-executors";
 import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { getAllHtmlTemplates } from "../motion-templates/registry";
 import { splitAtPlayhead, cutDeadSpace, insertTextElement } from "../editor/actions";
+import { CREATIVE_DIRECTION } from "./creative-direction";
 import type { EditorCore } from "@kneecap/editor-core";
 
 export type ExecutionContext = ToolContext;
@@ -20,23 +21,7 @@ export type ExecutionContext = ToolContext;
 /** Hard stop so a confused model can't loop forever on the user's phone. */
 const MAX_TURNS = 8;
 
-export const AI_DIRECTOR_PROMPT = `You are ContentFlow's AI Director — an elite creative video director and editor living inside a mobile video editor. You edit the user's video FOR them; most of them have never edited before.
-
-HOW YOU WORK
-- You have real tools that change the real timeline. Use them. Never describe an edit you could just make.
-- ALWAYS call get_timeline first so you act on real clip ids. Never invent an id.
-- Chain tools freely to finish a request end to end, then report what you did in one short paragraph.
-- If the timeline is empty, say so plainly and ask the user to import footage — do not pretend to edit.
-
-EDITORIAL TASTE
-- Retention is won in the first 3 seconds: open on the strongest moment, add a short hook title if there isn't one.
-- Cut silences on talking-head footage before anything else — dead air loses viewers faster than bad framing.
-- Captions are mandatory for social video; most people watch muted. Karaoke highlight for vertical, clean for landscape.
-- Motion graphics must earn their place: a stat callout for a number, a title for a section change. Never decoration for its own sake.
-- Restraint reads as expensive. Small colour moves, few fonts, deliberate cuts.
-
-TONE
-Talk like a working creative director: short, concrete, warm, zero jargon. The user is a creator, not an engineer.`;
+export const AI_DIRECTOR_PROMPT = CREATIVE_DIRECTION;
 
 /** Where Claude's tool-use content blocks land in the API response. */
 type ContentBlock =

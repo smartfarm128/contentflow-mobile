@@ -25,6 +25,7 @@ import { KeyframeGraphSheet } from "../panels/keyframe-graph-sheet";
 import { MotionTemplatesPanel } from "../panels/motion-templates-panel";
 import { AIDirectorPanel } from "../panels/ai-director-panel";
 import { VoiceoverPanel } from "../panels/voiceover-panel";
+import { StockMediaPanel } from "../panels/stock-media-panel";
 import { HtmlMotionLayer } from "../../motion-templates/html-motion-layer";
 import { KeyframeControl } from "../timeline/keyframe-control";
 import { getClipKeyframeEasing } from "../../editor/keyframes";
@@ -756,6 +757,14 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					currentTimeSeconds={currentTimeSeconds}
 					selectedClipId={selectedHtmlClipId}
 					onSelectClip={setSelectedHtmlClipId}
+					onClose={closeSheet}
+				/>
+			)}
+
+			{activeSheet === "stock" && (
+				<StockMediaPanel
+					editor={editor}
+					currentTimeSeconds={currentTimeSeconds}
 					onClose={closeSheet}
 				/>
 			)}

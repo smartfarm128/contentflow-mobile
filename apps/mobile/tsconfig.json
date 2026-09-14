@@ -29,6 +29,7 @@
 		// mechanism as packages/mobile-ui's and apps/web's tsconfigs: the
 		// shim only takes effect if the program includes the .d.ts file.
 		"../../packages/editor-core/src/types/**/*.d.ts",
+		"../../packages/mobile-ui/src/**/*.d.ts",
 		"vite.config.ts",
 		"capacitor.config.ts"
 	],

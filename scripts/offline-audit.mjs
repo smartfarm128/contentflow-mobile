@@ -104,6 +104,10 @@ const ALLOWED_HOSTS = new Set([
 	// no telemetry/analytics rides along. See
 	// packages/mobile-ui/src/ai-director/ai-agent.ts.
 	"api.anthropic.com",
+	// ContentFlow Pexels B-Roll: optional user-initiated stock video/photo
+	// search. Contacted ONLY when the user searches Pexels with their API key.
+	"api.pexels.com",
+	"images.pexels.com",
 ]);
 
 // Known-bad hosts that must NEVER reappear, checked explicitly (independent
