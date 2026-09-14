@@ -29,7 +29,9 @@ import type { ToolbarItemDef } from "../toolbar-row";
  * Background are real panels over the engine's project settings.
  */
 export const PRIMARY_TOOLBAR_ITEMS: ToolbarItemDef[] = [
+	{ id: "ai", label: "AI Director", icon: Sparkles },
 	{ id: "edit", label: "Edit", icon: Scissors },
+	{ id: "template", label: "Templates", icon: LayoutTemplate },
 	{ id: "audio", label: "Audio", icon: Music },
 	{ id: "text", label: "Text", icon: Type },
 	{ id: "effects", label: "Effects", icon: Sparkles },
@@ -41,7 +43,6 @@ export const PRIMARY_TOOLBAR_ITEMS: ToolbarItemDef[] = [
 	{ id: "transcript", label: "Transcript", icon: FileText },
 	{ id: "ratio", label: "Aspect ratio", icon: Square },
 	{ id: "background", label: "Background", icon: PaintBucket },
-	{ id: "template", label: "Template", icon: LayoutTemplate },
 ];
 
 export type PrimaryToolId = (typeof PRIMARY_TOOLBAR_ITEMS)[number]["id"];

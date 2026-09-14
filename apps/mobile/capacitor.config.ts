@@ -25,8 +25,8 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * to appassets.androidplatform.net to opt into.
  */
 const config: CapacitorConfig = {
-	appId: "dev.kneecap.app",
-	appName: "kneecap",
+	appId: "com.contentflow.app",
+	appName: "ContentFlow",
 	webDir: "www",
 	android: {
 		allowMixedContent: false,

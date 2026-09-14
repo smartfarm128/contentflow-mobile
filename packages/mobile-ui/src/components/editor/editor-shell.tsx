@@ -22,6 +22,9 @@ import { AdjustPanel } from "../panels/adjust-panel";
 import { CaptionsPanel } from "../panels/captions-panel";
 import { ExportSheet } from "../panels/export-sheet";
 import { KeyframeGraphSheet } from "../panels/keyframe-graph-sheet";
+import { MotionTemplatesPanel } from "../panels/motion-templates-panel";
+import { AIDirectorPanel } from "../panels/ai-director-panel";
+import { HtmlMotionLayer } from "../../motion-templates/html-motion-layer";
 import { KeyframeControl } from "../timeline/keyframe-control";
 import { getClipKeyframeEasing } from "../../editor/keyframes";
 import {
@@ -227,6 +230,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const editor = useLiveEditor();
 	const [ready, setReady] = useState(false);
 	const [activeSheet, setActiveSheet] = useState<SheetId | null>(null);
+	const [selectedHtmlClipId, setSelectedHtmlClipId] = useState<string | null>(null);
 	/**
 	 * Fullscreen preview is an IN-APP expansion, not the Fullscreen API.
 	 * `Element.requestFullscreen` is unimplemented in WKWebView for anything
@@ -413,6 +417,17 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				    params (opacity/blendMode included), so the span's partial
 				    re-implementation of that is gone with it. */}
 				<PreviewRenderer />
+				<HtmlMotionLayer
+					time={currentTimeSeconds}
+					canvasWidth={project.settings.canvasSize.width}
+					canvasHeight={project.settings.canvasSize.height}
+					isPlaying={isPlaying}
+					selectedClipId={selectedHtmlClipId}
+					onSelectClip={(id) => {
+						setSelectedHtmlClipId(id);
+						setActiveSheet("template");
+					}}
+				/>
 			</PreviewStage>
 			<PlaybackBar
 				isPlaying={isPlaying}
@@ -735,13 +750,28 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				</PanelSheet>
 			)}
 
-			{(activeSheet === "transcript" || activeSheet === "template") && (
+			{activeSheet === "template" && (
+				<MotionTemplatesPanel
+					currentTimeSeconds={currentTimeSeconds}
+					selectedClipId={selectedHtmlClipId}
+					onSelectClip={setSelectedHtmlClipId}
+					onClose={closeSheet}
+				/>
+			)}
+
+			{activeSheet === "ai" && (
+				<AIDirectorPanel
+					editor={editor}
+					currentTimeSeconds={currentTimeSeconds}
+					onClose={closeSheet}
+				/>
+			)}
+
+			{activeSheet === "transcript" && (
 				<PanelSheet onScrimClick={closeSheet} header={<SheetHeader onClose={closeSheet} />}>
-					<p className="cc-sheet-title">{activeSheet === "transcript" ? "Transcript" : "Template"}</p>
+					<p className="cc-sheet-title">Transcript</p>
 					<p className="cc-panel-note">
-						{activeSheet === "transcript"
-							? "Transcript editing isn't in kneecap yet — use Captions for on-device auto-captions."
-							: "Templates aren't in kneecap yet."}
+						Transcript editing: use Captions for on-device auto-captions, or ask AI Director to summarize and cut.
 					</p>
 				</PanelSheet>
 			)}
