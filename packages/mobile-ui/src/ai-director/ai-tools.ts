@@ -1,0 +1,244 @@
+/**
+ * Claude tool schemas for the mobile AI Director.
+ *
+ * Every tool here maps to a REAL function in `../editor/actions.ts`,
+ * `../editor/captions-actions.ts`, or the motion-template store — there are no
+ * decorative entries. If a capability does not exist on mobile yet (TTS,
+ * stock b-roll, generative video), it is deliberately ABSENT rather than
+ * declared-and-stubbed: a tool Claude can call but that cannot act is worse
+ * than no tool, because the model reports success for an edit that never
+ * landed on the timeline.
+ */
+
+export interface ClaudeTool {
+	name: string;
+	description: string;
+	input_schema: {
+		type: "object";
+		properties: Record<string, unknown>;
+		required?: string[];
+	};
+}
+
+export const AI_TOOLS: ClaudeTool[] = [
+	// ── Read-only introspection ──────────────────────────────────────────────
+	{
+		name: "get_timeline",
+		description:
+			"Read the current timeline: every track, every clip, with ids, start times and durations, plus the playhead position and project settings. " +
+			"Call this FIRST before any edit so you act on real clip ids instead of guessing.",
+		input_schema: { type: "object", properties: {}, required: [] },
+	},
+	{
+		name: "get_transcript",
+		description:
+			"Read the spoken transcript of the video with timestamps, if captions have been generated. " +
+			"Use before deciding where to cut, what to emphasise, or which words deserve a motion graphic.",
+		input_schema: { type: "object", properties: {}, required: [] },
+	},
+	{
+		name: "list_motion_templates",
+		description:
+			"List available HTML motion-graphic templates (titles, stat callouts, kinetic type, lower thirds, cards). " +
+			"Returns ids and names. Call before apply_motion_template so you use a real id.",
+		input_schema: {
+			type: "object",
+			properties: {
+				search: { type: "string", description: "Optional keyword filter, e.g. 'stat' or 'title'." },
+				limit: { type: "number", description: "Max results. Default 40." },
+			},
+			required: [],
+		},
+	},
+
+	// ── Timeline surgery ─────────────────────────────────────────────────────
+	{
+		name: "seek",
+		description: "Move the playhead to a given time in seconds.",
+		input_schema: {
+			type: "object",
+			properties: { seconds: { type: "number", description: "Target time in seconds." } },
+			required: ["seconds"],
+		},
+	},
+	{
+		name: "split_clip",
+		description:
+			"Split a clip at a given time (defaults to the current playhead). Use to isolate a section before deleting or restyling it.",
+		input_schema: {
+			type: "object",
+			properties: {
+				clip_id: { type: "string", description: "Clip to split. Get ids from get_timeline." },
+				at_seconds: { type: "number", description: "Where to cut. Defaults to the playhead." },
+			},
+			required: ["clip_id"],
+		},
+	},
+	{
+		name: "delete_clip",
+		description: "Delete a clip from the timeline. Following clips close up magnetically.",
+		input_schema: {
+			type: "object",
+			properties: { clip_id: { type: "string", description: "Clip to delete." } },
+			required: ["clip_id"],
+		},
+	},
+	{
+		name: "duplicate_clip",
+		description: "Duplicate a clip, placing the copy immediately after the original.",
+		input_schema: {
+			type: "object",
+			properties: { clip_id: { type: "string", description: "Clip to duplicate." } },
+			required: ["clip_id"],
+		},
+	},
+	{
+		name: "cut_silence",
+		description:
+			"Analyse a clip's audio and remove silent/dead gaps, tightening pacing. " +
+			"This is the single highest-value edit for talking-head footage — use it when the user says 'cut silences', 'tighten this', or 'remove pauses'.",
+		input_schema: {
+			type: "object",
+			properties: { clip_id: { type: "string", description: "Clip to de-silence. Defaults to the first main-track clip." } },
+			required: [],
+		},
+	},
+	{
+		name: "set_clip_speed",
+		description: "Change a clip's playback speed (0.25–4.0). Use 2.0 to speed through a slow section, 0.5 for slow-motion emphasis.",
+		input_schema: {
+			type: "object",
+			properties: {
+				clip_id: { type: "string" },
+				rate: { type: "number", description: "Speed multiplier, e.g. 0.5, 1, 2." },
+				maintain_pitch: { type: "boolean", description: "Keep audio pitch natural. Default true." },
+			},
+			required: ["clip_id", "rate"],
+		},
+	},
+	{
+		name: "set_clip_volume",
+		description: "Set a clip's volume in decibels. Use negative values to duck music under narration (-12 to -18 is typical).",
+		input_schema: {
+			type: "object",
+			properties: {
+				clip_id: { type: "string" },
+				volume_db: { type: "number", description: "Volume in dB. 0 = unchanged, -60 = silent." },
+			},
+			required: ["clip_id", "volume_db"],
+		},
+	},
+	{
+		name: "reverse_clip",
+		description: "Toggle reverse playback on a clip.",
+		input_schema: {
+			type: "object",
+			properties: { clip_id: { type: "string" } },
+			required: ["clip_id"],
+		},
+	},
+
+	// ── Captions ─────────────────────────────────────────────────────────────
+	{
+		name: "generate_captions",
+		description:
+			"Transcribe the video on-device and add word-timed captions to the timeline. " +
+			"Call when the user asks for captions, subtitles, or to 'caption this'. Runs entirely offline on the phone.",
+		input_schema: {
+			type: "object",
+			properties: {
+				language: { type: "string", description: "BCP-47 code like 'en' or 'es'. Omit for auto-detect." },
+			},
+			required: [],
+		},
+	},
+	{
+		name: "style_captions",
+		description: "Restyle every caption at once — toggle the karaoke word-highlight and the outline/border.",
+		input_schema: {
+			type: "object",
+			properties: {
+				highlight: { type: "boolean", description: "Karaoke-style active-word highlight." },
+				border: { type: "boolean", description: "Outline/stroke for legibility over busy footage." },
+			},
+			required: [],
+		},
+	},
+
+	// ── Text & motion graphics ───────────────────────────────────────────────
+	{
+		name: "add_text",
+		description: "Add a text overlay (hook, title, lower third) at the playhead.",
+		input_schema: {
+			type: "object",
+			properties: { content: { type: "string", description: "The text to display. Keep hooks under ~6 words." } },
+			required: ["content"],
+		},
+	},
+	{
+		name: "apply_motion_template",
+		description:
+			"Place an animated HTML motion-graphic overlay on the timeline — titles, stat callouts, kinetic typography, cards. " +
+			"Call list_motion_templates first to get a valid template_id.",
+		input_schema: {
+			type: "object",
+			properties: {
+				template_id: { type: "string", description: "Id from list_motion_templates." },
+				start_seconds: { type: "number", description: "Start time. Defaults to the playhead." },
+				duration_seconds: { type: "number", description: "Length on the timeline. Defaults to the template's own default." },
+				values: {
+					type: "object",
+					description: "Control overrides keyed by control id, e.g. {\"title\":\"10x Faster\",\"value\":\"92%\"}.",
+				},
+			},
+			required: ["template_id"],
+		},
+	},
+	{
+		name: "remove_motion_template",
+		description: "Remove a placed motion-graphic overlay by its clip id.",
+		input_schema: {
+			type: "object",
+			properties: { clip_id: { type: "string" } },
+			required: ["clip_id"],
+		},
+	},
+
+	// ── Look ─────────────────────────────────────────────────────────────────
+	{
+		name: "apply_color_adjust",
+		description:
+			"Apply a colour adjustment to a clip — brightness, contrast, saturation, temperature. " +
+			"Values are -1..1 where 0 is unchanged. Use small moves (0.1–0.25); heavy grades look amateur.",
+		input_schema: {
+			type: "object",
+			properties: {
+				clip_id: { type: "string" },
+				brightness: { type: "number" },
+				contrast: { type: "number" },
+				saturation: { type: "number" },
+				temperature: { type: "number" },
+			},
+			required: ["clip_id"],
+		},
+	},
+	{
+		name: "set_aspect_ratio",
+		description:
+			"Set the project canvas aspect ratio. Use 9:16 for TikTok/Reels/Shorts, 16:9 for YouTube, 1:1 for feed posts.",
+		input_schema: {
+			type: "object",
+			properties: {
+				preset: {
+					type: "string",
+					enum: ["9:16", "16:9", "1:1", "4:5"],
+					description: "Target aspect ratio.",
+				},
+			},
+			required: ["preset"],
+		},
+	},
+];
+
+/** Names the executor can actually run — used to reject hallucinated tools. */
+export const AI_TOOL_NAMES = new Set(AI_TOOLS.map((t) => t.name));

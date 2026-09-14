@@ -15,6 +15,7 @@ import {
   Captions,
   Film,
   Zap,
+  Wrench,
 } from "lucide-react";
 
 interface AIDirectorPanelProps {
@@ -121,6 +122,25 @@ export function AIDirectorPanel({
       {/* Message Chat Feed */}
       <div className="flex-1 overflow-y-auto py-3 flex flex-col gap-3 min-h-[200px] max-h-[320px]">
         {messages.map((msg) => (
+          msg.toolName ? (
+            // Executed edit — a compact strip, visually distinct from chat so
+            // the user can see exactly which edits landed on their timeline.
+            <div
+              key={msg.id}
+              className={`self-stretch flex items-start gap-2 px-2.5 py-2 rounded-lg border text-[11px] leading-relaxed ${
+                msg.content.startsWith("Error") || msg.content.startsWith("Could not") || msg.content.startsWith("Declined")
+                  ? "bg-amber-500/10 border-amber-500/30 text-amber-200"
+                  : "bg-[#00f2fe]/10 border-[#00f2fe]/30 text-[#b7f5fb]"
+              }`}
+            >
+              <Wrench size={12} className="mt-0.5 shrink-0 opacity-80" />
+              <div className="min-w-0">
+                <span className="font-mono font-semibold opacity-90">{msg.toolName}</span>
+                <span className="opacity-60"> · </span>
+                <span>{msg.content}</span>
+              </div>
+            </div>
+          ) : (
           <div
             key={msg.id}
             className={`flex flex-col max-w-[85%] ${
@@ -175,6 +195,7 @@ export function AIDirectorPanel({
               </div>
             )}
           </div>
+          )
         ))}
         {isStreaming && (
           <div className="self-start flex items-center gap-1.5 p-2.5 rounded-xl bg-[#202020] text-xs text-[#888]">

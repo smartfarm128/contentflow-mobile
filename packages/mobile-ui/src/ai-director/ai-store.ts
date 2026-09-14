@@ -5,6 +5,9 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
+  /** Set when this message reports an executed tool call, so the UI can render
+   *  it as a compact edit strip instead of a chat bubble. */
+  toolName?: string;
   proposal?: {
     type: "plan" | "script" | "storyboard" | "assembly";
     title: string;
