@@ -2,13 +2,17 @@ import React, { useEffect, useState } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import type { EditorCore } from "@kneecap/editor-core";
-import type { SpeechVoice } from "@kneecap/native-bridge";
 import {
 	generateVoiceover,
-	listVoiceoverVoices,
+	listAllVoiceOptions,
 	supportsVoiceover,
+	type VoiceOption,
 } from "../../editor/voiceover-actions";
-import { Mic, Loader2 } from "lucide-react";
+import {
+	getElevenLabsKey,
+	setElevenLabsKey,
+} from "../../editor/elevenlabs-voice";
+import { Mic, Loader2, Sparkles, Key } from "lucide-react";
 
 interface VoiceoverPanelProps {
 	editor: EditorCore;
@@ -27,7 +31,9 @@ interface VoiceoverPanelProps {
  */
 export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: VoiceoverPanelProps) {
 	const [text, setText] = useState("");
-	const [voices, setVoices] = useState<SpeechVoice[]>([]);
+	const [voices, setVoices] = useState<VoiceOption[]>([]);
+	const [elevenKey, setElevenKeyState] = useState(getElevenLabsKey());
+	const [showKey, setShowKey] = useState(false);
 	const [voiceId, setVoiceId] = useState<string>("");
 	const [rate, setRate] = useState(1);
 	const [busy, setBusy] = useState(false);
@@ -42,7 +48,7 @@ export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: Voiceove
 			if (!alive) return;
 			setSupported(ok);
 			if (!ok) return;
-			const list = await listVoiceoverVoices();
+			const list = await listAllVoiceOptions();
 			if (!alive) return;
 			setVoices(list);
 			if (list.length > 0) setVoiceId(list[0].id);
@@ -59,12 +65,14 @@ export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: Voiceove
 		setError(null);
 		setDone(null);
 		try {
+			const selected = voices.find((v) => v.id === voiceId);
 			const res = await generateVoiceover({
 				editor,
 				text: trimmed,
 				voiceId: voiceId || undefined,
 				rate,
 				startSeconds: currentTimeSeconds,
+				engine: selected?.engine ?? "device",
 			});
 			setDone(`Added ${res.durationSec.toFixed(1)}s of narration to an audio track.`);
 			setText("");
@@ -79,7 +87,45 @@ export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: Voiceove
 		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} onConfirm={onClose} />}>
 			<div className="flex items-center justify-between pb-2 border-b border-[#222]">
 				<p className="cc-sheet-title">Voiceover</p>
+				<button
+					type="button"
+					onClick={() => setShowKey(!showKey)}
+					className="text-xs text-[#888] hover:text-white flex items-center gap-1"
+				>
+					<Key size={12} />
+					<span>{elevenKey ? "Premium on" : "Premium voices"}</span>
+				</button>
 			</div>
+
+			{showKey && (
+				<div className="py-2.5 px-3 my-2 rounded-xl bg-[#1c1c1c] border border-[#2d2d2d] flex flex-col gap-2">
+					<p className="text-[11px] text-[#888] leading-relaxed">
+						Device voices are free and offline, but sound synthetic. For broadcast-quality
+						narration (or your own cloned voice), add an ElevenLabs key — renders then spend
+						credits on <span className="text-[#00f2fe]">your</span> ElevenLabs account.
+					</p>
+					<div className="flex items-center gap-2">
+						<input
+							type="password"
+							value={elevenKey}
+							onChange={(e) => setElevenKeyState(e.target.value)}
+							placeholder="ElevenLabs API key"
+							className="flex-1 h-8 px-2.5 rounded-lg bg-[#111] border border-[#333] text-xs text-white outline-none focus:border-[#00f2fe]"
+						/>
+						<button
+							type="button"
+							onClick={async () => {
+								setElevenLabsKey(elevenKey);
+								setShowKey(false);
+								setVoices(await listAllVoiceOptions());
+							}}
+							className="px-3 h-8 rounded-lg bg-[#00f2fe] text-black text-xs font-semibold"
+						>
+							Save
+						</button>
+					</div>
+				</div>
+			)}
 
 			{supported === false ? (
 				<p className="cc-panel-note">
@@ -104,12 +150,28 @@ export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: Voiceove
 								onChange={(e) => setVoiceId(e.target.value)}
 								className="w-full h-9 px-2 rounded-lg bg-[#141414] border border-[#2d2d2d] text-xs text-white outline-none focus:border-[#00f2fe]"
 							>
-								{voices.map((v) => (
-									<option key={v.id} value={v.id}>
-										{v.name} · {v.language}
-										{v.quality !== "standard" ? ` · ${v.quality}` : ""}
-									</option>
-								))}
+								{voices.some((v) => v.engine === "elevenlabs") && (
+									<optgroup label="Premium (ElevenLabs — uses your credits)">
+										{voices
+											.filter((v) => v.engine === "elevenlabs")
+											.map((v) => (
+												<option key={v.id} value={v.id}>
+													{v.name}
+												</option>
+											))}
+									</optgroup>
+								)}
+								<optgroup label="On device (free, offline)">
+									{voices
+										.filter((v) => v.engine === "device")
+										.map((v) => (
+											<option key={v.id} value={v.id}>
+												{v.name}
+												{v.language ? ` · ${v.language}` : ""}
+												{v.quality !== "standard" ? ` · ${v.quality}` : ""}
+											</option>
+										))}
+								</optgroup>
 							</select>
 						</div>
 					)}
@@ -141,10 +203,20 @@ export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: Voiceove
 						{busy ? "Rendering…" : "Generate voiceover"}
 					</button>
 
-					<p className="text-[10px] text-[#666] leading-relaxed">
-						Runs on your device — offline, free, no account. The result lands on an audio
-						track at the playhead and behaves like any other clip.
-					</p>
+					{voices.find((v) => v.id === voiceId)?.engine === "elevenlabs" ? (
+						<p className="text-[10px] text-[#666] leading-relaxed flex items-start gap-1">
+							<Sparkles size={11} className="mt-0.5 shrink-0 text-[#00f2fe]" />
+							<span>
+								Premium voice — rendered by ElevenLabs over the network and billed to your
+								account. The clip lands on an audio track like any other.
+							</span>
+						</p>
+					) : (
+						<p className="text-[10px] text-[#666] leading-relaxed">
+							Runs on your device — offline, free, no account. The result lands on an audio
+							track at the playhead and behaves like any other clip.
+						</p>
+					)}
 				</div>
 			)}
 		</PanelSheet>

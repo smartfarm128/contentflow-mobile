@@ -30,7 +30,7 @@ import {
 	setCaptionHighlightEnabled,
 	setCaptionBorderEnabled,
 } from "../editor/captions-actions";
-import { generateVoiceover, listVoiceoverVoices } from "../editor/voiceover-actions";
+import { generateVoiceover, listAllVoiceOptions } from "../editor/voiceover-actions";
 import { searchPexelsVideos, importPexelsMediaToTimeline } from "../editor/stock-media-actions";
 import { captureFrameAt, captureFramesAcross, type CapturedFrame } from "./frame-capture";
 import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
@@ -359,20 +359,33 @@ export async function executeTool(
 
 		// ── Voiceover ────────────────────────────────────────────────────────
 		case "list_voices": {
-			const voices = await listVoiceoverVoices();
+			const voices = await listAllVoiceOptions();
 			if (voices.length === 0) {
 				return { text: "No on-device voices available here. Voiceover needs the iOS or Android app — the browser cannot render speech to a timeline clip." };
 			}
-			return { text: `${voices.length} voice(s) installed:\n${voices
-				.slice(0, 30)
-				.map((v) => `- ${v.id} | ${v.name} | ${v.language} | ${v.quality}`)
-				.join("\n")}` };
+			return {
+				text:
+					`${voices.length} voice(s) available:\n` +
+					voices
+						.slice(0, 30)
+						.map(
+							(v) =>
+								`- ${v.id} | ${v.name}${v.language ? ` | ${v.language}` : ""} | ${v.quality}` +
+								(v.engine === "elevenlabs" ? " | PREMIUM (costs the user credits)" : " | free, on-device"),
+						)
+						.join("\n") +
+					"\nPrefer a free on-device voice unless the user asked for premium quality or their own cloned voice.",
+			};
 		}
 
 		case "add_voiceover": {
 			const text = String(input.text ?? "").trim();
 			if (!text) return { text: "Error: text is required for add_voiceover." };
 			try {
+				// Route to whichever engine owns the requested voice, so the model
+				// never has to know which backend a voice id belongs to.
+				const all = await listAllVoiceOptions();
+				const chosen = all.find((v) => v.id === input.voice_id);
 				const res = await generateVoiceover({
 					editor,
 					text,
@@ -380,8 +393,13 @@ export async function executeTool(
 					languageHint: input.language_hint,
 					rate: input.rate !== undefined ? Number(input.rate) : 1,
 					startSeconds: input.start_seconds !== undefined ? Number(input.start_seconds) : undefined,
+					engine: chosen?.engine ?? "device",
 				});
-				return { text: `Rendered voiceover on-device (${res.durationSec.toFixed(1)}s) and placed it on an audio track.` };
+				return {
+					text: `Rendered voiceover (${res.durationSec.toFixed(1)}s, ${
+						chosen?.engine === "elevenlabs" ? "premium ElevenLabs voice" : "on-device voice"
+					}) and placed it on an audio track.`,
+				};
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				return { text: `Could not render voiceover: ${msg}` };

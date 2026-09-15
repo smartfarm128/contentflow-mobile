@@ -108,6 +108,11 @@ const ALLOWED_HOSTS = new Set([
 	// search. Contacted ONLY when the user searches Pexels with their API key.
 	"api.pexels.com",
 	"images.pexels.com",
+	// ContentFlow premium voiceover: OPTIONAL ElevenLabs TTS. The free path is
+	// on-device (AVSpeechSynthesizer / TextToSpeech) and never leaves the phone;
+	// this host is contacted only when the user has supplied their own key AND
+	// picked a premium voice. No key => never called.
+	"api.elevenlabs.io",
 ]);
 
 // Known-bad hosts that must NEVER reappear, checked explicitly (independent
