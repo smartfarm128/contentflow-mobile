@@ -9,7 +9,7 @@
  */
 import { useAIDirectorStore } from "./ai-store";
 import { AI_TOOLS } from "./ai-tools";
-import { executeTool, type ToolContext } from "./ai-executors";
+import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
 import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { getAllHtmlTemplates } from "../motion-templates/registry";
 import { splitAtPlayhead, cutDeadSpace, insertTextElement } from "../editor/actions";
@@ -95,19 +95,41 @@ export async function askAIDirector(prompt: string, context: ExecutionContext): 
 
 			const results = [];
 			for (const call of toolUses) {
-				let resultText: string;
+				let outcome: ToolOutcome;
 				try {
-					resultText = await executeTool(call.name, call.input ?? {}, context);
+					outcome = await executeTool(call.name, call.input ?? {}, context);
 				} catch (err) {
-					resultText = `Error running ${call.name}: ${err instanceof Error ? err.message : String(err)}`;
+					outcome = {
+						text: `Error running ${call.name}: ${err instanceof Error ? err.message : String(err)}`,
+					};
 				}
 				// Show each executed edit as a tool strip in the chat.
 				store.addMessage({
 					role: "assistant",
-					content: resultText,
+					content: outcome.text,
 					toolName: call.name,
 				});
-				results.push({ type: "tool_result", tool_use_id: call.id, content: resultText });
+
+				// Vision tools hand back captured frames — send them as real image
+				// blocks so the model SEES the composited result rather than being
+				// told about it in prose.
+				const content: any[] = [{ type: "text", text: outcome.text }];
+				for (const frame of outcome.frames ?? []) {
+					content.push({
+						type: "image",
+						source: {
+							type: "base64",
+							media_type: frame.mediaType,
+							data: frame.base64,
+						},
+					});
+				}
+
+				results.push({
+					type: "tool_result",
+					tool_use_id: call.id,
+					content: outcome.frames?.length ? content : outcome.text,
+				});
 			}
 
 			history.push({ role: "user", content: results as any });

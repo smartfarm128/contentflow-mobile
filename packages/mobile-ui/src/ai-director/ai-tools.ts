@@ -51,6 +51,36 @@ export const AI_TOOLS: ClaudeTool[] = [
 		},
 	},
 
+	// ── Vision (see the actual frames) ───────────────────────────────────────
+	{
+		name: "render_frame",
+		description:
+			"LOOK at the finished composited frame at a given time — video, captions, text and motion graphics all together, exactly as it will export. " +
+			"Use this whenever a judgement depends on what is actually on screen: is a caption covering a face? is the text readable over this background? is the framing right? " +
+			"Never guess from clip metadata when you can look.",
+		input_schema: {
+			type: "object",
+			properties: {
+				at_seconds: { type: "number", description: "Time to look at. Defaults to the playhead." },
+			},
+			required: [],
+		},
+	},
+	{
+		name: "review_composition",
+		description:
+			"SELF-REVIEW: renders several composited frames spread across the whole video and returns them so you can judge your own work. " +
+			"Call this after any meaningful round of edits, BEFORE telling the user you are done. Look critically for: text covering faces, captions clipped off-frame or unreadable, " +
+			"black/dead frames, overlapping graphics, motion graphics that outstay their welcome. Then FIX what is wrong instead of reporting success.",
+		input_schema: {
+			type: "object",
+			properties: {
+				count: { type: "number", description: "How many frames to sample (1-8). Default 4." },
+			},
+			required: [],
+		},
+	},
+
 	// ── Timeline surgery ─────────────────────────────────────────────────────
 	{
 		name: "seek",
@@ -130,7 +160,9 @@ export const AI_TOOLS: ClaudeTool[] = [
 	},
 	{
 		name: "reverse_clip",
-		description: "Toggle reverse playback on a clip.",
+		description:
+			"Toggle reverse playback on a clip so it plays backwards. " +
+			"Use for a rewind beat, a loop-back effect, or when the user asks to reverse or play a shot backwards.",
 		input_schema: {
 			type: "object",
 			properties: { clip_id: { type: "string" } },
