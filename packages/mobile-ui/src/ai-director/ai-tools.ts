@@ -51,6 +51,43 @@ export const AI_TOOLS: ClaudeTool[] = [
 		},
 	},
 
+	// ── Planning (approval-gated) ────────────────────────────────────────────
+	{
+		name: "propose_plan",
+		description:
+			"Propose a complete multi-step edit for the user to review BEFORE anything runs. " +
+			"Use this whenever the request covers the whole video — 'edit this for me', 'make this good', 'plan the edit', 'turn this into a Reel' — " +
+			"rather than firing a long chain of edits unannounced. Read the timeline (and the transcript, if captions exist) FIRST so the plan fits the real content. " +
+			"Each step names a real tool with real arguments and a short plain-language reason the user can judge. " +
+			"Call this ONCE and then stop — the user approves, edits or discards it, and approved steps execute automatically. Do not call other tools in the same turn.",
+		input_schema: {
+			type: "object",
+			properties: {
+				summary: {
+					type: "string",
+					description: "One or two sentences on the creative direction you are taking and why.",
+				},
+				steps: {
+					type: "array",
+					description: "Ordered steps. Keep it tight — every step must earn its place.",
+					items: {
+						type: "object",
+						properties: {
+							tool: { type: "string", description: "Name of the tool to run, e.g. cut_silence." },
+							input: { type: "object", description: "Arguments for that tool." },
+							reason: {
+								type: "string",
+								description: "Why this makes the video better, in the user's language — not jargon.",
+							},
+						},
+						required: ["tool", "reason"],
+					},
+				},
+			},
+			required: ["summary", "steps"],
+		},
+	},
+
 	// ── Vision (see the actual frames) ───────────────────────────────────────
 	{
 		name: "render_frame",

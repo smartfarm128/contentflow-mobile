@@ -35,6 +35,7 @@ import { searchPexelsVideos, importPexelsMediaToTimeline } from "../editor/stock
 import { captureFrameAt, captureFramesAcross, type CapturedFrame } from "./frame-capture";
 import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { AI_TOOL_NAMES } from "./ai-tools";
+import { useAIDirectorStore, type PlanStep } from "./ai-store";
 
 export interface ToolContext {
 	editor: EditorCore;
@@ -169,6 +170,44 @@ export async function executeTool(
 			return { text: `${matched.length} of ${all.length} templates:\n${matched
 				.map((t) => `- ${t.id} | ${t.name} | ${t.defaultDuration}s | ${t.description.slice(0, 70)}`)
 				.join("\n")}` };
+		}
+
+		// ── Planning ─────────────────────────────────────────────────────────
+		case "propose_plan": {
+			const rawSteps: any[] = Array.isArray(input.steps) ? input.steps : [];
+			// Drop steps naming tools that don't exist here rather than letting
+			// the user approve a plan whose steps would silently no-op.
+			const steps: PlanStep[] = rawSteps
+				.filter((s) => s && typeof s.tool === "string" && AI_TOOL_NAMES.has(s.tool))
+				.map((s, i) => ({
+					id: `step-${i}-${s.tool}`,
+					tool: s.tool,
+					input: s.input ?? {},
+					reason: String(s.reason ?? ""),
+					enabled: true,
+					status: "pending" as const,
+				}));
+
+			if (steps.length === 0) {
+				return {
+					text: "That plan had no runnable steps (every step named a tool this app doesn't have). Re-plan using only the tools listed in your toolset.",
+				};
+			}
+
+			const dropped = rawSteps.length - steps.length;
+			useAIDirectorStore.getState().setPendingPlan({
+				id: `plan-${Date.now()}`,
+				summary: String(input.summary ?? "Proposed edit"),
+				steps,
+				status: "awaiting-approval",
+			});
+
+			return {
+				text:
+					`Proposed a ${steps.length}-step plan for the user to review.` +
+					(dropped > 0 ? ` (${dropped} step(s) dropped — unknown tools.)` : "") +
+					" STOP here: do not run any further tools. The user will approve, edit or discard it, and approved steps execute on their own.",
+			};
 		}
 
 		// ── Vision ───────────────────────────────────────────────────────────

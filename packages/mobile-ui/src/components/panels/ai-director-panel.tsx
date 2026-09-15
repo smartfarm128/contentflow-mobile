@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { useAIDirectorStore } from "../../ai-director/ai-store";
-import { askAIDirector } from "../../ai-director/ai-agent";
+import { askAIDirector, executeApprovedPlan } from "../../ai-director/ai-agent";
+import { PlanCard } from "./plan-card";
 import type { EditorCore } from "@kneecap/editor-core";
 import {
   Sparkles,

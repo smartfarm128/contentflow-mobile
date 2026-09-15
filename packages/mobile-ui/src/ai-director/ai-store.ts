@@ -17,6 +17,31 @@ export interface ChatMessage {
   };
 }
 
+/**
+ * One reviewable step of a proposed edit plan. `tool`/`input` are exactly what
+ * would be handed to `executeTool`, so an approved plan runs through the same
+ * path a direct tool call does — no second execution engine to drift.
+ */
+export interface PlanStep {
+  id: string;
+  tool: string;
+  input: Record<string, any>;
+  /** Plain-language justification shown to the user. */
+  reason: string;
+  /** Unchecked steps are skipped at execution. */
+  enabled: boolean;
+  status: "pending" | "running" | "done" | "failed" | "skipped";
+  /** Executor result, once run. */
+  result?: string;
+}
+
+export interface PendingPlan {
+  id: string;
+  summary: string;
+  steps: PlanStep[];
+  status: "awaiting-approval" | "running" | "complete" | "discarded";
+}
+
 export interface IdeaToVideoStage {
   stage: "script" | "storyboard" | "generate" | "assemble";
   script?: string;
@@ -30,12 +55,19 @@ interface AIDirectorState {
   messages: ChatMessage[];
   isStreaming: boolean;
   activeStage: IdeaToVideoStage | null;
+  /** The plan awaiting the user's review, if any. Only ever one at a time —
+   *  a second proposal replaces the first rather than stacking approvals. */
+  pendingPlan: PendingPlan | null;
   setApiKey: (key: string) => void;
   setSelectedModel: (model: string) => void;
   addMessage: (message: Omit<ChatMessage, "id" | "timestamp">) => void;
   updateMessageProposal: (id: string, status: "approved" | "rejected") => void;
   setIsStreaming: (streaming: boolean) => void;
   setActiveStage: (stage: IdeaToVideoStage | null) => void;
+  setPendingPlan: (plan: PendingPlan | null) => void;
+  togglePlanStep: (stepId: string) => void;
+  updatePlanStep: (stepId: string, patch: Partial<PlanStep>) => void;
+  setPlanStatus: (status: PendingPlan["status"]) => void;
   clearMessages: () => void;
 }
 
@@ -53,6 +85,7 @@ export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
   ],
   isStreaming: false,
   activeStage: null,
+  pendingPlan: null,
 
   setApiKey: (key: string) => {
     if (typeof localStorage !== "undefined") {
@@ -85,6 +118,39 @@ export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
   setIsStreaming: (isStreaming) => set({ isStreaming }),
 
   setActiveStage: (activeStage) => set({ activeStage }),
+
+  setPendingPlan: (pendingPlan) => set({ pendingPlan }),
+
+  togglePlanStep: (stepId) =>
+    set((s) =>
+      s.pendingPlan
+        ? {
+            pendingPlan: {
+              ...s.pendingPlan,
+              steps: s.pendingPlan.steps.map((step) =>
+                step.id === stepId ? { ...step, enabled: !step.enabled } : step,
+              ),
+            },
+          }
+        : s,
+    ),
+
+  updatePlanStep: (stepId, patch) =>
+    set((s) =>
+      s.pendingPlan
+        ? {
+            pendingPlan: {
+              ...s.pendingPlan,
+              steps: s.pendingPlan.steps.map((step) =>
+                step.id === stepId ? { ...step, ...patch } : step,
+              ),
+            },
+          }
+        : s,
+    ),
+
+  setPlanStatus: (status) =>
+    set((s) => (s.pendingPlan ? { pendingPlan: { ...s.pendingPlan, status } } : s)),
 
   clearMessages: () => set({ messages: [] }),
 }));

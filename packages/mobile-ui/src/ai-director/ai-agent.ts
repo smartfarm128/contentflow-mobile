@@ -14,6 +14,7 @@ import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { getAllHtmlTemplates } from "../motion-templates/registry";
 import { splitAtPlayhead, cutDeadSpace, insertTextElement } from "../editor/actions";
 import { CREATIVE_DIRECTION } from "./creative-direction";
+import { runApprovedPlan, buildPlanReviewPrompt } from "./plan-runner";
 import type { EditorCore } from "@kneecap/editor-core";
 
 export type ExecutionContext = ToolContext;
@@ -31,13 +32,11 @@ type ContentBlock =
 export async function askAIDirector(prompt: string, context: ExecutionContext): Promise<string> {
 	const store = useAIDirectorStore.getState();
 	store.addMessage({ role: "user", content: prompt });
-	store.setIsStreaming(true);
 
 	const apiKey = store.apiKey;
 	if (!apiKey) {
 		const reply = handleLocalCommand(prompt, context);
 		store.addMessage({ role: "assistant", content: reply });
-		store.setIsStreaming(false);
 		return reply;
 	}
 
@@ -48,6 +47,51 @@ export async function askAIDirector(prompt: string, context: ExecutionContext): 
 		.slice(-12)
 		.map((m) => ({ role: m.role as "user" | "assistant", content: m.content as any }));
 
+	return driveAgentLoop({ history, context });
+}
+
+/**
+ * Resumes the Director after the user approves a plan: runs the approved
+ * steps, then feeds the outcome back so the model reviews its own work.
+ * Separate entry point because approval happens on the user's timescale — the
+ * original turn has long since returned.
+ */
+export async function executeApprovedPlan(context: ExecutionContext): Promise<string> {
+	const store = useAIDirectorStore.getState();
+	const summary = await runApprovedPlan({ ctx: context });
+
+	for (const line of summary.lines) {
+		store.addMessage({ role: "assistant", content: line.replace(/^- /, ""), toolName: "plan" });
+	}
+
+	// No key: the steps still ran (they are local tool calls), there is just no
+	// model available to review them. Say so rather than implying a review.
+	if (!store.apiKey) {
+		const msg = `Applied ${summary.ran} step(s)${summary.failed ? `, ${summary.failed} failed` : ""}. Add an API key for the Director to review the result.`;
+		store.addMessage({ role: "assistant", content: msg });
+		return msg;
+	}
+
+	const history = useAIDirectorStore
+		.getState()
+		.messages.filter((m) => m.role === "user" || m.role === "assistant")
+		.slice(-12)
+		.map((m) => ({ role: m.role as "user" | "assistant", content: m.content as any }));
+	history.push({ role: "user", content: buildPlanReviewPrompt(summary) as any });
+
+	return driveAgentLoop({ history, context });
+}
+
+async function driveAgentLoop({
+	history,
+	context,
+}: {
+	history: Array<{ role: "user" | "assistant"; content: any }>;
+	context: ExecutionContext;
+}): Promise<string> {
+	const store = useAIDirectorStore.getState();
+	store.setIsStreaming(true);
+
 	let finalText = "";
 
 	try {
@@ -56,12 +100,12 @@ export async function askAIDirector(prompt: string, context: ExecutionContext): 
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"x-api-key": apiKey,
+					"x-api-key": useAIDirectorStore.getState().apiKey,
 					"anthropic-version": "2023-06-01",
 					"anthropic-dangerous-direct-browser-access": "true",
 				},
 				body: JSON.stringify({
-					model: store.selectedModel || "claude-sonnet-5",
+					model: useAIDirectorStore.getState().selectedModel || "claude-sonnet-5",
 					max_tokens: 2048,
 					system: AI_DIRECTOR_PROMPT,
 					tools: AI_TOOLS,
@@ -133,6 +177,13 @@ export async function askAIDirector(prompt: string, context: ExecutionContext): 
 			}
 
 			history.push({ role: "user", content: results as any });
+
+			// A proposed plan is an approval gate: the model must not keep
+			// editing behind it. Stop the loop and let the PlanCard take over.
+			if (toolUses.some((c) => c.name === "propose_plan")) {
+				store.setIsStreaming(false);
+				return finalText || "Proposed a plan for you to review.";
+			}
 		}
 
 		store.setIsStreaming(false);
