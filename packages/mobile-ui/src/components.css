@@ -922,6 +922,19 @@
 	pointer-events: none;
 	z-index: 5;
 }
+.cc-timeline__playhead-handle {
+	position: absolute;
+	top: 0;
+	left: 50%;
+	transform: translateX(-50%);
+	width: 14px;
+	height: 24px;
+	background: #ffffff;
+	border-radius: 0 0 4px 4px;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+	cursor: ew-resize;
+	pointer-events: auto;
+}
 
 .cc-timeline__snap-indicator {
 	position: absolute;
@@ -960,7 +973,8 @@
 	align-items: center;
 	gap: var(--cc-space-2);
 	padding-right: var(--cc-space-2);
-	pointer-events: none;
+	pointer-events: auto;
+	z-index: 3;
 }
 .cc-timeline__helper-chip {
 	display: flex;
@@ -973,6 +987,14 @@
 	line-height: 1.15;
 	text-align: center;
 	flex-shrink: 0;
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	pointer-events: auto;
+}
+.cc-timeline__helper-chip--active {
+	color: var(--cc-accent, #00cae0);
 }
 .cc-timeline__helper-chip--card {
 	position: relative;
@@ -1054,6 +1076,71 @@
 	font-size: 15px;
 	color: var(--cc-text-primary);
 }
+.cc-timeline__track-badge {
+	position: absolute;
+	left: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	font-size: 10px;
+	font-weight: 600;
+	padding: 2px 6px;
+	border-radius: 4px;
+	pointer-events: none;
+	z-index: 1;
+	opacity: 0.6;
+}
+.cc-timeline__track-badge--text {
+	background: rgba(217, 119, 6, 0.2);
+	color: #f59e0b;
+}
+.cc-timeline__track-badge--audio {
+	background: rgba(16, 185, 129, 0.2);
+	color: #10b981;
+}
+.cc-timeline__track-badge--caption {
+	background: rgba(238, 141, 61, 0.2);
+	color: #ee8d3d;
+}
+.cc-timeline__track-badge--overlay {
+	background: rgba(0, 202, 224, 0.2);
+	color: #00cae0;
+}
+
+.cc-timeline__clip-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 9px;
+	font-weight: 700;
+	padding: 1px 4px;
+	margin-right: 4px;
+	border-radius: 3px;
+	line-height: 1;
+}
+.cc-timeline__clip--text {
+	background: #2a2216;
+	border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.cc-timeline__clip--text .cc-timeline__clip-label {
+	color: #fbbf24;
+}
+.cc-timeline__clip--text .cc-timeline__clip-badge {
+	background: #d97706;
+	color: #000;
+}
+
+.cc-timeline__clip--audio {
+	background: #0f241a;
+	border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.cc-timeline__clip--audio .cc-timeline__clip-label {
+	color: #34d399;
+}
+.cc-timeline__clip--audio .cc-timeline__clip-badge {
+	background: #10b981;
+	color: #000;
+}
+
 .cc-timeline__clip--caption {
 	background: #ee8d3d;
 	color: #241303;

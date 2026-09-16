@@ -55,6 +55,7 @@ export function TimelineTrackRow({
 	onMoveEnd,
 	onLongPress,
 	onPanBy,
+	onDoubleTap,
 	reorder,
 	snapTargets,
 	snapThresholdSec,
@@ -96,6 +97,7 @@ export function TimelineTrackRow({
 		clientX: number;
 	}) => void;
 	onPanBy?: (params: { deltaPx: number }) => void;
+	onDoubleTap?: (params: { clipId: string; trackId: string; kind: string }) => void;
 	/** Non-null puts THIS row into hold-to-reorder tile rendering. */
 	reorder?: ReorderState | null;
 	snapTargets: readonly SnapTarget[];
@@ -150,6 +152,19 @@ export function TimelineTrackRow({
 
 	return (
 		<div className={`cc-timeline__track-row cc-timeline__track-row--${track.kind}`}>
+			{track.kind !== "main" && (
+				<div className={`cc-timeline__track-badge cc-timeline__track-badge--${track.kind}`} aria-hidden="true">
+					<span>
+						{track.kind === "text"
+							? "T Text"
+							: track.kind === "audio"
+								? "♪ Audio"
+								: track.kind === "caption"
+									? "CC Captions"
+									: "PIP"}
+					</span>
+				</div>
+			)}
 			{visibleClips.map((clip, offset) => {
 				const index = startIndex + offset;
 				const prevClip = track.clips[index - 1];
@@ -230,6 +245,7 @@ export function TimelineTrackRow({
 						onMoveEnd={onMoveEnd}
 						onLongPress={onLongPress}
 						onPanBy={onPanBy}
+						onDoubleTap={onDoubleTap}
 						minStartBoundSec={minStartBoundSec}
 						maxEndBoundSec={maxEndBoundSec}
 						snapTargets={snapTargets}

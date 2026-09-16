@@ -160,12 +160,15 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		trackId: string;
 		orderedClipIds: string[];
 	}) => void;
+	/** Fired when a clip is double-tapped on the timeline. */
+	onDoubleTapClip?: (params: { clipId: string; trackId: string; kind: string }) => void;
 }>(function TimelineView(
 	{
 		project,
 		onTimeChange,
 		onZoomChange,
 		onSelectClip,
+		onDoubleTapClip,
 		currentTimeLabel,
 		playbackTimeSec,
 		isPlaying,
@@ -427,7 +430,9 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 				const upper = next
 					? next.startSec - clip.durationSec
 					: Number.POSITIVE_INFINITY;
-				candidate = Math.min(Math.max(candidate, lower), Math.max(lower, upper));
+				if (lower <= upper) {
+					candidate = Math.min(Math.max(candidate, lower), upper);
+				}
 			}
 
 			const edges: number[] = [];
@@ -526,6 +531,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	reorderSessionRef.current = reorderSession;
 	const projectRef = useRef(project);
 	projectRef.current = project;
+	const contentDragRef = useRef<{ startX: number; lastX: number; isDrag: boolean } | null>(null);
 
 	const reorderInsertionIndex = useCallback(
 		(session: { trackId: string; dragXPx: number; baseXPx: number }): number => {
@@ -670,12 +676,61 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 						paddingRight: edgePaddingPx,
 						minHeight: totalContentHeightPx,
 					}}
-					onPointerDown={() => {
+					onPointerDown={(event) => {
+						if (event.target !== event.currentTarget) return;
 						setSelectedClipId(null);
 						onClearSelection?.();
+
+						const startX = event.clientX;
+						contentDragRef.current = { startX, lastX: startX, isDrag: false };
+						try {
+							event.currentTarget.setPointerCapture(event.pointerId);
+						} catch {}
+					}}
+					onPointerMove={(event) => {
+						const drag = contentDragRef.current;
+						if (!drag) return;
+						const deltaTotal = Math.abs(event.clientX - drag.startX);
+						if (deltaTotal > 4) {
+							drag.isDrag = true;
+							const deltaX = event.clientX - drag.lastX;
+							drag.lastX = event.clientX;
+							handlePanBy({ deltaPx: deltaX });
+						}
+					}}
+					onPointerUp={(event) => {
+						const drag = contentDragRef.current;
+						contentDragRef.current = null;
+						if (!drag) return;
+
+						if (!drag.isDrag) {
+							const clickX = contentXFromClient(event.clientX);
+							const timeSec = clampTime({
+								timeSec: pixelsToTime({ px: clickX, pixelsPerSecond }),
+								durationSec: project.durationSec,
+							});
+							setCurrentTimeSec(timeSec);
+							syncScrollToTime(timeSec);
+							onTimeChange?.({ timeSec });
+						}
+					}}
+					onPointerCancel={() => {
+						contentDragRef.current = null;
 					}}
 				>
-					<TimelineRuler durationSec={project.durationSec} pixelsPerSecond={pixelsPerSecond} />
+					<TimelineRuler
+						durationSec={project.durationSec}
+						pixelsPerSecond={pixelsPerSecond}
+						onSeek={({ timeSec }) => {
+							const clamped = clampTime({ timeSec, durationSec: project.durationSec });
+							setCurrentTimeSec(clamped);
+							syncScrollToTime(clamped);
+							onTimeChange?.({ timeSec: clamped });
+						}}
+						onScrubBy={({ deltaPx }) => {
+							handlePanBy({ deltaPx });
+						}}
+					/>
 					{leadingChips && (
 						<div
 							className="cc-timeline__leading-chips"
@@ -748,6 +803,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 								onReorderMainTrack && track.kind === "main" ? handleLongPress : undefined
 							}
 							onPanBy={handlePanBy}
+							onDoubleTap={onDoubleTapClip}
 							reorder={
 								reorderSession && reorderSession.trackId === track.id
 									? ({
@@ -799,7 +855,23 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 					)}
 				</div>
 			</div>
-			<TimelinePlayhead />
+			<TimelinePlayhead
+				onPointerDown={(event) => {
+					event.stopPropagation();
+					let lastX = event.clientX;
+					const onPointerMove = (e: PointerEvent) => {
+						const deltaPx = e.clientX - lastX;
+						lastX = e.clientX;
+						handlePanBy({ deltaPx });
+					};
+					const onPointerUp = () => {
+						window.removeEventListener("pointermove", onPointerMove);
+						window.removeEventListener("pointerup", onPointerUp);
+					};
+					window.addEventListener("pointermove", onPointerMove);
+					window.addEventListener("pointerup", onPointerUp);
+				}}
+			/>
 			{currentTimeLabel && <div className="cc-timeline__timecode">{currentTimeLabel}</div>}
 			{keyframeControl && <div className="cc-timeline__keyframe-control">{keyframeControl}</div>}
 

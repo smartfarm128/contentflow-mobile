@@ -67,7 +67,7 @@ import {
 	setClipKeyframeEasing,
 	type DeadSpaceCutOutcome,
 } from "../../editor/actions";
-import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
+import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type, Volume2, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
@@ -363,6 +363,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	}
 
 	const project = editor.project.getActive();
+	const isMainTrackMuted = editor.scenes.getActiveSceneOrNull()?.tracks.main.muted ?? false;
 	const background = project.settings.background;
 	const backgroundColor = background.type === "color" ? background.color : "#000000";
 	const visualElement: VisualElement | null =
@@ -504,21 +505,53 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						showAddAudio={!timelineProject.tracks.some((t) => t.kind === "audio")}
 						onAddAudio={() => setActiveSheet("audio")}
 						onQuickAddAudio={() => setActiveSheet("audio")}
-						onQuickAddText={() => setActiveSheet("text")}
+						onQuickAddText={() => {
+							const ref = insertTextElement({ editor, content: "New text" });
+							if (ref) selectElement({ editor, ref });
+							setActiveSheet("text");
+						}}
+						onDoubleTapClip={({ kind }) => {
+							if (kind === "text") {
+								setActiveSheet("text");
+							} else if (kind === "caption") {
+								setActiveSheet("captions");
+							}
+						}}
 						leadingChips={
 							<>
-								{/* CapCut's main-track helper chips (capture 2026-08-18).
-								    Mute-clip-audio and AI-clipper/Cover need per-clip audio
-								    state and features outside v1 — parity chrome, tracked in
-								    docs/STATUS.md, inert rather than fake-wired. */}
-								<span className="cc-timeline__helper-chip" aria-hidden="true">
-									<VolumeX size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>
-										Mute clip
-										<br />
-										audio
+								<button
+									type="button"
+									className={`cc-timeline__helper-chip${isMainTrackMuted ? " cc-timeline__helper-chip--active" : ""}`}
+									onClick={(e) => {
+										e.stopPropagation();
+										const mainTrackId = editor.scenes.getActiveSceneOrNull()?.tracks.main.id;
+										if (mainTrackId) {
+											editor.timeline.toggleTrackMute({ trackId: mainTrackId });
+										}
+									}}
+									aria-label={isMainTrackMuted ? "Unmute main track audio" : "Mute main track audio"}
+								>
+									{isMainTrackMuted ? (
+										<VolumeX size={18} strokeWidth={CC_ICON_STROKE} color="var(--cc-accent)" />
+									) : (
+										<Volume2 size={18} strokeWidth={CC_ICON_STROKE} />
+									)}
+									<span style={{ color: isMainTrackMuted ? "var(--cc-accent)" : undefined }}>
+										{isMainTrackMuted ? (
+											<>
+												Unmute
+												<br />
+												audio
+											</>
+										) : (
+											<>
+												Mute clip
+												<br />
+												audio
+											</>
+										)}
 									</span>
-								</span>
+								</button>
 								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
 									<span className="cc-timeline__helper-badge">New</span>
 									<WandSparkles size={18} strokeWidth={CC_ICON_STROKE} />

@@ -71,6 +71,7 @@ interface TimelineClipProps {
 	 *  scroll strip through this callback instead of native scrolling
 	 *  (deltaPx = finger movement; the view applies it to scrollLeft). */
 	onPanBy?: (params: { deltaPx: number }) => void;
+	onDoubleTap?: (params: { clipId: string; trackId: string; kind: string }) => void;
 }
 
 export function TimelineClip({
@@ -93,6 +94,7 @@ export function TimelineClip({
 	onMoveEnd,
 	onLongPress,
 	onPanBy,
+	onDoubleTap,
 }: TimelineClipProps) {
 	const [trimEdge, setTrimEdge] = useState<TrimEdge | null>(null);
 	const dragRef = useRef<{
@@ -144,9 +146,15 @@ export function TimelineClip({
 		}
 	}, []);
 
+	const lastTapRef = useRef<number>(0);
+
 	const handleClipPointerDown = useCallback(
 		(event: React.PointerEvent) => {
 			event.stopPropagation();
+			try {
+				event.currentTarget.setPointerCapture(event.pointerId);
+			} catch {}
+
 			if (onLongPress) {
 				cancelLongPress();
 				const pointerId = event.pointerId;
@@ -156,17 +164,13 @@ export function TimelineClip({
 					startClientX: clientX,
 					timer: setTimeout(() => {
 						pressRef.current = null;
-						// The hold wins over whatever else this touch armed —
-						// the view owns the pointer from here (see onLongPress).
 						moveRef.current = null;
 						panRef.current = null;
 						onLongPress({ clipId: clip.id, trackId: clip.trackId, pointerId, clientX });
 					}, LONG_PRESS_MS),
 				};
 			}
-			if (isSelected && onMovePreview) {
-				// Second touch on a selected clip arms a move-drag; it only
-				// becomes one after the movement threshold (see pointermove).
+			if (onMovePreview) {
 				moveRef.current = {
 					pointerId: event.pointerId,
 					startClientX: event.clientX,
@@ -174,9 +178,6 @@ export function TimelineClip({
 					moving: false,
 				};
 			} else if (onPanBy) {
-				// Unselected clip: a horizontal drag pans the strip manually
-				// (clips have touch-action:none, so there's no native scroll
-				// to fall back on — see onPanBy's doc comment).
 				panRef.current = {
 					pointerId: event.pointerId,
 					startClientX: event.clientX,
@@ -190,7 +191,6 @@ export function TimelineClip({
 			clip.id,
 			clip.trackId,
 			onSelect,
-			isSelected,
 			onMovePreview,
 			onPanBy,
 			onLongPress,
@@ -269,9 +269,15 @@ export function TimelineClip({
 			moveRef.current = null;
 			if (move.moving) {
 				onMoveEnd?.({ clipId: clip.id, trackId: clip.trackId });
+			} else {
+				const now = Date.now();
+				if (now - lastTapRef.current < 350) {
+					onDoubleTap?.({ clipId: clip.id, trackId: clip.trackId, kind: clip.kind });
+				}
+				lastTapRef.current = now;
 			}
 		},
-		[clip.id, clip.trackId, onMoveEnd, cancelLongPress],
+		[clip.id, clip.trackId, clip.kind, onMoveEnd, onDoubleTap, cancelLongPress],
 	);
 
 	const beginTrim = useCallback(
@@ -418,7 +424,12 @@ export function TimelineClip({
 					heightPx={TRACK_HEIGHT_PX - 4}
 				/>
 			)}
-			<span className="cc-timeline__clip-label">{clip.name}</span>
+			<span className="cc-timeline__clip-label">
+				{clip.kind === "text" && <span className="cc-timeline__clip-badge">T</span>}
+				{clip.kind === "caption" && <span className="cc-timeline__clip-badge">CC</span>}
+				{clip.kind === "audio" && <span className="cc-timeline__clip-badge">♪</span>}
+				{clip.name}
+			</span>
 			{isSelected && trimEdge && (
 				<span
 					className="cc-timeline__trim-readout"
