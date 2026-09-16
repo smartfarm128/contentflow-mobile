@@ -37,7 +37,6 @@
  * gate (scripts/invariants.sh + the no-restricted-imports ESLint rule) exists
  * to prevent. Platform info comes from `bridge.platform` instead.
  */
-import "./style.css";
 import { getNativeBridge } from "@kneecap/native-bridge";
 import type {
 	DeviceCapabilities,
