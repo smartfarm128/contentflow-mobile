@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
+import { SegmentedControl } from "../segmented-control";
 import type { EditorCore } from "@kneecap/editor-core";
 import {
 	searchPexelsVideos,
@@ -10,7 +11,8 @@ import {
 	setPexelsApiKey,
 	type PexelsMediaItem,
 } from "../../editor/stock-media-actions";
-import { Search, Film, Image as ImageIcon, Plus, Loader2, Key } from "lucide-react";
+import { Film, Image as ImageIcon, Plus, Loader2, Key } from "lucide-react";
+import { CC_ICON_STROKE } from "../../tokens";
 
 interface StockMediaPanelProps {
 	editor: EditorCore;
@@ -19,7 +21,7 @@ interface StockMediaPanelProps {
 }
 
 export function StockMediaPanel({ editor, currentTimeSeconds, onClose }: StockMediaPanelProps) {
-	const [tab, setTab] = useState<"video" | "image">("video");
+	const [tab, setTab] = useState<string>("video");
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<PexelsMediaItem[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -71,132 +73,161 @@ export function StockMediaPanel({ editor, currentTimeSeconds, onClose }: StockMe
 		}
 	};
 
+	const mediaTabs = [
+		{ id: "video", label: "Stock Videos" },
+		{ id: "image", label: "Stock Photos" },
+	];
+
 	return (
-		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} onConfirm={onClose} />}>
-			<div className="flex items-center justify-between pb-2 border-b border-[#222]">
-				<p className="cc-sheet-title">Stock B-Roll</p>
-				<button
-					type="button"
-					onClick={() => setShowKeyInput(!showKeyInput)}
-					className="text-xs text-[#888] hover:text-white flex items-center gap-1"
-				>
-					<Key size={12} />
-					<span>{apiKey ? "API Key Set" : "Add Key"}</span>
-				</button>
-			</div>
-
-			{showKeyInput && (
-				<div className="py-2.5 px-3 mb-2 rounded-xl bg-[#1c1c1c] border border-[#2d2d2d] flex flex-col gap-2">
-					<p className="text-[11px] text-[#888]">
-						Pexels API Key (Free at <span className="text-[#00f2fe]">pexels.com/api</span>):
-					</p>
-					<div className="flex items-center gap-2">
-						<input
-							type="password"
-							value={apiKey}
-							onChange={(e) => setKey(e.target.value)}
-							placeholder="Pexels API Key"
-							className="flex-1 h-8 px-2.5 rounded-lg bg-[#111] border border-[#333] text-xs text-white outline-none focus:border-[#00f2fe]"
-						/>
-						<button
-							type="button"
-							onClick={() => {
-								setPexelsApiKey(apiKey.trim());
-								setShowKeyInput(false);
+		<PanelSheet
+			onScrimClick={onClose}
+			header={
+				<SheetHeader
+					searchPlaceholder={`Search ${tab === "video" ? "videos (coffee, city, tech…)" : "photos…"}`}
+					onSearchChange={(v) => setQuery(v)}
+					onConfirm={() => handleSearch()}
+					onClose={onClose}
+				/>
+			}
+		>
+			<div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+				{/* Top bar: Type Switcher + API Key Toggle */}
+				<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+					<div style={{ flex: 1 }}>
+						<SegmentedControl
+							segments={mediaTabs}
+							activeId={tab}
+							onSelect={(id) => {
+								setTab(id);
+								setResults([]);
 							}}
-							className="px-3 h-8 rounded-lg bg-[#00f2fe] text-black text-xs font-semibold"
-						>
-							Save
-						</button>
+							aria-label="Stock media type"
+						/>
 					</div>
-				</div>
-			)}
-
-			{/* Tab Switcher: Video vs Photos */}
-			<div className="flex items-center py-2 gap-2 border-b border-[#222]">
-				<button
-					type="button"
-					onClick={() => {
-						setTab("video");
-						setResults([]);
-					}}
-					className={`flex-1 py-1.5 text-xs font-semibold rounded-full flex items-center justify-center gap-1.5 transition-colors ${
-						tab === "video" ? "bg-[#333] text-white" : "text-[#888] hover:text-[#bbb]"
-					}`}
-				>
-					<Film size={12} />
-					Videos
-				</button>
-				<button
-					type="button"
-					onClick={() => {
-						setTab("image");
-						setResults([]);
-					}}
-					className={`flex-1 py-1.5 text-xs font-semibold rounded-full flex items-center justify-center gap-1.5 transition-colors ${
-						tab === "image" ? "bg-[#333] text-white" : "text-[#888] hover:text-[#bbb]"
-					}`}
-				>
-					<ImageIcon size={12} />
-					Photos
-				</button>
-			</div>
-
-			{/* Search input */}
-			<form
-				onSubmit={(e) => {
-					e.preventDefault();
-					handleSearch();
-				}}
-				className="flex items-center gap-2 py-2"
-			>
-				<div className="flex-1 relative">
-					<input
-						type="text"
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						placeholder={`Search ${tab === "video" ? "stock footage" : "photos"} (e.g. coffee, technology, sky)…`}
-						className="w-full h-9 pl-9 pr-3 rounded-xl bg-[#1c1c1c] border border-[#2c2c2c] text-xs text-white outline-none focus:border-[#00f2fe]"
-					/>
-					<Search size={14} className="absolute left-3 top-2.5 text-[#666]" />
-				</div>
-				<button
-					type="submit"
-					disabled={loading || !query.trim()}
-					className="px-3.5 h-9 rounded-xl bg-[#00f2fe] text-black text-xs font-semibold disabled:opacity-40"
-				>
-					{loading ? <Loader2 size={14} className="animate-spin" /> : "Search"}
-				</button>
-			</form>
-
-			{error && <p className="text-[11px] text-amber-300 py-1">{error}</p>}
-
-			{/* Results Grid */}
-			<div className="flex-1 overflow-y-auto py-2 grid grid-cols-2 gap-2.5 max-h-[360px]">
-				{results.map((item) => (
-					<div
-						key={item.id}
-						className="group relative rounded-xl overflow-hidden bg-[#1a1a1a] border border-[#2a2a2a] flex flex-col"
+					<button
+						type="button"
+						onClick={() => setShowKeyInput(!showKeyInput)}
+						style={{
+							background: showKeyInput ? "var(--cc-accent)" : "rgba(255, 255, 255, 0.08)",
+							color: showKeyInput ? "var(--cc-accent-contrast)" : "var(--cc-text-primary)",
+							border: "none",
+							borderRadius: "8px",
+							padding: "6px 10px",
+							fontSize: "11px",
+							fontWeight: 600,
+							display: "flex",
+							alignItems: "center",
+							gap: "4px",
+							cursor: "pointer",
+							flexShrink: 0,
+						}}
 					>
-						<img src={item.thumbnailUrl} alt={item.title} className="w-full h-24 object-cover" />
-						<div className="p-2 flex flex-col gap-1 bg-[#141414] flex-1 justify-between">
-							<span className="text-[10px] text-[#aaa] truncate">{item.title}</span>
+						<Key size={12} strokeWidth={CC_ICON_STROKE} />
+						<span>{apiKey ? "Pexels Set" : "API Key"}</span>
+					</button>
+				</div>
+
+				{showKeyInput && (
+					<div className="cc-settings-drawer" style={{ borderRadius: "12px", margin: "4px 0" }}>
+						<p className="cc-panel-note" style={{ padding: 0 }}>
+							Free stock search via Pexels API. Get your free key at{" "}
+							<span style={{ color: "var(--cc-accent)" }}>pexels.com/api</span>.
+						</p>
+						<div style={{ display: "flex", gap: "8px" }}>
+							<input
+								type="password"
+								value={apiKey}
+								onChange={(e) => setKey(e.target.value)}
+								placeholder="Pexels API Key"
+								className="cc-text-content-input"
+								style={{ flex: 1, height: "36px" }}
+							/>
 							<button
 								type="button"
-								onClick={() => handleAdd(item)}
-								disabled={addingId === item.id}
-								className="w-full py-1.5 rounded-lg bg-[#242424] hover:bg-[#00f2fe] hover:text-black text-white text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors"
+								onClick={() => {
+									setPexelsApiKey(apiKey.trim());
+									setShowKeyInput(false);
+									if (query.trim()) handleSearch();
+								}}
+								className="cc-panel-cta"
+								style={{ margin: 0, width: "auto", minHeight: "36px", padding: "0 16px" }}
 							>
-								{addingId === item.id ? (
-									<Loader2 size={12} className="animate-spin" />
-								) : (
-									<Plus size={12} />
-								)}
-								<span>{addingId === item.id ? "Adding…" : "Add B-Roll"}</span>
+								Save
 							</button>
 						</div>
 					</div>
-				))}
+				)}
+
+				{error && <p style={{ fontSize: "12px", color: "#ffaa00", margin: "4px 0" }}>{error}</p>}
+				{loading && (
+					<div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", padding: "20px 0" }}>
+						<Loader2 size={16} className="animate-spin text-[#00cae0]" />
+						<span style={{ fontSize: "12px", color: "var(--cc-text-secondary)" }}>Searching Pexels…</span>
+					</div>
+				)}
+
+				{/* 2-Column CapCut Thumbnail Grid */}
+				<div className="cc-motion-grid" style={{ paddingTop: 0, maxHeight: "360px", overflowY: "auto" }}>
+					{results.map((item) => (
+						<div
+							key={item.id}
+							className="cc-motion-card"
+							style={{ minHeight: "auto", padding: 0, overflow: "hidden" }}
+						>
+							<div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9" }}>
+								<img
+									src={item.thumbnailUrl}
+									alt={item.title}
+									style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+								/>
+								{item.durationSec && (
+									<span
+										style={{
+											position: "absolute",
+											bottom: "6px",
+											right: "6px",
+											fontSize: "10px",
+											fontWeight: 600,
+											background: "rgba(0,0,0,0.75)",
+											color: "#fff",
+											padding: "2px 5px",
+											borderRadius: "4px",
+											fontVariantNumeric: "tabular-nums",
+										}}
+									>
+										{item.durationSec}s
+									</span>
+								)}
+							</div>
+							<div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: "6px" }}>
+								<span
+									style={{
+										fontSize: "11px",
+										color: "var(--cc-text-secondary)",
+										overflow: "hidden",
+										textOverflow: "ellipsis",
+										whiteSpace: "nowrap",
+									}}
+								>
+									{item.author ? `by ${item.author}` : item.title}
+								</span>
+								<button
+									type="button"
+									onClick={() => handleAdd(item)}
+									disabled={addingId === item.id}
+									className="cc-motion-card__btn"
+								>
+									{addingId === item.id ? (
+										<Loader2 size={12} className="animate-spin" />
+									) : (
+										<Plus size={12} strokeWidth={CC_ICON_STROKE} />
+									)}
+									<span>{addingId === item.id ? "Adding…" : "Add B-Roll"}</span>
+								</button>
+							</div>
+						</div>
+					))}
+				</div>
 			</div>
 		</PanelSheet>
 	);

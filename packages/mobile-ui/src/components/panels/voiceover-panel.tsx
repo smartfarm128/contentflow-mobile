@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
+import { ParamRow } from "../editor/param-row";
 import type { EditorCore } from "@kneecap/editor-core";
 import {
 	generateVoiceover,
@@ -12,7 +13,8 @@ import {
 	getElevenLabsKey,
 	setElevenLabsKey,
 } from "../../editor/elevenlabs-voice";
-import { Mic, Loader2, Sparkles, Key } from "lucide-react";
+import { Mic, Loader2, Sparkles, Key, Check } from "lucide-react";
+import { CC_ICON_STROKE } from "../../tokens";
 
 interface VoiceoverPanelProps {
 	editor: EditorCore;
@@ -20,15 +22,6 @@ interface VoiceoverPanelProps {
 	onClose: () => void;
 }
 
-/**
- * On-device voiceover. Renders narration with the OS speech synthesizer and
- * drops it on an audio track as a normal clip.
- *
- * Availability is probed up front rather than discovered on failure: in the
- * browser preview there is no way to render speech to a file, and a creator
- * tapping "Generate" only to get an error after typing a paragraph is a worse
- * experience than the control being clearly unavailable with the reason shown.
- */
 export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: VoiceoverPanelProps) {
 	const [text, setText] = useState("");
 	const [voices, setVoices] = useState<VoiceOption[]>([]);
@@ -84,141 +77,160 @@ export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: Voiceove
 	};
 
 	return (
-		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} onConfirm={onClose} />}>
-			<div className="flex items-center justify-between pb-2 border-b border-[#222]">
-				<p className="cc-sheet-title">Voiceover</p>
-				<button
-					type="button"
-					onClick={() => setShowKey(!showKey)}
-					className="text-xs text-[#888] hover:text-white flex items-center gap-1"
-				>
-					<Key size={12} />
-					<span>{elevenKey ? "Premium on" : "Premium voices"}</span>
-				</button>
-			</div>
-
-			{showKey && (
-				<div className="py-2.5 px-3 my-2 rounded-xl bg-[#1c1c1c] border border-[#2d2d2d] flex flex-col gap-2">
-					<p className="text-[11px] text-[#888] leading-relaxed">
-						Device voices are free and offline, but sound synthetic. For broadcast-quality
-						narration (or your own cloned voice), add an ElevenLabs key — renders then spend
-						credits on <span className="text-[#00f2fe]">your</span> ElevenLabs account.
-					</p>
-					<div className="flex items-center gap-2">
-						<input
-							type="password"
-							value={elevenKey}
-							onChange={(e) => setElevenKeyState(e.target.value)}
-							placeholder="ElevenLabs API key"
-							className="flex-1 h-8 px-2.5 rounded-lg bg-[#111] border border-[#333] text-xs text-white outline-none focus:border-[#00f2fe]"
-						/>
-						<button
-							type="button"
-							onClick={async () => {
-								setElevenLabsKey(elevenKey);
-								setShowKey(false);
-								setVoices(await listAllVoiceOptions());
-							}}
-							className="px-3 h-8 rounded-lg bg-[#00f2fe] text-black text-xs font-semibold"
-						>
-							Save
-						</button>
-					</div>
+		<PanelSheet
+			onScrimClick={onClose}
+			header={
+				<SheetHeader
+					title="Voiceover"
+					onClose={onClose}
+				/>
+			}
+		>
+			<div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+				{/* Key entry banner toggle */}
+				<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+					<span className="cc-form-label" style={{ margin: 0 }}>Narration Engine</span>
+					<button
+						type="button"
+						onClick={() => setShowKey(!showKey)}
+						style={{
+							background: showKey ? "var(--cc-accent)" : "rgba(255,255,255,0.08)",
+							color: showKey ? "var(--cc-accent-contrast)" : "var(--cc-text-primary)",
+							border: "none",
+							borderRadius: "8px",
+							padding: "4px 8px",
+							fontSize: "11px",
+							fontWeight: 600,
+							display: "flex",
+							alignItems: "center",
+							gap: "4px",
+							cursor: "pointer",
+						}}
+					>
+						<Key size={11} strokeWidth={CC_ICON_STROKE} />
+						<span>{elevenKey ? "Premium Active" : "ElevenLabs Key"}</span>
+					</button>
 				</div>
-			)}
 
-			{supported === false ? (
-				<p className="cc-panel-note">
-					Voiceover needs the iOS or Android app. The browser can play speech but can&apos;t
-					render it to a file for the timeline.
-				</p>
-			) : (
-				<div className="flex flex-col gap-3 py-3">
-					<textarea
-						value={text}
-						onChange={(e) => setText(e.target.value)}
-						rows={4}
-						placeholder="Type what you want narrated…"
-						className="w-full p-3 rounded-xl bg-[#1c1c1c] border border-[#2d2d2d] text-xs text-white placeholder-[#555] outline-none focus:border-[#00f2fe] resize-none"
-					/>
-
-					{voices.length > 0 && (
-						<div className="flex flex-col gap-1">
-							<label className="text-[11px] font-medium text-[#888]">Voice</label>
-							<select
-								value={voiceId}
-								onChange={(e) => setVoiceId(e.target.value)}
-								className="w-full h-9 px-2 rounded-lg bg-[#141414] border border-[#2d2d2d] text-xs text-white outline-none focus:border-[#00f2fe]"
+				{showKey && (
+					<div className="cc-settings-drawer" style={{ borderRadius: "12px" }}>
+						<p className="cc-panel-note" style={{ padding: 0 }}>
+							Device voices are free and offline. For cloned or lifelike AI voices, paste an ElevenLabs API key.
+						</p>
+						<div style={{ display: "flex", gap: "8px" }}>
+							<input
+								type="password"
+								value={elevenKey}
+								onChange={(e) => setElevenKeyState(e.target.value)}
+								placeholder="ElevenLabs API key"
+								className="cc-text-content-input"
+								style={{ flex: 1, height: "36px" }}
+							/>
+							<button
+								type="button"
+								onClick={async () => {
+									setElevenLabsKey(elevenKey);
+									setShowKey(false);
+									setVoices(await listAllVoiceOptions());
+								}}
+								className="cc-panel-cta"
+								style={{ margin: 0, width: "auto", minHeight: "36px", padding: "0 16px" }}
 							>
-								{voices.some((v) => v.engine === "elevenlabs") && (
-									<optgroup label="Premium (ElevenLabs — uses your credits)">
+								Save
+							</button>
+						</div>
+					</div>
+				)}
+
+				{supported === false ? (
+					<p className="cc-panel-note">
+						Voiceover requires the iOS or Android app. In browser preview, speech cannot be rendered to an audio file for the timeline.
+					</p>
+				) : (
+					<>
+						{/* Script textarea */}
+						<div>
+							<label className="cc-form-label">Script</label>
+							<textarea
+								value={text}
+								onChange={(e) => setText(e.target.value)}
+								rows={3}
+								placeholder="Type what you want narrated…"
+								className="cc-text-content-input"
+							/>
+						</div>
+
+						{/* Voice selector */}
+						{voices.length > 0 && (
+							<div>
+								<label className="cc-form-label">Voice</label>
+								<select
+									value={voiceId}
+									onChange={(e) => setVoiceId(e.target.value)}
+									className="cc-select"
+								>
+									{voices.some((v) => v.engine === "elevenlabs") && (
+										<optgroup label="Premium (ElevenLabs)">
+											{voices
+												.filter((v) => v.engine === "elevenlabs")
+												.map((v) => (
+													<option key={v.id} value={v.id}>
+														{v.name} (Premium)
+													</option>
+												))}
+										</optgroup>
+									)}
+									<optgroup label="On device (Free, Offline)">
 										{voices
-											.filter((v) => v.engine === "elevenlabs")
+											.filter((v) => v.engine === "device")
 											.map((v) => (
 												<option key={v.id} value={v.id}>
-													{v.name}
+													{v.name} {v.language ? `· ${v.language}` : ""}
+													{v.quality !== "standard" ? ` · ${v.quality}` : ""}
 												</option>
 											))}
 									</optgroup>
-								)}
-								<optgroup label="On device (free, offline)">
-									{voices
-										.filter((v) => v.engine === "device")
-										.map((v) => (
-											<option key={v.id} value={v.id}>
-												{v.name}
-												{v.language ? ` · ${v.language}` : ""}
-												{v.quality !== "standard" ? ` · ${v.quality}` : ""}
-											</option>
-										))}
-								</optgroup>
-							</select>
-						</div>
-					)}
+								</select>
+							</div>
+						)}
 
-					<div className="flex items-center justify-between text-xs">
-						<span className="text-[#888]">Speed</span>
-						<input
-							type="range"
-							min="0.5"
-							max="2"
-							step="0.05"
-							value={rate}
-							onChange={(e) => setRate(parseFloat(e.target.value))}
-							className="w-40 accent-[#00f2fe]"
+						{/* Speed slider */}
+						<ParamRow
+							label="Speed"
+							value={Math.round(rate * 100)}
+							min={50}
+							max={200}
+							step={5}
+							formatValue={(v) => `${(v / 100).toFixed(2)}x`}
+							onChange={(v) => setRate(v / 100)}
 						/>
-						<span className="text-white w-10 text-right font-mono">{rate.toFixed(2)}x</span>
-					</div>
 
-					{error && <p className="text-[11px] text-amber-300">{error}</p>}
-					{done && <p className="text-[11px] text-[#00f2fe]">{done}</p>}
+						{error && <p style={{ fontSize: "12px", color: "#ff4b4b", margin: 0 }}>{error}</p>}
+						{done && <p style={{ fontSize: "12px", color: "var(--cc-accent)", margin: 0 }}>{done}</p>}
 
-					<button
-						type="button"
-						onClick={handleGenerate}
-						disabled={!text.trim() || busy || supported === null}
-						className="w-full h-10 rounded-xl bg-[#00f2fe] disabled:opacity-40 text-black text-sm font-semibold flex items-center justify-center gap-2"
-					>
-						{busy ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
-						{busy ? "Rendering…" : "Generate voiceover"}
-					</button>
-
-					{voices.find((v) => v.id === voiceId)?.engine === "elevenlabs" ? (
-						<p className="text-[10px] text-[#666] leading-relaxed flex items-start gap-1">
-							<Sparkles size={11} className="mt-0.5 shrink-0 text-[#00f2fe]" />
-							<span>
-								Premium voice — rendered by ElevenLabs over the network and billed to your
-								account. The clip lands on an audio track like any other.
-							</span>
-						</p>
-					) : (
-						<p className="text-[10px] text-[#666] leading-relaxed">
-							Runs on your device — offline, free, no account. The result lands on an audio
-							track at the playhead and behaves like any other clip.
-						</p>
-					)}
-				</div>
-			)}
+						{/* Generate button */}
+						<button
+							type="button"
+							onClick={handleGenerate}
+							disabled={!text.trim() || busy || supported === null}
+							className="cc-panel-cta"
+							style={{ marginTop: "6px" }}
+						>
+							{busy ? (
+								<>
+									<Loader2 size={16} className="animate-spin" />
+									<span>Rendering voiceover…</span>
+								</>
+							) : (
+								<>
+									<Mic size={16} strokeWidth={CC_ICON_STROKE} />
+									<span>Generate voiceover</span>
+								</>
+							)}
+						</button>
+					</>
+				)}
+			</div>
 		</PanelSheet>
 	);
 }

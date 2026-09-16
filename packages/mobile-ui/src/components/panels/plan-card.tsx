@@ -1,18 +1,13 @@
 import React from "react";
 import { useAIDirectorStore, type PlanStep } from "../../ai-director/ai-store";
 import { Check, X, Loader2, AlertTriangle, MinusCircle } from "lucide-react";
+import { CC_ICON_STROKE } from "../../tokens";
 
 /**
  * The approval gate for a proposed edit plan.
  *
- * This is the safety surface for someone who cannot edit: the plan states, in
- * plain language, everything the Director is about to do, and lets them drop
- * any step BEFORE it touches their video. Nothing here runs until "Apply" is
- * tapped.
- *
- * Each row shows the reason rather than the tool call, because the reason is
- * what a non-editor can actually judge. The tool name is kept as small
- * secondary text so an advanced user can still see the mechanism.
+ * CapCut Mobile Pixel-Fidelity: uses `.cc-plan-card` and `.cc-panel-cta`
+ * to look like a native CapCut smart assistant card.
  */
 export function PlanCard({ onApprove }: { onApprove: () => void }) {
 	const plan = useAIDirectorStore((s) => s.pendingPlan);
@@ -26,15 +21,15 @@ export function PlanCard({ onApprove }: { onApprove: () => void }) {
 	const isComplete = plan.status === "complete";
 
 	return (
-		<div className="my-2 rounded-xl bg-[#171717] border border-[#00f2fe]/40 overflow-hidden">
-			<div className="px-3 py-2.5 border-b border-[#242424]">
-				<p className="text-xs font-semibold text-[#00f2fe] mb-1">
+		<div className="cc-plan-card">
+			<div className="cc-plan-card__header">
+				<h4 className="cc-plan-card__title">
 					{isComplete ? "Plan applied" : "Proposed edit plan"}
-				</p>
-				<p className="text-[11px] text-[#bbb] leading-relaxed">{plan.summary}</p>
+				</h4>
+				<p className="cc-plan-card__summary">{plan.summary}</p>
 			</div>
 
-			<ul className="max-h-[220px] overflow-y-auto divide-y divide-[#222]">
+			<ul className="cc-plan-card__list">
 				{plan.steps.map((step, i) => (
 					<PlanRow
 						key={step.id}
@@ -47,22 +42,23 @@ export function PlanCard({ onApprove }: { onApprove: () => void }) {
 			</ul>
 
 			{!isComplete && (
-				<div className="flex items-center gap-2 p-2.5 border-t border-[#242424]">
+				<div className="cc-plan-card__footer">
 					<button
 						type="button"
 						onClick={onApprove}
 						disabled={isRunning || enabledCount === 0}
-						className="flex-1 py-2 rounded-lg bg-[#00f2fe] disabled:opacity-40 text-black text-xs font-semibold flex items-center justify-center gap-1.5"
+						className="cc-panel-cta"
+						style={{ margin: 0, flex: 1, minHeight: "38px", padding: "8px 14px", fontSize: "13px" }}
 					>
 						{isRunning ? (
 							<>
-								<Loader2 size={12} className="animate-spin" />
-								Applying…
+								<Loader2 size={13} className="animate-spin" />
+								<span>Applying…</span>
 							</>
 						) : (
 							<>
-								<Check size={12} />
-								Apply {enabledCount} step{enabledCount === 1 ? "" : "s"}
+								<Check size={14} strokeWidth={CC_ICON_STROKE} />
+								<span>Apply {enabledCount} step{enabledCount === 1 ? "" : "s"}</span>
 							</>
 						)}
 					</button>
@@ -70,9 +66,22 @@ export function PlanCard({ onApprove }: { onApprove: () => void }) {
 						type="button"
 						onClick={() => setPendingPlan(null)}
 						disabled={isRunning}
-						className="px-3 py-2 rounded-lg bg-[#242424] text-[#999] hover:text-white text-xs font-medium disabled:opacity-40"
+						aria-label="Discard plan"
+						style={{
+							width: "38px",
+							height: "38px",
+							borderRadius: "10px",
+							background: "rgba(255, 255, 255, 0.08)",
+							border: "none",
+							color: "var(--cc-text-secondary)",
+							cursor: "pointer",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+							flexShrink: 0,
+						}}
 					>
-						<X size={12} />
+						<X size={15} strokeWidth={CC_ICON_STROKE} />
 					</button>
 				</div>
 			)}
@@ -91,34 +100,41 @@ function PlanRow({
 	locked: boolean;
 	onToggle: () => void;
 }) {
-	const dimmed = !step.enabled || step.status === "skipped";
+	const disabled = !step.enabled || step.status === "skipped";
 
 	return (
-		<li className={`flex items-start gap-2.5 px-3 py-2 ${dimmed ? "opacity-45" : ""}`}>
+		<li className={`cc-plan-card__item ${disabled ? "cc-plan-card__item--disabled" : ""}`}>
 			<button
 				type="button"
 				onClick={onToggle}
 				disabled={locked}
 				aria-label={step.enabled ? "Skip this step" : "Include this step"}
-				className={`mt-0.5 w-4 h-4 rounded shrink-0 border flex items-center justify-center transition-colors ${
-					step.enabled
-						? "bg-[#00f2fe] border-[#00f2fe] text-black"
-						: "border-[#444] text-transparent"
-				}`}
+				className={`cc-plan-card__check ${step.enabled ? "cc-plan-card__check--active" : ""}`}
 			>
-				<Check size={10} />
+				{step.enabled && <Check size={11} strokeWidth={CC_ICON_STROKE} />}
 			</button>
 
-			<div className="min-w-0 flex-1">
-				<p className="text-[11px] text-white leading-relaxed">
-					<span className="text-[#666] mr-1">{index}.</span>
+			<div className="cc-plan-card__content">
+				<p className="cc-plan-card__reason">
+					<span style={{ color: "var(--cc-text-secondary)", marginRight: "4px" }}>
+						{index}.
+					</span>
 					{step.reason || step.tool}
 				</p>
-				<p className="text-[10px] text-[#666] font-mono mt-0.5">{step.tool}</p>
+				<p className="cc-plan-card__tool">{step.tool}</p>
 				{step.status === "failed" && step.result && (
-					<p className="text-[10px] text-amber-300 mt-1 flex items-start gap-1">
-						<AlertTriangle size={10} className="mt-0.5 shrink-0" />
-						{step.result}
+					<p
+						style={{
+							fontSize: "10px",
+							color: "#ffaa00",
+							marginTop: "2px",
+							display: "flex",
+							alignItems: "center",
+							gap: "4px",
+						}}
+					>
+						<AlertTriangle size={10} />
+						<span>{step.result}</span>
 					</p>
 				)}
 			</div>
@@ -129,9 +145,9 @@ function PlanRow({
 }
 
 function StatusPip({ status }: { status: PlanStep["status"] }) {
-	if (status === "running") return <Loader2 size={12} className="mt-0.5 animate-spin text-[#00f2fe]" />;
-	if (status === "done") return <Check size={12} className="mt-0.5 text-[#00f2fe]" />;
-	if (status === "failed") return <AlertTriangle size={12} className="mt-0.5 text-amber-400" />;
-	if (status === "skipped") return <MinusCircle size={12} className="mt-0.5 text-[#555]" />;
+	if (status === "running") return <Loader2 size={13} className="animate-spin text-[#00cae0]" />;
+	if (status === "done") return <Check size={13} color="var(--cc-accent)" strokeWidth={CC_ICON_STROKE} />;
+	if (status === "failed") return <AlertTriangle size={13} color="#ffaa00" />;
+	if (status === "skipped") return <MinusCircle size={13} color="var(--cc-text-disabled)" />;
 	return null;
 }

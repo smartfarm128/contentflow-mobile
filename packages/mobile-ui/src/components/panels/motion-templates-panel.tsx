@@ -1,10 +1,13 @@
 import React, { useState, useMemo } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
+import { SegmentedControl } from "../segmented-control";
+import { ParamRow, ToggleRow } from "../editor/param-row";
 import { getAllHtmlTemplates, getHtmlTemplate } from "../../motion-templates/registry";
 import { useHtmlTemplateStore } from "../../motion-templates/html-template-store";
 import type { HtmlTemplate, HtmlTemplateClip } from "../../motion-templates/types";
-import { Plus, Trash2, Sliders } from "lucide-react";
+import { Plus, Trash2, LayoutTemplate, Sliders } from "lucide-react";
+import { CC_ICON_STROKE } from "../../tokens";
 
 interface MotionTemplatesPanelProps {
   currentTimeSeconds: number;
@@ -21,7 +24,7 @@ export function MotionTemplatesPanel({
 }: MotionTemplatesPanelProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [tab, setTab] = useState<"library" | "edit">("library");
+  const [tab, setTab] = useState<string>("library");
 
   const clips = useHtmlTemplateStore((s) => s.clips);
   const addClip = useHtmlTemplateStore((s) => s.addClip);
@@ -81,112 +84,101 @@ export function MotionTemplatesPanel({
     ? getHtmlTemplate(selectedClip.templateId)
     : null;
 
-  return (
-    <PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} onConfirm={onClose} />}>
-      <div className="flex items-center justify-between pb-2 border-b border-[#222]">
-        <p className="cc-sheet-title">
-          {selectedClip ? "Edit Motion Graphic" : "Motion Graphics"}
-        </p>
-      </div>
+  const segmentTabs = [
+    { id: "library", label: `Templates (${allTemplates.length})` },
+    ...(selectedClip ? [{ id: "edit", label: "Edit Selected" }] : []),
+  ];
 
-      {/* Segmented Tab: Library vs Current Active Clip */}
-      <div className="flex items-center py-2 border-b border-[#222] gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("library")}
-          className={`flex-1 py-1.5 text-xs font-semibold rounded-full transition-colors ${
-            tab === "library"
-              ? "bg-[#333] text-white"
-              : "text-[#888] hover:text-[#bbb]"
-          }`}
-        >
-          Templates ({allTemplates.length})
-        </button>
-        {selectedClip && (
-          <button
-            type="button"
-            onClick={() => setTab("edit")}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-full transition-colors flex items-center justify-center gap-1.5 ${
-              tab === "edit"
-                ? "bg-[#00f2fe]/20 text-[#00f2fe]"
-                : "text-[#888] hover:text-[#bbb]"
-            }`}
-          >
-            <Sliders size={12} />
-            Edit Selected
-          </button>
-        )}
-      </div>
+  return (
+    <PanelSheet
+      onScrimClick={onClose}
+      header={
+        <SheetHeader
+          searchPlaceholder="Search animations, titles, stats, callouts…"
+          onSearchChange={setSearchQuery}
+          onClose={onClose}
+        />
+      }
+    >
+      {/* CapCut Pill Segmented Switcher */}
+      {selectedClip && (
+        <div style={{ marginBottom: "12px" }}>
+          <SegmentedControl
+            segments={segmentTabs}
+            activeId={tab}
+            onSelect={setTab}
+            aria-label="Template tabs"
+          />
+        </div>
+      )}
 
       {tab === "library" ? (
-        <div className="flex flex-col flex-1 min-h-0">
-          {/* Search bar */}
-          <div className="py-2">
-            <input
-              type="text"
-              placeholder="Search animations, titles, stats, callouts…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-8 px-3 rounded-lg bg-[#1a1a1a] text-xs text-white placeholder-[#666] outline-none border border-[#2a2a2a] focus:border-[#00f2fe]"
-            />
+        <>
+          {/* Horizontal CapCut Chip Row for Categories */}
+          <div className="cc-chiprow" style={{ paddingBottom: "8px" }}>
+            {categories.slice(0, 14).map((cat) => {
+              const active = selectedCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`cc-chip ${active ? "cc-chip--active" : ""}`}
+                  style={{ textTransform: "capitalize", fontSize: "12px" }}
+                >
+                  {cat}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Categories Pill Row */}
-          <div className="flex items-center gap-1.5 py-1.5 overflow-x-auto no-scrollbar shrink-0">
-            {categories.slice(0, 12).map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1 text-[11px] font-medium rounded-full capitalize shrink-0 transition-colors ${
-                  selectedCategory === cat
-                    ? "bg-[#00f2fe] text-black font-semibold"
-                    : "bg-[#1f1f1f] text-[#aaa] hover:text-white"
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {/* Template Grid */}
-          <div className="flex-1 overflow-y-auto py-3 grid grid-cols-2 gap-2.5 max-h-[360px]">
+          {/* Clean 2-column CapCut mobile Card Grid */}
+          <div className="cc-motion-grid">
             {filteredTemplates.map((tmpl: HtmlTemplate) => (
               <div
                 key={tmpl.id}
                 onClick={() => handleApplyTemplate(tmpl)}
-                className="group relative flex flex-col p-3 rounded-xl bg-[#181818] border border-[#282828] hover:border-[#00f2fe] transition-all cursor-pointer select-none"
+                className="cc-motion-card"
               >
-                <div className="flex items-start justify-between gap-1 mb-1.5">
-                  <span className="text-xs font-semibold text-white line-clamp-1">
-                    {tmpl.name}
-                  </span>
-                  <span className="text-[10px] text-[#00f2fe] font-mono px-1.5 py-0.5 rounded bg-[#00f2fe]/10 shrink-0">
+                <div className="cc-motion-card__head">
+                  <h4 className="cc-motion-card__title">{tmpl.name}</h4>
+                  <span className="cc-motion-card__duration">
                     {tmpl.defaultDuration}s
                   </span>
                 </div>
-                <p className="text-[11px] text-[#888] line-clamp-2 leading-relaxed mb-3">
-                  {tmpl.description}
-                </p>
+                <p className="cc-motion-card__desc">{tmpl.description}</p>
                 <button
                   type="button"
-                  className="mt-auto w-full py-1 rounded-lg bg-[#252525] group-hover:bg-[#00f2fe] group-hover:text-black text-white text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors"
+                  className="cc-motion-card__btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleApplyTemplate(tmpl);
+                  }}
                 >
-                  <Plus size={12} />
-                  Add to Video
+                  <Plus size={13} strokeWidth={CC_ICON_STROKE} />
+                  <span>Add to Video</span>
                 </button>
               </div>
             ))}
           </div>
-        </div>
+        </>
       ) : selectedClip && selectedTemplate ? (
-        <div className="py-3 flex flex-col gap-4 max-h-[420px] overflow-y-auto">
-          <div className="flex items-center justify-between pb-2 border-b border-[#222]">
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {/* Header row with Title and Delete */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingBottom: "10px",
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
             <div>
-              <h4 className="text-sm font-semibold text-white">
+              <p className="cc-sheet-title" style={{ margin: 0 }}>
                 {selectedTemplate.name}
-              </h4>
-              <p className="text-[11px] text-[#888]">
+              </p>
+              <p className="cc-panel-note" style={{ padding: 0 }}>
                 Start: {selectedClip.startTime.toFixed(2)}s · Duration:{" "}
                 {selectedClip.duration.toFixed(2)}s
               </p>
@@ -198,127 +190,141 @@ export function MotionTemplatesPanel({
                 onSelectClip(null);
                 setTab("library");
               }}
-              className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
-              title="Delete Graphic"
+              style={{
+                background: "rgba(255, 75, 75, 0.12)",
+                color: "#ff4b4b",
+                border: "none",
+                borderRadius: "8px",
+                padding: "6px 10px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                fontSize: "12px",
+                fontWeight: 600,
+              }}
             >
-              <Trash2 size={14} />
+              <Trash2 size={13} />
+              <span>Delete</span>
             </button>
           </div>
 
-          {/* Template Controls */}
-          <div className="flex flex-col gap-3">
+          {/* Template Controls (inputs, sliders, toggles) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {selectedTemplate.controls.map((ctrl) => {
               const val = selectedClip.values[ctrl.id] ?? ctrl.defaultValue;
-              return (
-                <div key={ctrl.id} className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-[#aaa]">
-                    {ctrl.label}
-                  </label>
-                  {ctrl.type === "text" && (
-                    <input
-                      type="text"
-                      value={String(val ?? "")}
-                      onChange={(e) =>
-                        updateValues(selectedClip.id, {
-                          [ctrl.id]: e.target.value,
-                        })
-                      }
-                      className="h-8 px-3 rounded-lg bg-[#1c1c1c] border border-[#2c2c2c] text-xs text-white outline-none focus:border-[#00f2fe]"
-                    />
-                  )}
-                  {ctrl.type === "number" && (
-                    <input
-                      type="number"
-                      min={ctrl.min ?? 0}
-                      max={ctrl.max ?? 100}
-                      step={ctrl.step ?? 1}
-                      value={Number(val ?? 0)}
-                      onChange={(e) =>
-                        updateValues(selectedClip.id, {
-                          [ctrl.id]: parseFloat(e.target.value) || 0,
-                        })
-                      }
-                      className="h-8 px-3 rounded-lg bg-[#1c1c1c] border border-[#2c2c2c] text-xs text-white outline-none focus:border-[#00f2fe]"
-                    />
-                  )}
-                  {ctrl.type === "color" && (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={String(val ?? "#ffffff")}
-                        onChange={(e) =>
-                          updateValues(selectedClip.id, {
-                            [ctrl.id]: e.target.value,
-                          })
-                        }
-                        className="w-8 h-8 rounded border-none cursor-pointer bg-transparent"
-                      />
-                      <span className="text-xs font-mono text-[#aaa]">
-                        {String(val)}
+
+              if (ctrl.type === "number") {
+                return (
+                  <ParamRow
+                    key={ctrl.id}
+                    label={ctrl.label}
+                    value={Number(val ?? 0)}
+                    min={ctrl.min ?? 0}
+                    max={ctrl.max ?? 100}
+                    step={ctrl.step ?? 1}
+                    onChange={(n) =>
+                      updateValues(selectedClip.id, { [ctrl.id]: n })
+                    }
+                  />
+                );
+              }
+
+              if (ctrl.type === "toggle") {
+                return (
+                  <ToggleRow
+                    key={ctrl.id}
+                    label={ctrl.label}
+                    active={Boolean(val)}
+                    onToggle={() =>
+                      updateValues(selectedClip.id, { [ctrl.id]: !val })
+                    }
+                  />
+                );
+              }
+
+              if (ctrl.type === "color") {
+                const colorStr = String(val ?? "#ffffff");
+                return (
+                  <div key={ctrl.id} className="cc-param-row">
+                    <div className="cc-param-row__head">
+                      <span className="cc-param-row__label">{ctrl.label}</span>
+                      <span className="cc-param-row__value font-mono">
+                        {colorStr}
                       </span>
                     </div>
-                  )}
-                  {ctrl.type === "toggle" && (
-                    <label className="flex items-center gap-2 cursor-pointer mt-1">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(val)}
-                        onChange={(e) =>
-                          updateValues(selectedClip.id, {
-                            [ctrl.id]: e.target.checked,
-                          })
-                        }
-                        className="rounded accent-[#00f2fe]"
-                      />
-                      <span className="text-xs text-white">
-                        {val ? "Enabled" : "Disabled"}
-                      </span>
-                    </label>
-                  )}
+                    <div className="cc-color-row">
+                      <div
+                        className="cc-color-preview"
+                        style={{ backgroundColor: colorStr }}
+                      >
+                        <input
+                          type="color"
+                          value={colorStr.startsWith("#") ? colorStr : "#ffffff"}
+                          onChange={(e) =>
+                            updateValues(selectedClip.id, {
+                              [ctrl.id]: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={ctrl.id} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <label className="cc-form-label">{ctrl.label}</label>
+                  <input
+                    type="text"
+                    value={String(val ?? "")}
+                    onChange={(e) =>
+                      updateValues(selectedClip.id, {
+                        [ctrl.id]: e.target.value,
+                      })
+                    }
+                    className="cc-text-content-input"
+                  />
                 </div>
               );
             })}
           </div>
 
-          {/* Transform Controls: scale & opacity */}
-          <div className="pt-3 border-t border-[#222] flex flex-col gap-2.5">
-            <h5 className="text-xs font-semibold text-[#aaa]">Position & Size</h5>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-[#888]">Scale</span>
-              <input
-                type="range"
-                min="0.2"
-                max="2.5"
-                step="0.05"
-                value={selectedClip.scale.x}
-                onChange={(e) => {
-                  const s = parseFloat(e.target.value);
-                  updateClip(selectedClip.id, { scale: { x: s, y: s } });
-                }}
-                className="w-40 accent-[#00f2fe]"
-              />
-              <span className="text-white w-8 text-right font-mono">
-                {selectedClip.scale.x.toFixed(2)}x
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-[#888]">Opacity</span>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={selectedClip.opacity}
-                onChange={(e) => {
-                  const o = parseFloat(e.target.value);
-                  updateClip(selectedClip.id, { opacity: o });
-                }}
-                className="w-40 accent-[#00f2fe]"
-              />
-              <span className="text-white w-8 text-right font-mono">
-                {Math.round(selectedClip.opacity * 100)}%
-              </span>
-            </div>
+          {/* Size and Opacity Controls */}
+          <div
+            style={{
+              paddingTop: "10px",
+              borderTop: "1px solid rgba(255,255,255,0.08)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+            }}
+          >
+            <p className="cc-form-label">Position & Scale</p>
+            <ParamRow
+              label="Scale"
+              value={Math.round(selectedClip.scale.x * 100)}
+              min={20}
+              max={250}
+              step={5}
+              formatValue={(v) => `${(v / 100).toFixed(2)}x`}
+              onChange={(v) => {
+                const s = v / 100;
+                updateClip(selectedClip.id, { scale: { x: s, y: s } });
+              }}
+            />
+            <ParamRow
+              label="Opacity"
+              value={Math.round(selectedClip.opacity * 100)}
+              min={0}
+              max={100}
+              step={1}
+              formatValue={(v) => `${v}%`}
+              onChange={(v) => {
+                updateClip(selectedClip.id, { opacity: v / 100 });
+              }}
+            />
           </div>
         </div>
       ) : null}

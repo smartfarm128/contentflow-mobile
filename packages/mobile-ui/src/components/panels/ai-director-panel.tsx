@@ -18,6 +18,7 @@ import {
   Zap,
   Wrench,
 } from "lucide-react";
+import { CC_ICON_STROKE } from "../../tokens";
 
 interface AIDirectorPanelProps {
   editor: EditorCore;
@@ -67,184 +68,262 @@ export function AIDirectorPanel({
   ];
 
   return (
-    <PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} onConfirm={onClose} />}>
-      <div className="flex items-center justify-between pb-2 border-b border-[#222]">
-        <p className="cc-sheet-title">AI Director</p>
-      </div>
-
-      {/* Header bar: Model & API Key button */}
-      <div className="flex items-center justify-between py-2 bg-[#161616] border-b border-[#242424]">
-        <div className="flex items-center gap-1.5 text-xs text-[#00f2fe] font-semibold">
-          <Sparkles size={13} />
-          <span>Director Mode · {selectedModel.replace("claude-", "")}</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowSettings(!showSettings)}
-          className="p-1.5 rounded-lg bg-[#222] text-[#888] hover:text-white transition-colors"
-          title="AI Settings"
-        >
-          <Sliders size={13} />
-        </button>
-      </div>
-
-      {/* Settings dropdown / drawer */}
-      {showSettings && (
-        <div className="p-3.5 bg-[#1a1a1a] border-b border-[#2a2a2a] flex flex-col gap-2.5">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[#888]">
-              Anthropic API Key
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-ant-api03-..."
-              className="w-full h-8 px-2.5 rounded-lg bg-[#111] border border-[#333] text-xs text-white outline-none focus:border-[#00f2fe]"
-            />
+    <PanelSheet
+      onScrimClick={onClose}
+      header={
+        <SheetHeader
+          title="AI Director"
+          onClose={onClose}
+        />
+      }
+    >
+      <div className="cc-director">
+        {/* Model Bar + Settings Button */}
+        <div className="cc-director__status-bar">
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <Sparkles size={14} strokeWidth={CC_ICON_STROKE} />
+            <span>Director Mode · {selectedModel.replace("claude-", "")}</span>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-[#888]">
-              Model
-            </label>
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="w-full h-8 px-2 rounded-lg bg-[#111] border border-[#333] text-xs text-white outline-none focus:border-[#00f2fe]"
-            >
-              <option value="claude-sonnet-5">Claude Sonnet 5 (Recommended)</option>
-              <option value="claude-opus-5">Claude Opus 5 (Deep Creative Direction)</option>
-              <option value="claude-fable-5">Claude Fable 5 (Highest Intelligence)</option>
-            </select>
-          </div>
-        </div>
-      )}
-
-      {/* Message Chat Feed */}
-      <div className="flex-1 overflow-y-auto py-3 flex flex-col gap-3 min-h-[200px] max-h-[320px]">
-        {messages.map((msg) => (
-          msg.toolName ? (
-            // Executed edit — a compact strip, visually distinct from chat so
-            // the user can see exactly which edits landed on their timeline.
-            <div
-              key={msg.id}
-              className={`self-stretch flex items-start gap-2 px-2.5 py-2 rounded-lg border text-[11px] leading-relaxed ${
-                msg.content.startsWith("Error") || msg.content.startsWith("Could not") || msg.content.startsWith("Declined")
-                  ? "bg-amber-500/10 border-amber-500/30 text-amber-200"
-                  : "bg-[#00f2fe]/10 border-[#00f2fe]/30 text-[#b7f5fb]"
-              }`}
-            >
-              <Wrench size={12} className="mt-0.5 shrink-0 opacity-80" />
-              <div className="min-w-0">
-                <span className="font-mono font-semibold opacity-90">{msg.toolName}</span>
-                <span className="opacity-60"> · </span>
-                <span>{msg.content}</span>
-              </div>
-            </div>
-          ) : (
-          <div
-            key={msg.id}
-            className={`flex flex-col max-w-[85%] ${
-              msg.role === "user"
-                ? "self-end items-end"
-                : "self-start items-start"
-            }`}
+          <button
+            type="button"
+            onClick={() => setShowSettings(!showSettings)}
+            style={{
+              background: showSettings ? "var(--cc-accent)" : "rgba(255, 255, 255, 0.08)",
+              color: showSettings ? "var(--cc-accent-contrast)" : "var(--cc-text-primary)",
+              border: "none",
+              borderRadius: "8px",
+              padding: "4px 8px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              fontSize: "11px",
+              fontWeight: 600,
+            }}
           >
-            <div
-              className={`p-3 rounded-2xl text-xs leading-relaxed ${
-                msg.role === "user"
-                  ? "bg-[#00f2fe] text-black font-medium rounded-br-none"
-                  : "bg-[#202020] text-white border border-[#2d2d2d] rounded-bl-none"
-              }`}
-            >
-              {msg.content}
-            </div>
+            <Sliders size={12} strokeWidth={CC_ICON_STROKE} />
+            <span>Settings</span>
+          </button>
+        </div>
 
-            {/* Proposal card if present */}
-            {msg.proposal && (
-              <div className="mt-2 p-3 w-full rounded-xl bg-[#191919] border border-[#00f2fe]/40 flex flex-col gap-2">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#00f2fe]">
-                  <Bot size={13} />
-                  <span>Proposed {msg.proposal.type.toUpperCase()}: {msg.proposal.title}</span>
+        {/* Settings Drawer */}
+        {showSettings && (
+          <div className="cc-settings-drawer">
+            <div>
+              <label className="cc-form-label">Anthropic API Key</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-ant-api03-..."
+                className="cc-text-content-input"
+              />
+            </div>
+            <div>
+              <label className="cc-form-label">Model</label>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="cc-select"
+              >
+                <option value="claude-sonnet-5">Claude Sonnet 5 (Recommended)</option>
+                <option value="claude-opus-5">Claude Opus 5 (Deep Creative Direction)</option>
+                <option value="claude-fable-5">Claude Fable 5 (Highest Intelligence)</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Message Chat Feed */}
+        <div className="cc-director__chat-feed">
+          {messages.map((msg) =>
+            msg.toolName ? (
+              <div
+                key={msg.id}
+                className={`cc-director__tool-strip ${
+                  msg.content.startsWith("Error") ||
+                  msg.content.startsWith("Could not") ||
+                  msg.content.startsWith("Declined")
+                    ? "cc-director__tool-strip--warn"
+                    : ""
+                }`}
+              >
+                <Wrench size={13} style={{ flexShrink: 0, marginTop: "2px" }} />
+                <div>
+                  <span style={{ fontFamily: "monospace", fontWeight: 700 }}>
+                    {msg.toolName}
+                  </span>
+                  <span style={{ opacity: 0.6 }}> · </span>
+                  <span>{msg.content}</span>
                 </div>
-                <p className="text-[11px] text-[#aaa] leading-relaxed">
-                  {msg.proposal.description}
-                </p>
-                {msg.proposal.status === "pending" ? (
-                  <div className="flex items-center gap-2 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => updateMessageProposal(msg.id, "approved")}
-                      className="flex-1 py-1.5 rounded-lg bg-[#00f2fe] text-black text-xs font-semibold flex items-center justify-center gap-1"
+              </div>
+            ) : (
+              <div
+                key={msg.id}
+                className={`cc-director__bubble ${
+                  msg.role === "user"
+                    ? "cc-director__bubble--user"
+                    : "cc-director__bubble--ai"
+                }`}
+              >
+                {msg.content}
+
+                {/* Proposal card if present */}
+                {msg.proposal && (
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      padding: "10px",
+                      borderRadius: "10px",
+                      background: "rgba(0, 0, 0, 0.4)",
+                      border: "1px solid rgba(0, 202, 224, 0.3)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        color: "var(--cc-accent)",
+                      }}
                     >
-                      <Check size={12} />
-                      Approve & Run
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateMessageProposal(msg.id, "rejected")}
-                      className="px-3 py-1.5 rounded-lg bg-[#2a2a2a] text-[#888] hover:text-white text-xs font-medium flex items-center justify-center"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-[11px] font-medium text-[#777] italic">
-                    {msg.proposal.status === "approved" ? "✓ Approved" : "✗ Dismissed"}
+                      <Bot size={13} />
+                      <span>
+                        {msg.proposal.type.toUpperCase()}: {msg.proposal.title}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: "11px", color: "#bbb", margin: 0 }}>
+                      {msg.proposal.description}
+                    </p>
+                    {msg.proposal.status === "pending" ? (
+                      <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                        <button
+                          type="button"
+                          onClick={() => updateMessageProposal(msg.id, "approved")}
+                          style={{
+                            flex: 1,
+                            padding: "6px",
+                            borderRadius: "6px",
+                            background: "var(--cc-accent)",
+                            color: "var(--cc-accent-contrast)",
+                            fontWeight: 600,
+                            fontSize: "11px",
+                            border: "none",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          <Check size={12} />
+                          <span>Approve & Run</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateMessageProposal(msg.id, "rejected")}
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: "6px",
+                            background: "rgba(255,255,255,0.08)",
+                            color: "var(--cc-text-secondary)",
+                            border: "none",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: "10px", color: "#777", fontStyle: "italic" }}>
+                        {msg.proposal.status === "approved" ? "✓ Approved" : "✗ Dismissed"}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-          )
-        ))}
-        {isStreaming && (
-          <div className="self-start flex items-center gap-1.5 p-2.5 rounded-xl bg-[#202020] text-xs text-[#888]">
-            <Sparkles size={13} className="animate-spin text-[#00f2fe]" />
-            <span>Director is thinking…</span>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+            ),
+          )}
 
-      {/* Quick Action Chips */}
-      <div className="flex items-center gap-1.5 py-2 overflow-x-auto no-scrollbar border-t border-[#1e1e1e] shrink-0">
-        {quickChips.map((chip) => (
-          <button
-            key={chip.label}
-            type="button"
-            onClick={() => handleSend(chip.action)}
-            className="px-2.5 py-1 rounded-full bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[11px] text-[#aaa] hover:text-white font-medium flex items-center gap-1.5 shrink-0 transition-colors border border-[#2a2a2a]"
-          >
-            <chip.icon size={11} className="text-[#00f2fe]" />
-            {chip.label}
-          </button>
-        ))}
-      </div>
+          {/* Plan Approval Card */}
+          <PlanCard
+            onApprove={() => {
+              void executeApprovedPlan({ editor, currentTimeSeconds });
+            }}
+          />
 
-      {/* Input Prompt Box */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleSend();
-        }}
-        className="py-2.5 border-t border-[#242424] flex items-center gap-2 bg-[#121212]"
-      >
-        <input
-          type="text"
-          value={inputPrompt}
-          onChange={(e) => setInputPrompt(e.target.value)}
-          placeholder="Ask the Director to edit, cut, or add..."
-          className="flex-1 h-9 px-3 rounded-xl bg-[#1c1c1c] text-xs text-white placeholder-[#555] outline-none border border-[#2d2d2d] focus:border-[#00f2fe]"
-        />
-        <button
-          type="submit"
-          disabled={!inputPrompt.trim() || isStreaming}
-          className="w-9 h-9 rounded-xl bg-[#00f2fe] disabled:opacity-40 text-black flex items-center justify-center transition-opacity"
+          {isStreaming && (
+            <div
+              className="cc-director__bubble cc-director__bubble--ai"
+              style={{ display: "flex", alignItems: "center", gap: "8px" }}
+            >
+              <Sparkles size={13} className="animate-spin text-[#00cae0]" />
+              <span style={{ fontSize: "12px", color: "var(--cc-text-secondary)" }}>
+                Director is thinking & reviewing footage…
+              </span>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Quick Action Chips using .cc-chiprow */}
+        <div
+          className="cc-chiprow"
+          style={{
+            padding: "8px 16px",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+          }}
         >
-          <Send size={14} />
-        </button>
-      </form>
+          {quickChips.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              onClick={() => handleSend(chip.action)}
+              className="cc-chip"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "12px",
+                padding: "6px 12px",
+              }}
+            >
+              <chip.icon size={12} color="var(--cc-accent)" />
+              <span>{chip.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Input Bar */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSend();
+          }}
+          className="cc-director__input-container"
+        >
+          <input
+            type="text"
+            value={inputPrompt}
+            onChange={(e) => setInputPrompt(e.target.value)}
+            placeholder="Ask the Director to cut, style, add titles…"
+            className="cc-director__input"
+          />
+          <button
+            type="submit"
+            disabled={!inputPrompt.trim() || isStreaming}
+            className="cc-director__send-btn"
+            aria-label="Send"
+          >
+            <Send size={15} strokeWidth={CC_ICON_STROKE} />
+          </button>
+        </form>
+      </div>
     </PanelSheet>
   );
 }
