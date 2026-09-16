@@ -1,108 +1,124 @@
-/// <reference types="@react-three/fiber" />
-import { useMemo } from "react";
-import { Canvas } from "@react-three/fiber";
+"use client";
+
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { HtmlTemplateProps } from "../types";
 
-function OrbitingGroup({ time, accentColor }: { time: number; accentColor: string }) {
-  const PARTICLE_COUNT = 300; // Keep it lightweight for clean web editor execution
-  const SPHERE_RADIUS = 9;
-  const POSITION_RANDOMNESS = 2;
-  const IMAGE_COUNT = 16;
-  const IMAGE_SIZE = 1.5;
+export function ThreeDOrbitGalleryTemplate({
+  time,
+  width,
+  height,
+  values,
+}: HtmlTemplateProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const groupRef = useRef<THREE.Group | null>(null);
 
-  const particles = useMemo(() => {
-    const arr = [];
+  const accentColor = String(values.accentColor || "#00f2fe");
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const scene = new THREE.Scene();
+    sceneRef.current = scene;
+
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+    camera.position.set(0, 0, 24);
+    cameraRef.current = camera;
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      antialias: true,
+    });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    rendererRef.current = renderer;
+
+    const group = new THREE.Group();
+    groupRef.current = group;
+    scene.add(group);
+
+    // Particles
+    const PARTICLE_COUNT = 200;
+    const SPHERE_RADIUS = 8;
     const color = new THREE.Color(accentColor);
+    const sphereGeo = new THREE.SphereGeometry(0.08, 6, 6);
+    const sphereMat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.7,
+    });
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const phi = Math.acos(-1 + (2 * i) / PARTICLE_COUNT);
       const theta = Math.sqrt(PARTICLE_COUNT * Math.PI) * phi;
-      const radiusVariation = SPHERE_RADIUS + (Math.random() - 0.5) * POSITION_RANDOMNESS;
+      const r = SPHERE_RADIUS + (Math.random() - 0.5) * 1.5;
 
-      const x = radiusVariation * Math.cos(theta) * Math.sin(phi);
-      const y = radiusVariation * Math.cos(phi);
-      const z = radiusVariation * Math.sin(theta) * Math.sin(phi);
-
-      arr.push({
-        position: [x, y, z] as [number, number, number],
-        scale: 0.03 + Math.random() * 0.04,
-        color: color.clone().multiplyScalar(0.6 + Math.random() * 0.4)
-      });
+      const pMesh = new THREE.Mesh(sphereGeo, sphereMat);
+      pMesh.position.set(
+        r * Math.cos(theta) * Math.sin(phi),
+        r * Math.cos(phi),
+        r * Math.sin(theta) * Math.sin(phi),
+      );
+      group.add(pMesh);
     }
-    return arr;
-  }, [PARTICLE_COUNT, SPHERE_RADIUS, POSITION_RANDOMNESS, accentColor]);
 
-  const orbitingBoxes = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < IMAGE_COUNT; i++) {
-      const angle = (i / IMAGE_COUNT) * Math.PI * 2;
+    // Orbiting cards
+    const CARD_COUNT = 12;
+    const planeGeo = new THREE.PlaneGeometry(1.6, 1.6);
+    for (let i = 0; i < CARD_COUNT; i++) {
+      const angle = (i / CARD_COUNT) * Math.PI * 2;
       const x = SPHERE_RADIUS * Math.cos(angle);
-      const y = Math.sin(i * 1.5) * 1.0; 
+      const y = Math.sin(i * 1.5) * 1.2;
       const z = SPHERE_RADIUS * Math.sin(angle);
 
-      const position = new THREE.Vector3(x, y, z);
-      const center = new THREE.Vector3(0, 0, 0);
-      const outwardDirection = position.clone().sub(center).normalize();
-
-      const euler = new THREE.Euler();
-      const matrix = new THREE.Matrix4();
-      matrix.lookAt(position, position.clone().add(outwardDirection), new THREE.Vector3(0, 1, 0));
-      euler.setFromRotationMatrix(matrix);
-      euler.z += Math.PI;
-
-      arr.push({
-        position: [x, y, z] as [number, number, number],
-        rotation: [euler.x, euler.y, euler.z] as [number, number, number],
-        color: new THREE.Color().setHSL((i / IMAGE_COUNT), 0.8, 0.5)
+      const cardMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color().setHSL(i / CARD_COUNT, 0.8, 0.55),
+        side: THREE.DoubleSide,
       });
+
+      const card = new THREE.Mesh(planeGeo, cardMat);
+      card.position.set(x, y, z);
+      card.lookAt(0, 0, 0);
+      group.add(card);
     }
-    return arr;
-  }, [IMAGE_COUNT, SPHERE_RADIUS]);
 
-  // Deterministic rotation based on timeline playhead time
-  const groupRotationY = time * 0.2;
-  const groupRotationX = time * 0.05;
+    return () => {
+      renderer.dispose();
+      scene.clear();
+      rendererRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
+      groupRef.current = null;
+    };
+  }, [width, height, accentColor]);
 
-  return (
-    <group rotation={[groupRotationX, groupRotationY, 0]}>
-      {/* Glow Particles */}
-      {particles.map((p, idx) => (
-        <mesh key={`p-${idx}`} position={p.position} scale={p.scale}>
-          <sphereGeometry args={[1, 6, 6]} />
-          <meshBasicMaterial color={p.color} transparent opacity={0.8} />
-        </mesh>
-      ))}
+  // Deterministic render on playhead time change
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const group = groupRef.current;
+    if (!renderer || !scene || !camera || !group) return;
 
-      {/* Orbiting Gallery Items */}
-      {orbitingBoxes.map((box, idx) => (
-        <mesh key={`b-${idx}`} position={box.position} rotation={box.rotation}>
-          <planeGeometry args={[IMAGE_SIZE, IMAGE_SIZE]} />
-          <meshBasicMaterial color={box.color} side={THREE.DoubleSide} transparent opacity={0.9} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
+    group.rotation.y = time * 0.25;
+    group.rotation.x = time * 0.08;
 
-export function ThreeDOrbitGalleryTemplate({ time, values }: HtmlTemplateProps) {
-  const accentColor = String(values.accentColor ?? "#ffaa00");
-  const backgroundColor = String(values.backgroundColor ?? "#000000");
+    renderer.render(scene, camera);
+  }, [time]);
 
   return (
-    <div
+    <canvas
+      ref={canvasRef}
       style={{
-        position: "absolute",
-        inset: 0,
-        backgroundColor: backgroundColor,
-        overflow: "hidden"
+        width: "100%",
+        height: "100%",
+        display: "block",
       }}
-    >
-      <Canvas camera={{ position: [-10, 2, 10], fov: 50 }}>
-        <ambientLight intensity={0.6} />
-        <pointLight position={[10, 10, 10]} intensity={1.2} />
-        <OrbitingGroup time={time} accentColor={accentColor} />
-      </Canvas>
-    </div>
+    />
   );
 }
