@@ -65,6 +65,13 @@ export function TextPanel({ editor, elementRef, element, onClose, onAddText }: T
 							<span className="cc-param-row__label">Text</span>
 						</div>
 						<textarea
+							autoFocus
+							ref={(el) => {
+								if (el && document.activeElement !== el) {
+									el.focus();
+									el.setSelectionRange(el.value.length, el.value.length);
+								}
+							}}
 							className="cc-text-content-input"
 							rows={2}
 							value={content}

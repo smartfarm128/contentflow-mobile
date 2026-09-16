@@ -419,7 +419,10 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				    draws text/sticker/overlay/video elements with their actual
 				    params (opacity/blendMode included), so the span's partial
 				    re-implementation of that is gone with it. */}
-				<PreviewRenderer />
+				<PreviewRenderer
+					onEditText={() => setActiveSheet("text")}
+					onEditCaption={() => setActiveSheet("captions")}
+				/>
 				<HtmlMotionLayer
 					time={currentTimeSeconds}
 					canvasWidth={project.settings.canvasSize.width}

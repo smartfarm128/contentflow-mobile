@@ -41,6 +41,9 @@ import { CanvasRenderer } from "@kneecap/editor-core/services/renderer/canvas-re
 import { buildScene } from "@kneecap/editor-core/services/renderer/scene-builder";
 import type { RootNode } from "@kneecap/editor-core/services/renderer/nodes/root-node";
 import { initializeGpu } from "opencut-wasm";
+import type { ElementRef } from "@kneecap/editor-core/timeline";
+import { getVisibleElementsWithBounds, type ElementBounds, type ElementWithBounds } from "@kneecap/editor-core/preview/element-bounds";
+import { selectElement } from "../../editor/actions";
 
 /** Same contract as apps/web's `initializeGpuRenderer()`: init once per
  *  process, NEVER reject — a GPU-less environment degrades (the compositor
@@ -67,7 +70,24 @@ function ensureGpu(): Promise<boolean> {
 	return gpuInitPromise;
 }
 
-export function PreviewRenderer() {
+
+function pointInRotatedBounds(px: number, py: number, bounds: ElementBounds): boolean {
+	const rad = (-bounds.rotation * Math.PI) / 180;
+	const cos = Math.cos(rad);
+	const sin = Math.sin(rad);
+	const dx = px - bounds.cx;
+	const dy = py - bounds.cy;
+	const localX = dx * cos - dy * sin;
+	const localY = dx * sin + dy * cos;
+	return Math.abs(localX) <= bounds.width / 2 && Math.abs(localY) <= bounds.height / 2;
+}
+export function PreviewRenderer({
+	onEditText,
+	onEditCaption,
+}: {
+	onEditText?: (ref: ElementRef) => void;
+	onEditCaption?: (ref: ElementRef) => void;
+} = {}) {
 	const editor = useEditor();
 	const [gpuReady, setGpuReady] = useState(false);
 
@@ -85,10 +105,16 @@ export function PreviewRenderer() {
 	}, []);
 
 	if (!gpuReady) return null;
-	return <PreviewRendererInner />;
+	return <PreviewRendererInner onEditText={onEditText} onEditCaption={onEditCaption} />;
 }
 
-function PreviewRendererInner() {
+function PreviewRendererInner({
+	onEditText,
+	onEditCaption,
+}: {
+	onEditText?: (ref: ElementRef) => void;
+	onEditCaption?: (ref: ElementRef) => void;
+}) {
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActive());
 	// Render tracks = preview-overlay tracks + main-track transitions applied
@@ -183,6 +209,11 @@ function PreviewRendererInner() {
 	const gestureHandlers = usePreviewTransformGesture({
 		mountRef,
 		canvasWidth: width,
+		canvasHeight: height,
+		tracks,
+		mediaAssets,
+		onEditText,
+		onEditCaption,
 	});
 
 	const { snapGuides, ...pointerHandlers } = gestureHandlers;
@@ -267,12 +298,24 @@ interface GestureTarget {
 function usePreviewTransformGesture({
 	mountRef,
 	canvasWidth,
+	canvasHeight,
+	tracks,
+	mediaAssets,
+	onEditText,
+	onEditCaption,
 }: {
 	mountRef: RefObject<HTMLDivElement | null>;
 	canvasWidth: number;
+	canvasHeight: number;
+	tracks: any;
+	mediaAssets: any;
+	onEditText?: (ref: ElementRef) => void;
+	onEditCaption?: (ref: ElementRef) => void;
 }) {
 	const editor = useEditor();
 	const [selectedRef, selectedElement] = useSelectedElement();
+	const tapRef = useRef<{ time: number; x: number; y: number } | null>(null);
+	const lastTapTimeRef = useRef<number>(0);
 	/** Which centre lines to draw. React state (not the session ref) because
 	 *  this one piece of gesture state has to reach the render. */
 	const [snapGuides, setSnapGuides] = useState<AxisSnapFlags>(NO_SNAP);
@@ -506,6 +549,7 @@ function usePreviewTransformGesture({
 	return {
 		snapGuides,
 		onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
+			tapRef.current = { time: Date.now(), x: event.clientX, y: event.clientY };
 			const point = { x: event.clientX, y: event.clientY };
 			const existing = sessionRef.current;
 			if (existing) {
@@ -549,6 +593,49 @@ function usePreviewTransformGesture({
 			applySessionUpdate();
 		},
 		onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => {
+			const tap = tapRef.current;
+			tapRef.current = null;
+			if (tap) {
+				const elapsed = Date.now() - tap.time;
+				const moved = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
+				if (elapsed < 350 && moved < DRAG_SLOP_PX) {
+					const mount = mountRef.current;
+					if (mount) {
+						const rect = mount.getBoundingClientRect();
+						const canvasX = ((event.clientX - rect.left) / rect.width) * canvasWidth;
+						const canvasY = ((event.clientY - rect.top) / rect.height) * canvasHeight;
+						const currentTime = editor.playback.getCurrentTime();
+						const visibleWithBounds = getVisibleElementsWithBounds({
+							tracks,
+							currentTime,
+							canvasSize: { width: canvasWidth, height: canvasHeight },
+							mediaAssets,
+						});
+						const hit = visibleWithBounds.find((item: ElementWithBounds) =>
+							pointInRotatedBounds(canvasX, canvasY, item.bounds),
+						);
+						if (hit) {
+							const isAlreadySelected = selectedRef?.elementId === hit.elementId;
+							const isDoubleTap = Date.now() - lastTapTimeRef.current < 350;
+							lastTapTimeRef.current = Date.now();
+
+							selectElement({ editor, ref: { trackId: hit.trackId, elementId: hit.elementId } });
+
+							if (hit.element.type === "text" && (isAlreadySelected || isDoubleTap)) {
+								onEditText?.({ trackId: hit.trackId, elementId: hit.elementId });
+							} else if (hit.element.type === "caption" && (isAlreadySelected || isDoubleTap)) {
+								onEditCaption?.({ trackId: hit.trackId, elementId: hit.elementId });
+							}
+							event.stopPropagation();
+							endSession(false);
+							return;
+						} else {
+							selectElement({ editor, ref: null });
+						}
+					}
+				}
+			}
+
 			const session = sessionRef.current;
 			if (!session || !session.pointers.has(event.pointerId)) return;
 			session.pointers.delete(event.pointerId);
@@ -557,9 +644,6 @@ function usePreviewTransformGesture({
 				return;
 			}
 			const ended = endSession(true);
-			// Only a real drag swallows the up-event; a plain tap (session
-			// opened but never moved) bubbles — harmlessly, now that the
-			// stage has no tap-to-play handler.
 			if (ended?.dragging) {
 				event.stopPropagation();
 			}
