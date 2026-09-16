@@ -14,6 +14,7 @@ import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { getAllHtmlTemplates } from "../motion-templates/registry";
 import { splitAtPlayhead, cutDeadSpace, insertTextElement } from "../editor/actions";
 import { CREATIVE_DIRECTION } from "./creative-direction";
+import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
 import { runApprovedPlan, buildPlanReviewPrompt } from "./plan-runner";
 import type { EditorCore } from "@kneecap/editor-core";
 
@@ -23,6 +24,29 @@ export type ExecutionContext = ToolContext;
 const MAX_TURNS = 8;
 
 export const AI_DIRECTOR_PROMPT = CREATIVE_DIRECTION;
+
+/**
+ * The system prompt for this turn, with any saved reference styles appended.
+ *
+ * Saved profiles ride in the SYSTEM prompt, not a tool result, for one reason:
+ * a style is standing direction for the whole conversation, not a fact fetched
+ * once. The model should not have to remember to re-read it before every plan —
+ * if the creator captured a style, every subsequent edit should be judged
+ * against it.
+ */
+function buildSystemPrompt(): string {
+	const profiles = useStyleProfileStore.getState().profiles;
+	if (profiles.length === 0) return AI_DIRECTOR_PROMPT;
+	const block = profiles.map((p) => `[id: ${p.id}]\n${formatStyleProfile(p)}`).join("\n\n");
+	return (
+		`${AI_DIRECTOR_PROMPT}\n\n` +
+		`## Reference styles this creator has captured\n\n${block}\n\n` +
+		`When the user asks for an edit "like the reference" or names one of these, plan against that profile ` +
+		`and pass its id as propose_plan's style_profile_id. Match the SPECIFICS — cut rhythm, caption look, ` +
+		`hook shape — not just the general vibe. If none of these fit what they are asking for, say so and offer ` +
+		`to analyse a new reference rather than guessing.`
+	);
+}
 
 /** Where Claude's tool-use content blocks land in the API response. */
 type ContentBlock =
@@ -107,7 +131,7 @@ async function driveAgentLoop({
 				body: JSON.stringify({
 					model: useAIDirectorStore.getState().selectedModel || "claude-sonnet-5",
 					max_tokens: 2048,
-					system: AI_DIRECTOR_PROMPT,
+					system: buildSystemPrompt(),
 					tools: AI_TOOLS,
 					messages: history,
 				}),

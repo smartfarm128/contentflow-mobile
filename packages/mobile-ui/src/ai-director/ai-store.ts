@@ -40,6 +40,10 @@ export interface PendingPlan {
   summary: string;
   steps: PlanStep[];
   status: "awaiting-approval" | "running" | "complete" | "discarded";
+  /** Set when the plan was written to match a saved reference style — the
+   *  card shows the name so the user can see WHICH style is being copied. */
+  styleProfileId?: string;
+  styleProfileName?: string;
 }
 
 export interface IdeaToVideoStage {

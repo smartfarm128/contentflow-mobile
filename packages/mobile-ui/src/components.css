@@ -1971,6 +1971,19 @@
 	margin: 0 0 4px;
 }
 
+.cc-plan-card__style {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--cc-accent-contrast, #04181a);
+	background: var(--cc-accent, #00cae0);
+	padding: 2px 7px;
+	border-radius: 4px;
+	margin-bottom: 6px;
+}
+
 .cc-plan-card__summary {
 	font-size: 11px;
 	color: var(--cc-text-secondary, #8b8a90);

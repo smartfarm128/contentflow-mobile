@@ -1,6 +1,6 @@
 import React from "react";
 import { useAIDirectorStore, type PlanStep } from "../../ai-director/ai-store";
-import { Check, X, Loader2, AlertTriangle, MinusCircle } from "lucide-react";
+import { Check, X, Loader2, AlertTriangle, MinusCircle, Clapperboard } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 
 /**
@@ -26,6 +26,15 @@ export function PlanCard({ onApprove }: { onApprove: () => void }) {
 				<h4 className="cc-plan-card__title">
 					{isComplete ? "Plan applied" : "Proposed edit plan"}
 				</h4>
+				{/* Which reference this edit is copying has to be VISIBLE — the
+				    user is approving "edit my video like that one", and cannot
+				    judge that without seeing which "that one" means. */}
+				{plan.styleProfileName && (
+					<div className="cc-plan-card__style">
+						<Clapperboard size={11} strokeWidth={CC_ICON_STROKE} />
+						<span>Matching style: {plan.styleProfileName}</span>
+					</div>
+				)}
 				<p className="cc-plan-card__summary">{plan.summary}</p>
 			</div>
 

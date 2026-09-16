@@ -33,6 +33,8 @@ import {
 import { generateVoiceover, listAllVoiceOptions } from "../editor/voiceover-actions";
 import { searchPexelsVideos, importPexelsMediaToTimeline } from "../editor/stock-media-actions";
 import { captureFrameAt, captureFramesAcross, type CapturedFrame } from "./frame-capture";
+import { analyzeReferenceVideo, buildStyleExtractionPrompt } from "./reference-analysis";
+import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
 import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { AI_TOOL_NAMES } from "./ai-tools";
 import { useAIDirectorStore, type PlanStep } from "./ai-store";
@@ -172,6 +174,64 @@ export async function executeTool(
 				.join("\n")}` };
 		}
 
+		// ── Reference style matching ─────────────────────────────────────────
+		case "analyze_reference_video": {
+			try {
+				const analysis = await analyzeReferenceVideo({
+					frameCount: input.frame_count !== undefined ? Number(input.frame_count) : 10,
+				});
+				return {
+					text: buildStyleExtractionPrompt({ analysis }),
+					frames: analysis.frames,
+				};
+			} catch (error) {
+				// The picker is a user gesture: a cancel is not a failure, and a
+				// platform that cannot decode must say which rather than
+				// pretending it read a style.
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					text: `Could not analyse a reference video: ${message}. Ask the user to try another file, or describe the style they want in words instead.`,
+				};
+			}
+		}
+
+		case "save_style_profile": {
+			const name = String(input.name ?? "").trim();
+			if (!name) return { text: "Error: a profile name is required." };
+			const saved = useStyleProfileStore.getState().saveProfile({
+				name,
+				pacing: input.pacing ? String(input.pacing) : undefined,
+				cutRhythm: input.cut_rhythm ? String(input.cut_rhythm) : undefined,
+				hookStructure: input.hook_structure ? String(input.hook_structure) : undefined,
+				captionStyle: input.caption_style ? String(input.caption_style) : undefined,
+				colorGrade: input.color_grade ? String(input.color_grade) : undefined,
+				motionGraphicDensity: input.motion_graphic_density
+					? String(input.motion_graphic_density)
+					: undefined,
+				audioFeel: input.audio_feel ? String(input.audio_feel) : undefined,
+				notes: input.notes ? String(input.notes) : undefined,
+			});
+			return {
+				text:
+					`Saved style profile "${saved.name}" (id ${saved.id}). ` +
+					`Pass style_profile_id: "${saved.id}" to propose_plan so the plan is written against this style.`,
+			};
+		}
+
+		case "list_style_profiles": {
+			const profiles = useStyleProfileStore.getState().profiles;
+			if (profiles.length === 0) {
+				return {
+					text: "No style profiles saved yet. Call analyze_reference_video to study a reference the user picks, then save_style_profile.",
+				};
+			}
+			return {
+				text: profiles
+					.map((p) => `[id: ${p.id}]\n${formatStyleProfile(p)}`)
+					.join("\n\n"),
+			};
+		}
+
 		// ── Planning ─────────────────────────────────────────────────────────
 		case "propose_plan": {
 			const rawSteps: any[] = Array.isArray(input.steps) ? input.steps : [];
@@ -195,16 +255,30 @@ export async function executeTool(
 			}
 
 			const dropped = rawSteps.length - steps.length;
+			// A plan written against a style profile says so on the card: the
+			// user must be able to see WHICH reference their edit is copying,
+			// not just trust that one was used.
+			const profileId = input.style_profile_id ? String(input.style_profile_id) : undefined;
+			const profile = profileId
+				? useStyleProfileStore.getState().getProfile(profileId)
+				: undefined;
+
 			useAIDirectorStore.getState().setPendingPlan({
 				id: `plan-${Date.now()}`,
 				summary: String(input.summary ?? "Proposed edit"),
 				steps,
 				status: "awaiting-approval",
+				styleProfileId: profile?.id,
+				styleProfileName: profile?.name,
 			});
 
 			return {
 				text:
 					`Proposed a ${steps.length}-step plan for the user to review.` +
+					(profile ? ` Matched to style profile "${profile.name}".` : "") +
+					(profileId && !profile
+						? ` (style_profile_id "${profileId}" does not exist — call list_style_profiles for real ids.)`
+						: "") +
 					(dropped > 0 ? ` (${dropped} step(s) dropped — unknown tools.)` : "") +
 					" STOP here: do not run any further tools. The user will approve, edit or discard it, and approved steps execute on their own.",
 			};

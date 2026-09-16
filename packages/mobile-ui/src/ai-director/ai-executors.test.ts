@@ -60,4 +60,55 @@ describe("AI Director tool contract", () => {
 		expect(AI_TOOL_NAMES.has("render_frame")).toBe(true);
 		expect(AI_TOOL_NAMES.has("review_composition")).toBe(true);
 	});
+
+	it("exposes the reference-matching tools the core use case depends on", () => {
+		expect(AI_TOOL_NAMES.has("analyze_reference_video")).toBe(true);
+		expect(AI_TOOL_NAMES.has("save_style_profile")).toBe(true);
+		expect(AI_TOOL_NAMES.has("list_style_profiles")).toBe(true);
+	});
+
+	it("lets propose_plan carry the style profile it is matching", () => {
+		const plan = AI_TOOLS.find((t) => t.name === "propose_plan");
+		expect(plan?.input_schema.properties).toHaveProperty("style_profile_id");
+	});
+
+	it("save_style_profile actually persists, so a plan can reference it", async () => {
+		const { useStyleProfileStore } = await import("./style-profile-store");
+		useStyleProfileStore.setState({ profiles: [] });
+
+		const out = await executeTool(
+			"save_style_profile",
+			{
+				name: "Contract Test Style",
+				pacing: "fast, ~170wpm",
+				cut_rhythm: "every 2s on sentence ends",
+			},
+			stubCtx,
+		);
+
+		const saved = useStyleProfileStore.getState().profiles;
+		expect(saved).toHaveLength(1);
+		expect(saved[0].name).toBe("Contract Test Style");
+		// snake_case in the schema must land on the camelCase store field —
+		// a silent mismatch here would save an empty profile.
+		expect(saved[0].cutRhythm).toBe("every 2s on sentence ends");
+		// The model needs the id back, or it cannot reference the profile.
+		expect(out.text).toContain(saved[0].id);
+	});
+
+	it("list_style_profiles reports emptiness honestly rather than inventing a style", async () => {
+		const { useStyleProfileStore } = await import("./style-profile-store");
+		useStyleProfileStore.setState({ profiles: [] });
+		const out = await executeTool("list_style_profiles", {}, stubCtx);
+		expect(out.text).toContain("No style profiles saved yet");
+		expect(out.text).toContain("analyze_reference_video");
+	});
+
+	it("save_style_profile refuses an unnamed profile instead of saving a blank", async () => {
+		const { useStyleProfileStore } = await import("./style-profile-store");
+		useStyleProfileStore.setState({ profiles: [] });
+		const out = await executeTool("save_style_profile", { name: "   " }, stubCtx);
+		expect(out.text).toStartWith("Error");
+		expect(useStyleProfileStore.getState().profiles).toHaveLength(0);
+	});
 });

@@ -17,6 +17,7 @@ import {
   Film,
   Zap,
   Wrench,
+  Clapperboard,
 } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 
@@ -34,6 +35,7 @@ export function AIDirectorPanel({
   const [inputPrompt, setInputPrompt] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatFeedRef = useRef<HTMLDivElement>(null);
 
   const messages = useAIDirectorStore((s) => s.messages);
   const isStreaming = useAIDirectorStore((s) => s.isStreaming);
@@ -45,8 +47,14 @@ export function AIDirectorPanel({
     (s) => s.updateMessageProposal,
   );
 
+  // Scroll the FEED only, by setting its own scrollTop — never
+  // `scrollIntoView`. The sheet body (`.cc-sheet__body`) is also scrollable,
+  // and scrollIntoView walks up and scrolls every scrollable ancestor: measured
+  // live, eight messages dragged the sheet body down 149px and pushed the
+  // "Director Mode" status bar 133px up behind the sticky sheet header.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const feed = chatFeedRef.current;
+    if (feed) feed.scrollTop = feed.scrollHeight;
   }, [messages, isStreaming]);
 
   const handleSend = async (textToSend?: string) => {
@@ -61,6 +69,12 @@ export function AIDirectorPanel({
   };
 
   const quickChips = [
+    {
+      label: "Match a Reference",
+      icon: Clapperboard,
+      action:
+        "I want my video edited in the style of a reference video. Analyse the reference I pick, save its style profile, then plan an edit of my footage that matches it.",
+    },
     { label: "Cut Silences", icon: Scissors, action: "Cut all silent pauses in the video" },
     { label: "Auto Captions", icon: Captions, action: "Add subtitles to the video" },
     { label: "Motion Graphic", icon: Film, action: "Add an energetic motion title overlay" },
@@ -135,7 +149,7 @@ export function AIDirectorPanel({
         )}
 
         {/* Message Chat Feed */}
-        <div className="cc-director__chat-feed">
+        <div className="cc-director__chat-feed" ref={chatFeedRef}>
           {messages.map((msg) =>
             msg.toolName ? (
               <div

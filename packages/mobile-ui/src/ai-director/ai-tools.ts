@@ -51,6 +51,57 @@ export const AI_TOOLS: ClaudeTool[] = [
 		},
 	},
 
+	// ── Reference style matching ─────────────────────────────────────────────
+	{
+		name: "analyze_reference_video",
+		description:
+			"STUDY a reference video the user wants their own footage edited LIKE. Opens the device picker so the user " +
+			"chooses the reference, then returns frames sampled across it (images you can look at), its transcript, and " +
+			"real words-per-minute pacing statistics. The reference is NEVER added to their timeline — it is a specimen. " +
+			"Use this whenever the user says 'edit like this', 'match this style', 'make mine look like this', or shares a " +
+			"video as an example. After looking, distil a style read and call save_style_profile to persist it.",
+		input_schema: {
+			type: "object",
+			properties: {
+				frame_count: {
+					type: "number",
+					description: "How many frames to sample across the reference (4-16). Default 10.",
+				},
+			},
+			required: [],
+		},
+	},
+	{
+		name: "save_style_profile",
+		description:
+			"Persist a structured editing Style Profile, normally distilled from analyze_reference_video. Profiles survive " +
+			"app restarts, so a style learned from one reference can drive edits on later videos. Describe what you actually " +
+			"OBSERVED, concretely — 'cuts every 1.5-2s on sentence ends' beats 'fast paced'. " +
+			"Pass its id to propose_plan as style_profile_id so the plan is written against this style.",
+		input_schema: {
+			type: "object",
+			properties: {
+				name: { type: "string", description: "Short human name, e.g. 'Punchy talking-head Reel'." },
+				pacing: { type: "string", description: "Energy and speech rate, e.g. 'very fast, ~180wpm, no dead air'." },
+				cut_rhythm: { type: "string", description: "Cut frequency and triggers, e.g. 'every 1.5-3s, jump cuts on sentence boundaries'." },
+				hook_structure: { type: "string", description: "What the opening seconds do, e.g. 'cold-open claim, flash-forward at 0-3s'." },
+				caption_style: { type: "string", description: "Font weight, size, position, animation, highlight colors as SEEN in frames." },
+				color_grade: { type: "string", description: "Contrast, saturation, shadow/highlight tint." },
+				motion_graphic_density: { type: "string", description: "How often overlays appear and what kind." },
+				audio_feel: { type: "string", description: "Music/SFX character." },
+				notes: { type: "string", description: "Anything else load-bearing about the style." },
+			},
+			required: ["name"],
+		},
+	},
+	{
+		name: "list_style_profiles",
+		description:
+			"List the Style Profiles saved on this device, with every field. Call before planning a style-matched edit so " +
+			"you can plan against a profile the user already captured instead of asking them to re-analyse the same reference.",
+		input_schema: { type: "object", properties: {}, required: [] },
+	},
+
 	// ── Planning (approval-gated) ────────────────────────────────────────────
 	{
 		name: "propose_plan",
@@ -66,6 +117,12 @@ export const AI_TOOLS: ClaudeTool[] = [
 				summary: {
 					type: "string",
 					description: "One or two sentences on the creative direction you are taking and why.",
+				},
+				style_profile_id: {
+					type: "string",
+					description:
+						"Id of a saved Style Profile this plan should mimic (from list_style_profiles or save_style_profile). " +
+						"Set it whenever the user asked to match a reference video's style.",
 				},
 				steps: {
 					type: "array",
