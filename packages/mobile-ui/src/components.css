@@ -1682,7 +1682,7 @@
 	background: var(--cc-bg-raised, #2e2e2e);
 	border: 1px solid rgba(255, 255, 255, 0.08);
 	border-radius: var(--cc-radius-card, 12px);
-	padding: 12px;
+	padding: 10px;
 	cursor: pointer;
 	text-align: left;
 	transition: border-color 0.15s ease, background-color 0.15s ease;
@@ -1694,6 +1694,58 @@
 .cc-motion-card:active {
 	border-color: var(--cc-accent, #00cae0);
 	background: rgba(255, 255, 255, 0.06);
+}
+
+.cc-motion-card--previewing {
+	border-color: var(--cc-accent, #00cae0) !important;
+	box-shadow: 0 0 14px rgba(0, 202, 224, 0.25);
+}
+
+.cc-motion-card__preview {
+	position: relative;
+	width: 100%;
+	aspect-ratio: 16 / 9;
+	background: #141416;
+	border-radius: 8px;
+	overflow: hidden;
+	pointer-events: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin-bottom: 8px;
+}
+
+.cc-motion-card__preview-scaler {
+	position: absolute;
+	top: 0;
+	left: 0;
+}
+
+.cc-motion-card__fallback {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	width: 100%;
+	height: 100%;
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.cc-motion-card__playing-badge {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	display: flex;
+	align-items: center;
+	gap: 3px;
+	background: var(--cc-accent, #00cae0);
+	color: var(--cc-accent-contrast, #04181a);
+	font-size: 8px;
+	font-weight: 700;
+	padding: 2px 5px;
+	border-radius: 4px;
+	text-transform: uppercase;
 }
 
 .cc-motion-card__head {

@@ -4,6 +4,7 @@ import { SheetHeader } from "../sheet-header";
 import { SegmentedControl } from "../segmented-control";
 import { ParamRow, ToggleRow } from "../editor/param-row";
 import { getAllHtmlTemplates, getHtmlTemplate } from "../../motion-templates/registry";
+import { TemplateThumbnail } from "../../motion-templates/ui/template-thumbnail";
 import { useHtmlTemplateStore } from "../../motion-templates/html-template-store";
 import type { HtmlTemplate, HtmlTemplateClip } from "../../motion-templates/types";
 import { Plus, Trash2, LayoutTemplate, Sliders } from "lucide-react";
@@ -25,6 +26,7 @@ export function MotionTemplatesPanel({
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [tab, setTab] = useState<string>("library");
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
 
   const clips = useHtmlTemplateStore((s) => s.clips);
   const addClip = useHtmlTemplateStore((s) => s.addClip);
@@ -137,9 +139,13 @@ export function MotionTemplatesPanel({
             {filteredTemplates.map((tmpl: HtmlTemplate) => (
               <div
                 key={tmpl.id}
-                onClick={() => handleApplyTemplate(tmpl)}
-                className="cc-motion-card"
+                onClick={() => setPreviewingId(previewingId === tmpl.id ? null : tmpl.id)}
+                className={`cc-motion-card ${previewingId === tmpl.id ? "cc-motion-card--previewing" : ""}`}
               >
+                <TemplateThumbnail
+                  template={tmpl}
+                  isLivePreview={previewingId === tmpl.id}
+                />
                 <div className="cc-motion-card__head">
                   <h4 className="cc-motion-card__title">{tmpl.name}</h4>
                   <span className="cc-motion-card__duration">
