@@ -197,6 +197,15 @@
 	right: 0;
 	bottom: 0;
 	z-index: 11; /* one above its scrim — see the scrim's z-index comment */
+	max-height: 52dvh;
+	box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.6);
+}
+.cc-editor-shell--sheet-open .cc-preview-stage {
+	flex: none;
+	height: calc(48dvh - 84px);
+	min-height: 180px;
+	padding: 4px var(--cc-space-2);
+	transition: height 0.15s ease;
 }
 .cc-sheet__body {
 	overflow-y: auto;

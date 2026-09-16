@@ -394,6 +394,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 			className={cn(
 				"cc-editor-shell",
 				isPreviewFullscreen && "cc-editor-shell--preview-fullscreen",
+				activeSheet !== null && "cc-editor-shell--sheet-open",
 				className,
 			)}
 			data-kneecap-theme="capcut-mobile"
