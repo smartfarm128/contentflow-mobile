@@ -16,6 +16,8 @@
  * premium render spends their credits (free tier is ~10k characters/month).
  */
 
+import { getActiveElevenLabsKey } from "../vault/vault-store";
+
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 const API_KEY_STORAGE = "cf_elevenlabs_api_key";
 
@@ -27,6 +29,8 @@ export interface ElevenLabsVoice {
 }
 
 export function getElevenLabsKey(): string {
+	const active = getActiveElevenLabsKey();
+	if (active) return active;
 	if (typeof localStorage === "undefined") return "";
 	return localStorage.getItem(API_KEY_STORAGE) ?? "";
 }

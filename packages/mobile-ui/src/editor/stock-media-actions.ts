@@ -12,6 +12,7 @@ import type { ElementRef } from "@kneecap/editor-core/timeline";
 import { mediaTimeFromSeconds } from "@kneecap/editor-core/wasm";
 import { AddMediaAssetCommand, InsertElementCommand } from "@kneecap/editor-core/commands";
 import { buildElementFromMedia } from "@kneecap/editor-core/timeline";
+import { getActivePexelsKey } from "../vault/vault-store";
 
 export interface PexelsMediaItem {
 	id: string;
@@ -24,6 +25,8 @@ export interface PexelsMediaItem {
 }
 
 export function getPexelsApiKey(): string {
+	const active = getActivePexelsKey();
+	if (active) return active;
 	if (typeof localStorage === "undefined") return "";
 	return localStorage.getItem("cf_pexels_api_key") ?? "";
 }

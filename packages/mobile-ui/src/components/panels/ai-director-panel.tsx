@@ -18,19 +18,24 @@ import {
   Zap,
   Wrench,
   Clapperboard,
+  Lock,
 } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
+import { useVaultStore } from "../../vault/vault-store";
 
 interface AIDirectorPanelProps {
   editor: EditorCore;
   currentTimeSeconds: number;
   onClose: () => void;
+  /** Opens the encrypted Key Vault — the ONLY place an API key is entered. */
+  onOpenVault?: () => void;
 }
 
 export function AIDirectorPanel({
   editor,
   currentTimeSeconds,
   onClose,
+  onOpenVault,
 }: AIDirectorPanelProps) {
   const [inputPrompt, setInputPrompt] = useState("");
   const [showSettings, setShowSettings] = useState(false);
@@ -39,8 +44,9 @@ export function AIDirectorPanel({
 
   const messages = useAIDirectorStore((s) => s.messages);
   const isStreaming = useAIDirectorStore((s) => s.isStreaming);
-  const apiKey = useAIDirectorStore((s) => s.apiKey);
-  const setApiKey = useAIDirectorStore((s) => s.setApiKey);
+  const vaultConfigured = useVaultStore((s) => s.isConfigured);
+  const vaultUnlocked = useVaultStore((s) => s.isUnlocked);
+  const vaultAnthropicKey = useVaultStore((s) => s.keys.anthropic);
   const selectedModel = useAIDirectorStore((s) => s.selectedModel);
   const setSelectedModel = useAIDirectorStore((s) => s.setSelectedModel);
   const updateMessageProposal = useAIDirectorStore(
@@ -123,15 +129,30 @@ export function AIDirectorPanel({
         {/* Settings Drawer */}
         {showSettings && (
           <div className="cc-settings-drawer">
+            {/* The key itself is NEVER typed or shown here — it lives encrypted
+                in the Key Vault. This row reports status and routes there, so a
+                borrowed phone cannot surface a paid key from a tool panel. */}
             <div>
               <label className="cc-form-label">Anthropic API Key</label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-ant-api03-..."
-                className="cc-text-content-input"
-              />
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSettings(false);
+                  onOpenVault?.();
+                }}
+                className="cc-vault-link-btn"
+              >
+                <Lock size={13} strokeWidth={CC_ICON_STROKE} />
+                <span>
+                  {!vaultConfigured
+                    ? "Set up Key Vault"
+                    : vaultUnlocked && vaultAnthropicKey
+                      ? "Key set · Manage in Vault"
+                      : vaultUnlocked
+                        ? "No key yet · Add in Vault"
+                        : "Vault locked · Unlock to manage"}
+                </span>
+              </button>
             </div>
             <div>
               <label className="cc-form-label">Model</label>

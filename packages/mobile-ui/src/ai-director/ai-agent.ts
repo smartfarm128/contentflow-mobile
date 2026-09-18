@@ -15,6 +15,7 @@ import { getAllHtmlTemplates } from "../motion-templates/registry";
 import { splitAtPlayhead, cutDeadSpace, insertTextElement } from "../editor/actions";
 import { CREATIVE_DIRECTION } from "./creative-direction";
 import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
+import { getActiveAnthropicKey } from "../vault/vault-store";
 import { runApprovedPlan, buildPlanReviewPrompt } from "./plan-runner";
 import type { EditorCore } from "@kneecap/editor-core";
 
@@ -57,7 +58,7 @@ export async function askAIDirector(prompt: string, context: ExecutionContext): 
 	const store = useAIDirectorStore.getState();
 	store.addMessage({ role: "user", content: prompt });
 
-	const apiKey = store.apiKey;
+	const apiKey = getActiveAnthropicKey() || store.apiKey;
 	if (!apiKey) {
 		const reply = handleLocalCommand(prompt, context);
 		store.addMessage({ role: "assistant", content: reply });
@@ -90,7 +91,8 @@ export async function executeApprovedPlan(context: ExecutionContext): Promise<st
 
 	// No key: the steps still ran (they are local tool calls), there is just no
 	// model available to review them. Say so rather than implying a review.
-	if (!store.apiKey) {
+	const activeKey = getActiveAnthropicKey() || store.apiKey;
+	if (!activeKey) {
 		const msg = `Applied ${summary.ran} step(s)${summary.failed ? `, ${summary.failed} failed` : ""}. Add an API key for the Director to review the result.`;
 		store.addMessage({ role: "assistant", content: msg });
 		return msg;
@@ -124,7 +126,7 @@ async function driveAgentLoop({
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"x-api-key": useAIDirectorStore.getState().apiKey,
+					"x-api-key": getActiveAnthropicKey() || useAIDirectorStore.getState().apiKey,
 					"anthropic-version": "2023-06-01",
 					"anthropic-dangerous-direct-browser-access": "true",
 				},

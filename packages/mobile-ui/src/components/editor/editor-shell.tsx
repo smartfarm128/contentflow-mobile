@@ -72,8 +72,9 @@ import { CC_ICON_STROKE } from "../../tokens";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { ProgressOverlay } from "../progress-overlay";
+import { KeyVaultSheet } from "../panels/key-vault-sheet";
 
-type SheetId = PrimaryToolId | "export" | "graph";
+type SheetId = PrimaryToolId | "export" | "graph" | "vault";
 
 interface EditorShellProps {
 	className?: string;
@@ -404,6 +405,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				resolutionLabel={resolutionLabelFor(project.settings.canvasSize)}
 				onOpenExportSettings={() => setActiveSheet("export")}
 				onExport={() => setActiveSheet("export")}
+				onOpenVault={() => setActiveSheet("vault")}
 			/>
 			{/* NO tap-to-play on the stage (founder, 2026-08-22): the tap fired
 			    on the pointer-up that ENDED a preview gesture too — releasing
@@ -803,6 +805,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					editor={editor}
 					currentTimeSeconds={currentTimeSeconds}
 					onClose={closeSheet}
+					onOpenVault={() => setActiveSheet("vault")}
 				/>
 			)}
 
@@ -811,6 +814,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					editor={editor}
 					currentTimeSeconds={currentTimeSeconds}
 					onClose={closeSheet}
+					onOpenVault={() => setActiveSheet("vault")}
 				/>
 			)}
 
@@ -819,6 +823,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					editor={editor}
 					currentTimeSeconds={currentTimeSeconds}
 					onClose={closeSheet}
+					onOpenVault={() => setActiveSheet("vault")}
 				/>
 			)}
 
@@ -845,6 +850,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 			)}
 
 			{activeSheet === "export" && <ExportSheet editor={editor} onClose={closeSheet} />}
+
+			{activeSheet === "vault" && <KeyVaultSheet onClose={closeSheet} />}
 		</div>
 	);
 }

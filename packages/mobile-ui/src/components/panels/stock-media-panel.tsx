@@ -11,24 +11,30 @@ import {
 	setPexelsApiKey,
 	type PexelsMediaItem,
 } from "../../editor/stock-media-actions";
-import { Film, Image as ImageIcon, Plus, Loader2, Key } from "lucide-react";
+import { Film, Image as ImageIcon, Plus, Loader2, Key, Lock } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
+import { useVaultStore } from "../../vault/vault-store";
 
 interface StockMediaPanelProps {
 	editor: EditorCore;
 	currentTimeSeconds: number;
 	onClose: () => void;
+	/** Opens the encrypted Key Vault — the ONLY place an API key is entered. */
+	onOpenVault?: () => void;
 }
 
-export function StockMediaPanel({ editor, currentTimeSeconds, onClose }: StockMediaPanelProps) {
+export function StockMediaPanel({ editor, currentTimeSeconds, onClose, onOpenVault }: StockMediaPanelProps) {
 	const [tab, setTab] = useState<string>("video");
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<PexelsMediaItem[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [addingId, setAddingId] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [showKeyInput, setShowKeyInput] = useState(!getPexelsApiKey());
-	const [apiKey, setKey] = useState(getPexelsApiKey());
+	const vaultConfigured = useVaultStore((s) => s.isConfigured);
+	const vaultUnlocked = useVaultStore((s) => s.isUnlocked);
+	const vaultPexelsKey = useVaultStore((s) => s.keys.pexels);
+	const hasKey = Boolean(getPexelsApiKey() || (vaultUnlocked && vaultPexelsKey));
+	const apiKey = getPexelsApiKey();
 
 	const handleSearch = async (overrideQuery?: string) => {
 		const q = (overrideQuery ?? query).trim();
@@ -104,12 +110,12 @@ export function StockMediaPanel({ editor, currentTimeSeconds, onClose }: StockMe
 							aria-label="Stock media type"
 						/>
 					</div>
-					<button
+<button
 						type="button"
-						onClick={() => setShowKeyInput(!showKeyInput)}
+						onClick={onOpenVault}
 						style={{
-							background: showKeyInput ? "var(--cc-accent)" : "rgba(255, 255, 255, 0.08)",
-							color: showKeyInput ? "var(--cc-accent-contrast)" : "var(--cc-text-primary)",
+							background: hasKey ? "rgba(245, 158, 11, 0.15)" : "rgba(255, 255, 255, 0.08)",
+							color: hasKey ? "#f59e0b" : "var(--cc-text-primary)",
 							border: "none",
 							borderRadius: "8px",
 							padding: "6px 10px",
@@ -122,41 +128,10 @@ export function StockMediaPanel({ editor, currentTimeSeconds, onClose }: StockMe
 							flexShrink: 0,
 						}}
 					>
-						<Key size={12} strokeWidth={CC_ICON_STROKE} />
-						<span>{apiKey ? "Pexels Set" : "API Key"}</span>
+						<Lock size={12} strokeWidth={CC_ICON_STROKE} />
+						<span>{hasKey ? "Pexels Active" : "Add Key in Vault"}</span>
 					</button>
 				</div>
-
-				{showKeyInput && (
-					<div className="cc-settings-drawer" style={{ borderRadius: "12px", margin: "4px 0" }}>
-						<p className="cc-panel-note" style={{ padding: 0 }}>
-							Free stock search via Pexels API. Get your free key at{" "}
-							<span style={{ color: "var(--cc-accent)" }}>pexels.com/api</span>.
-						</p>
-						<div style={{ display: "flex", gap: "8px" }}>
-							<input
-								type="password"
-								value={apiKey}
-								onChange={(e) => setKey(e.target.value)}
-								placeholder="Pexels API Key"
-								className="cc-text-content-input"
-								style={{ flex: 1, height: "36px" }}
-							/>
-							<button
-								type="button"
-								onClick={() => {
-									setPexelsApiKey(apiKey.trim());
-									setShowKeyInput(false);
-									if (query.trim()) handleSearch();
-								}}
-								className="cc-panel-cta"
-								style={{ margin: 0, width: "auto", minHeight: "36px", padding: "0 16px" }}
-							>
-								Save
-							</button>
-						</div>
-					</div>
-				)}
 
 				{error && <p style={{ fontSize: "12px", color: "#ffaa00", margin: "4px 0" }}>{error}</p>}
 				{loading && (

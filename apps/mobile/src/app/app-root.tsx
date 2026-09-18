@@ -30,7 +30,7 @@ import {
 import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas, loadFonts } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
-import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
+import { EditorShell, ensurePreviewGpu, KeyVaultSheet } from "@kneecap/mobile-ui";
 
 const NOOP_BOOTSTRAP = async () => {};
 
@@ -116,6 +116,7 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 	const projects = useEditor((e) => e.project.getSavedProjects());
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [showVault, setShowVault] = useState(false);
 
 	useEffect(() => {
 		// Run once per mount; `editor` is the process-wide singleton and never
@@ -150,6 +151,18 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 				<div className="kc-home__header-actions">
 					<button
 						type="button"
+						className="kc-home__vault-btn"
+						onClick={() => setShowVault(true)}
+						aria-label="Open Key Vault"
+					>
+						<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+							<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+							<path d="M7 11V7a5 5 0 0 1 10 0v4" />
+						</svg>
+						<span>Vault</span>
+					</button>
+					<button
+						type="button"
 						className="kc-home__new"
 						disabled={busy}
 						onClick={() =>
@@ -163,6 +176,7 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 					</button>
 				</div>
 			</header>
+			{showVault && <KeyVaultSheet onClose={() => setShowVault(false)} />}
 			{error && <p className="kc-home__error">{error}</p>}
 			{projects.length === 0 ? (
 				<p className="kc-home__empty">No projects yet — tap “New project” to start editing.</p>

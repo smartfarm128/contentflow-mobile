@@ -13,20 +13,25 @@ import {
 	getElevenLabsKey,
 	setElevenLabsKey,
 } from "../../editor/elevenlabs-voice";
-import { Mic, Loader2, Sparkles, Key, Check } from "lucide-react";
+import { Mic, Loader2, Sparkles, Key, Check, Lock } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
+import { useVaultStore } from "../../vault/vault-store";
 
 interface VoiceoverPanelProps {
 	editor: EditorCore;
 	currentTimeSeconds: number;
 	onClose: () => void;
+	/** Opens the encrypted Key Vault — the ONLY place an API key is entered. */
+	onOpenVault?: () => void;
 }
 
-export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: VoiceoverPanelProps) {
+export function VoiceoverPanel({ editor, currentTimeSeconds, onClose, onOpenVault }: VoiceoverPanelProps) {
 	const [text, setText] = useState("");
 	const [voices, setVoices] = useState<VoiceOption[]>([]);
-	const [elevenKey, setElevenKeyState] = useState(getElevenLabsKey());
-	const [showKey, setShowKey] = useState(false);
+	const vaultConfigured = useVaultStore((s) => s.isConfigured);
+	const vaultUnlocked = useVaultStore((s) => s.isUnlocked);
+	const vaultElevenKey = useVaultStore((s) => s.keys.elevenlabs);
+	const hasKey = Boolean(getElevenLabsKey() || (vaultUnlocked && vaultElevenKey));
 	const [voiceId, setVoiceId] = useState<string>("");
 	const [rate, setRate] = useState(1);
 	const [busy, setBusy] = useState(false);
@@ -90,12 +95,12 @@ export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: Voiceove
 				{/* Key entry banner toggle */}
 				<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
 					<span className="cc-form-label" style={{ margin: 0 }}>Narration Engine</span>
-					<button
+<button
 						type="button"
-						onClick={() => setShowKey(!showKey)}
+						onClick={onOpenVault}
 						style={{
-							background: showKey ? "var(--cc-accent)" : "rgba(255,255,255,0.08)",
-							color: showKey ? "var(--cc-accent-contrast)" : "var(--cc-text-primary)",
+							background: hasKey ? "rgba(16, 185, 129, 0.15)" : "rgba(255, 255, 255, 0.08)",
+							color: hasKey ? "#10b981" : "var(--cc-text-primary)",
 							border: "none",
 							borderRadius: "8px",
 							padding: "4px 8px",
@@ -107,40 +112,10 @@ export function VoiceoverPanel({ editor, currentTimeSeconds, onClose }: Voiceove
 							cursor: "pointer",
 						}}
 					>
-						<Key size={11} strokeWidth={CC_ICON_STROKE} />
-						<span>{elevenKey ? "Premium Active" : "ElevenLabs Key"}</span>
+						<Lock size={11} strokeWidth={CC_ICON_STROKE} />
+						<span>{hasKey ? "Premium Active" : "Add Key in Vault"}</span>
 					</button>
 				</div>
-
-				{showKey && (
-					<div className="cc-settings-drawer" style={{ borderRadius: "12px" }}>
-						<p className="cc-panel-note" style={{ padding: 0 }}>
-							Device voices are free and offline. For cloned or lifelike AI voices, paste an ElevenLabs API key.
-						</p>
-						<div style={{ display: "flex", gap: "8px" }}>
-							<input
-								type="password"
-								value={elevenKey}
-								onChange={(e) => setElevenKeyState(e.target.value)}
-								placeholder="ElevenLabs API key"
-								className="cc-text-content-input"
-								style={{ flex: 1, height: "36px" }}
-							/>
-							<button
-								type="button"
-								onClick={async () => {
-									setElevenLabsKey(elevenKey);
-									setShowKey(false);
-									setVoices(await listAllVoiceOptions());
-								}}
-								className="cc-panel-cta"
-								style={{ margin: 0, width: "auto", minHeight: "36px", padding: "0 16px" }}
-							>
-								Save
-							</button>
-						</div>
-					</div>
-				)}
 
 				{supported === false ? (
 					<p className="cc-panel-note">

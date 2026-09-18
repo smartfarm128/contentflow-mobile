@@ -1,4 +1,4 @@
-import { ChevronDown, Search, X } from "lucide-react";
+import { ChevronDown, Search, X, Lock } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { ExportButton } from "../export-button";
 import { cn } from "../../lib/cn";
@@ -11,6 +11,7 @@ interface TopBarProps {
 	resolutionLabel: string;
 	onOpenExportSettings?: () => void;
 	onExport?: () => void;
+	onOpenVault?: () => void;
 	className?: string;
 }
 
@@ -18,15 +19,16 @@ interface TopBarProps {
  * CapCut-parity top bar, MEASURED from the founder capture
  * (docs/capcut-reference/capture-editor-toolbar-start.png): ✕ close +
  * search on the left, then a spacer, then the dark "AI UHD ▾" resolution
- * pill and the cyan Export pill. No project title, no undo/redo up here —
- * CapCut puts undo/redo on the playback row (see playback-bar.tsx), which
- * is where this kit moved them in the same capture-driven pass.
- *
- * Search is parity chrome: rendered because the real bar has it, but
- * project search is not a v1 feature — tracked in docs/STATUS.md residual
- * debt, deliberately non-interactive rather than opening a fake surface.
+ * pill and the cyan Export pill.
  */
-export function TopBar({ onClose, resolutionLabel, onOpenExportSettings, onExport, className }: TopBarProps) {
+export function TopBar({
+	onClose,
+	resolutionLabel,
+	onOpenExportSettings,
+	onExport,
+	onOpenVault,
+	className,
+}: TopBarProps) {
 	return (
 		<div className={cn("cc-topbar", className)}>
 			<button type="button" className="cc-topbar__icon-btn" onClick={onClose} aria-label="Close project">
@@ -36,6 +38,17 @@ export function TopBar({ onClose, resolutionLabel, onOpenExportSettings, onExpor
 				<Search size={22} strokeWidth={CC_ICON_STROKE} />
 			</span>
 			<span className="cc-topbar__spacer" />
+			{onOpenVault && (
+				<button
+					type="button"
+					className="cc-topbar__icon-btn"
+					onClick={onOpenVault}
+					aria-label="Key Vault"
+					style={{ marginRight: "4px" }}
+				>
+					<Lock size={18} strokeWidth={CC_ICON_STROKE} />
+				</button>
+			)}
 			<button
 				type="button"
 				className="cc-topbar__resolution-pill"

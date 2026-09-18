@@ -58,3 +58,5 @@ export { PlaybackBar } from "./components/editor/playback-bar";
 export { PreviewStage } from "./components/editor/preview-stage";
 export { PRIMARY_TOOLBAR_ITEMS, type PrimaryToolId } from "./components/editor/toolbar-defs";
 export { bootstrapDemoProject, resetDemoProjectBootstrap, type DemoProjectRefs } from "./editor/demo-project";
+export { KeyVaultSheet } from "./components/panels/key-vault-sheet";
+export * from "./vault/vault-store";
