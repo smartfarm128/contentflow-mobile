@@ -70,7 +70,7 @@ function showBootError(err: unknown) {
 	const pre = document.createElement("pre");
 	pre.style.cssText =
 		"padding:16px;white-space:pre-wrap;word-break:break-word;color:#ff5c5c;font:12px/1.5 ui-monospace,monospace;";
-	pre.textContent = `kneecap failed to start\n\n${detail}`;
+	pre.textContent = `ContentFlow failed to start\n\n${detail}`;
 	container.replaceChildren(pre);
 }
 
@@ -82,7 +82,7 @@ window.addEventListener("unhandledrejection", (event) => {
 	// 2026-08-18). Running-app errors log instead; user-facing feedback is
 	// each feature's own responsibility.
 	if (appMounted) {
-		console.error("kneecap unhandled rejection:", event.reason);
+		console.error("ContentFlow unhandled rejection:", event.reason);
 		return;
 	}
 	showBootError(event.reason);

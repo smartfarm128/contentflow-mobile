@@ -50,7 +50,7 @@ class CrashBoundary extends Component<
 	}
 
 	componentDidCatch(error: unknown, info: { componentStack?: string | null }) {
-		console.error("kneecap crashed:", error, info.componentStack);
+		console.error("ContentFlow crashed:", error, info.componentStack);
 		this.setState({ stack: info.componentStack ?? null });
 	}
 

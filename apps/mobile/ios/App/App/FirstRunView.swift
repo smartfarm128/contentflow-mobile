@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// kneecap M3 — native first-run screen (plan M3 item 6: "Native chrome that
+/// ContentFlow — native first-run screen (plan M3 item 6: "Native chrome that
 /// also satisfies store policy: native splash, native first-run/permissions
 /// flow"). This is real native UI, shown BEFORE the WebView ever loads —
 /// SceneDelegate.swift routes here on first launch instead of straight to
@@ -28,7 +28,7 @@ struct FirstRunView: View {
             VStack(spacing: 24) {
                 Spacer()
 
-                Text("kneecap")
+                Text("ContentFlow")
                     .font(.system(size: 34, weight: .bold))
                     .foregroundColor(.white)
 
@@ -39,7 +39,7 @@ struct FirstRunView: View {
                     )
                     permissionRow(
                         title: "Offline by design",
-                        detail: "Editing, effects, and export all run locally — kneecap never uploads your media."
+                        detail: "Editing, effects, and export all run locally — ContentFlow never uploads your media."
                     )
                 }
                 .padding(20)
@@ -89,5 +89,5 @@ struct FirstRunView: View {
         onFinish()
     }
 
-    static let completedDefaultsKey = "kneecap.hasCompletedFirstRun"
+    static let completedDefaultsKey = "contentflow.hasCompletedFirstRun"
 }
