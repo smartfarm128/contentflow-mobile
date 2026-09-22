@@ -301,6 +301,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 5b. Touch-timing gate. Guards the class of gesture bug that a synthetic
+#     pointer driver structurally CANNOT see: a finger rests on the glass
+#     before it slides, a script does not. The 2026-09-22 "I can't drag the
+#     videos after I cut" report was exactly that, and every check here was
+#     green while it shipped. See scripts/check-touch-timing.mjs's header for
+#     the measured A/B.
+# ---------------------------------------------------------------------------
+step "touch timing"
+if TOUCH_OUT="$(bun "$REPO_ROOT/scripts/check-touch-timing.mjs" 2>&1)"; then
+	pass "long-press arbitration + hold timing intact"
+else
+	fail "check-touch-timing.mjs reported violation(s):"
+	printf '%s\n' "$TOUCH_OUT"
+fi
+
+# ---------------------------------------------------------------------------
 # 6. Bridge-import gate (plan §2.4 / M3: "No editor UI file may import a
 #    Capacitor or Tauri symbol"). FULLY STRICT: apps/mobile and
 #    packages/native-bridge don't exist yet (that's M3), so today there is
