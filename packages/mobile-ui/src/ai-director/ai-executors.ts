@@ -23,6 +23,7 @@ import {
 	cutDeadSpace,
 	ensureSingleEffect,
 	updateEffectParam,
+	insertHtmlTemplateElement,
 } from "../editor/actions";
 import {
 	generateCaptions,
@@ -35,7 +36,7 @@ import { searchPexelsVideos, importPexelsMediaToTimeline } from "../editor/stock
 import { captureFrameAt, captureFramesAcross, type CapturedFrame } from "./frame-capture";
 import { analyzeReferenceVideo, buildStyleExtractionPrompt } from "./reference-analysis";
 import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
-import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
+import { findHtmlTemplateRef } from "../motion-templates/engine-bridge";
 import { AI_TOOL_NAMES } from "./ai-tools";
 import { useAIDirectorStore, type PlanStep } from "./ai-store";
 
@@ -429,17 +430,22 @@ export async function executeTool(
 			const start = input.start_seconds !== undefined ? Number(input.start_seconds) : ctx.currentTimeSeconds;
 			const duration =
 				input.duration_seconds !== undefined ? Number(input.duration_seconds) : tmpl.defaultDuration || 4;
-			const clip = useHtmlTemplateStore
-				.getState()
-				.addClip(tmpl.id, Math.max(0, start), Math.max(0.1, duration), values, "html-track");
-			return { text: `Placed "${tmpl.name}" at ${start.toFixed(2)}s for ${duration}s (clip id ${clip.id}).` };
+			const ref = insertHtmlTemplateElement({
+				editor: ctx.editor,
+				templateId: tmpl.id,
+				values,
+				startSeconds: Math.max(0, start),
+				durationSec: Math.max(0.1, duration),
+			});
+			if (!ref) return { text: `Error: could not place "${tmpl.name}".` };
+			return { text: `Placed "${tmpl.name}" at ${start.toFixed(2)}s for ${duration}s (clip id ${ref.elementId}).` };
 		}
 
 		case "remove_motion_template": {
 			const id = String(input.clip_id ?? "");
-			const exists = useHtmlTemplateStore.getState().clips.some((c) => c.id === id);
-			if (!exists) return { text: `Error: no motion-graphic clip with id "${id}".` };
-			useHtmlTemplateStore.getState().removeClip(id);
+			const ref = findHtmlTemplateRef({ editor: ctx.editor, elementId: id });
+			if (!ref) return { text: `Error: no motion-graphic clip with id "${id}".` };
+			deleteSelected({ editor: ctx.editor, refs: [ref] });
 			return { text: `Removed motion-graphic clip ${id}.` };
 		}
 

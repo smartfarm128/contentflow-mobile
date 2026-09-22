@@ -90,12 +90,13 @@ export function TimelineTrackRow({
 		candidateStartSec: number;
 	}) => void;
 	onMoveEnd?: (params: { clipId: string; trackId: string }) => void;
+	/** Returns whether the hold was honoured — see TimelineClip's onLongPress. */
 	onLongPress?: (params: {
 		clipId: string;
 		trackId: string;
 		pointerId: number;
 		clientX: number;
-	}) => void;
+	}) => boolean;
 	onPanBy?: (params: { deltaPx: number }) => void;
 	onDoubleTap?: (params: { clipId: string; trackId: string; kind: string }) => void;
 	/** Non-null puts THIS row into hold-to-reorder tile rendering. */
@@ -161,7 +162,10 @@ export function TimelineTrackRow({
 								? "♪ Audio"
 								: track.kind === "caption"
 									? "CC Captions"
-									: "PIP"}
+									: track.kind === "sticker"
+										? // Graphic tracks carry stickers AND html motion templates.
+											"✦ Graphics"
+										: "PIP"}
 					</span>
 				</div>
 			)}

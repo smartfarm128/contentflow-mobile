@@ -65,20 +65,9 @@ export interface HtmlTemplate {
   Component: HtmlTemplateComponent;
 }
 
-// ─── Timeline clip (stored in project, resolved by HtmlLayer) ────────────────
-
-export interface HtmlTemplateClip {
-  readonly id: string;
-  readonly trackId: string;
-  readonly startTime: number;
-  readonly duration: number;
-  readonly templateId: string;
-  /** Current user-edited control values (merged with defaults at render time) */
-  readonly values: Record<string, EditingTemplatePrimitive>;
-  /** Normalized position 0–1 within the preview canvas */
-  readonly position: { x: number; y: number };
-  /** Normalized scale — 1 = full canvas width/height */
-  readonly scale: { x: number; y: number };
-  readonly opacity: number;
-  readonly zIndex?: number;
-}
+// ─── Timeline clip ───────────────────────────────────────────────────────────
+// A template clip is a REAL editor-core `graphic` element now, not a local
+// shape: see motion-templates/engine-bridge.ts. The former `HtmlTemplateClip`
+// interface (and the Zustand store that held them) is gone -- it was a
+// parallel copy of timeline state the engine could not see, which is why a
+// template had no timeline row, no selection box and no export.

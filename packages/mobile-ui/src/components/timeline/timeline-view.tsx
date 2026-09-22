@@ -552,10 +552,13 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			trackId: string;
 			pointerId: number;
 			clientX: number;
-		}) => {
-			if (!onReorderMainTrack) return;
+		}): boolean => {
+			// Returning false leaves the clip's move-drag session armed — a
+			// declined hold must not cost the user their drag (see TimelineClip's
+			// onLongPress comment).
+			if (!onReorderMainTrack) return false;
 			const track = project.tracks.find((t) => t.id === params.trackId);
-			if (!track || track.kind !== "main" || track.clips.length < 2) return;
+			if (!track || track.kind !== "main" || track.clips.length < 2) return false;
 			hapticTick();
 			// The hold supersedes any in-flight trim/move preview state.
 			setTrimPreview(null);
@@ -573,6 +576,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 				dragXPx: contentXFromClient(params.clientX),
 				baseXPx,
 			});
+			return true;
 		},
 		[onReorderMainTrack, project.tracks, contentXFromClient, scrollRef, edgePaddingPx],
 	);
@@ -654,7 +658,15 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	return (
 		<div
 			className={`cc-timeline${reorderSession ? " cc-timeline--reordering" : ""}`}
-			style={{ height: "100%" }}
+			style={
+				{
+					height: "100%",
+					// Drives .cc-timeline__quick-add's vertical anchor so the
+					// left-gutter ♪/T buttons sit below EVERY row rather than a
+					// hardcoded one-row-down offset (see components.css).
+					"--cc-track-count": project.tracks.length,
+				} as React.CSSProperties
+			}
 		>
 			<div
 				ref={scrollRef}

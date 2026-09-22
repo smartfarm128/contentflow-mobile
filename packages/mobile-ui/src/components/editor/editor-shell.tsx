@@ -233,7 +233,6 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const editor = useLiveEditor();
 	const [ready, setReady] = useState(false);
 	const [activeSheet, setActiveSheet] = useState<SheetId | null>(null);
-	const [selectedHtmlClipId, setSelectedHtmlClipId] = useState<string | null>(null);
 	/**
 	 * Fullscreen preview is an IN-APP expansion, not the Fullscreen API.
 	 * `Element.requestFullscreen` is unimplemented in WKWebView for anything
@@ -426,16 +425,15 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					onEditText={() => setActiveSheet("text")}
 					onEditCaption={() => setActiveSheet("captions")}
 				/>
+				{/* Pixels only — selection/drag/resize for template clips now run
+				    through PreviewRenderer's gesture system like every other
+				    element type, because a template clip is a real engine
+				    graphic element (see motion-templates/engine-bridge.ts). */}
 				<HtmlMotionLayer
 					time={currentTimeSeconds}
 					canvasWidth={project.settings.canvasSize.width}
 					canvasHeight={project.settings.canvasSize.height}
 					isPlaying={isPlaying}
-					selectedClipId={selectedHtmlClipId}
-					onSelectClip={(id) => {
-						setSelectedHtmlClipId(id);
-						setActiveSheet("template");
-					}}
 				/>
 			</PreviewStage>
 			<PlaybackBar
@@ -794,8 +792,6 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 			{activeSheet === "template" && (
 				<MotionTemplatesPanel
 					currentTimeSeconds={currentTimeSeconds}
-					selectedClipId={selectedHtmlClipId}
-					onSelectClip={setSelectedHtmlClipId}
 					onClose={closeSheet}
 				/>
 			)}

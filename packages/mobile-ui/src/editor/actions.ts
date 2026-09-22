@@ -11,6 +11,11 @@ import type { EditorCore, MediaAsset, MediaType, TCanvasSize } from "@kneecap/ed
 import type { CaptionWord, ElementRef, RetimeConfig, TimelineElement } from "@kneecap/editor-core/timeline";
 import type { ParamValues } from "@kneecap/editor-core/params";
 import {
+	htmlGraphicDefinitionId,
+	registerHtmlTemplateGraphics,
+} from "../motion-templates/engine-bridge";
+import { getHtmlTemplate } from "../motion-templates/registry";
+import {
 	DuplicateElementsCommand,
 	SplitElementsCommand,
 	UpdateElementsCommand,
@@ -1002,6 +1007,99 @@ export function insertStickerElement({
 	editor.command.execute({ command });
 	const trackId = command.getTrackId();
 	return trackId ? { trackId, elementId: command.getElementId() } : null;
+}
+
+// --------------------------- HTML motion templates --------------------------
+
+/**
+ * Drops an HTML motion template onto the timeline as a REAL engine element.
+ *
+ * Templates used to be pushed into `html-template-store.ts`, a Zustand store
+ * the engine could not see — which is why a template was invisible on the
+ * timeline, had no selection box or resize handles, could not be dragged, and
+ * vanished from exports (founder's device, 2026-09-22). Going through
+ * `InsertElementCommand` like every other insert action here gets all of that
+ * from code that already exists: timeline rows, selection, drag, trim,
+ * undo/redo and persistence are implemented once, for engine elements.
+ *
+ * The template's own control values ride in `params` alongside the standard
+ * transform/opacity keys, so the motion layer reads them straight off the
+ * element. Registration is idempotent and must happen before the element is
+ * built — the graphics registry THROWS on an unknown definition id.
+ */
+export function insertHtmlTemplateElement({
+	editor,
+	templateId,
+	values,
+	durationSec,
+	startSeconds,
+}: {
+	editor: EditorCore;
+	templateId: string;
+	values?: Record<string, string | number | boolean>;
+	durationSec?: number;
+	/** Defaults to the playhead; the AI Director places at an explicit time. */
+	startSeconds?: number;
+}): ElementRef | null {
+	registerHtmlTemplateGraphics();
+	const template = getHtmlTemplate(templateId);
+	if (!template) return null;
+
+	const create = buildGraphicElement({
+		definitionId: htmlGraphicDefinitionId({ templateId }),
+		name: template.name,
+		startTime:
+			startSeconds !== undefined
+				? mediaTimeFromSeconds({ seconds: Math.max(0, startSeconds) })
+				: editor.playback.getCurrentTime(),
+		params: values as Partial<ParamValues> | undefined,
+	});
+	// buildGraphicElement stamps DEFAULT_NEW_ELEMENT_DURATION; a template
+	// carries its own natural length (how long its animation runs), so honour
+	// that unless the caller overrides it.
+	const seconds = durationSec ?? template.defaultDuration;
+	const element =
+		seconds > 0
+			? { ...create, duration: mediaTimeFromSeconds({ seconds }) }
+			: create;
+
+	const command = new InsertElementCommand({
+		element,
+		placement: { mode: "auto", trackType: "graphic" },
+	});
+	editor.command.execute({ command });
+	const trackId = command.getTrackId();
+	return trackId ? { trackId, elementId: command.getElementId() } : null;
+}
+
+/**
+ * Updates a template clip's control values — undoable, because it routes
+ * through the same UpdateElementsCommand every other param edit uses.
+ * The old store mutated a plain array and kept its own 20-deep snapshot
+ * stack that the editor's undo button knew nothing about.
+ */
+export function updateHtmlTemplateValues({
+	editor,
+	ref,
+	values,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+	values: Record<string, string | number | boolean>;
+}): void {
+	const element = getElement({ editor, ref });
+	if (!element) return;
+	editor.command.execute({
+		command: new UpdateElementsCommand({
+			updates: [
+				{
+					trackId: ref.trackId,
+					elementId: ref.elementId,
+					patch: { params: { ...element.params, ...values } },
+				},
+			],
+		}),
+	});
 }
 
 // -------------------------------- Overlay -----------------------------------

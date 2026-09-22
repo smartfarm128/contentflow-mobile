@@ -10,9 +10,13 @@
 import { useAIDirectorStore } from "./ai-store";
 import { AI_TOOLS } from "./ai-tools";
 import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
-import { useHtmlTemplateStore } from "../motion-templates/html-template-store";
 import { getAllHtmlTemplates } from "../motion-templates/registry";
-import { splitAtPlayhead, cutDeadSpace, insertTextElement } from "../editor/actions";
+import {
+	splitAtPlayhead,
+	cutDeadSpace,
+	insertTextElement,
+	insertHtmlTemplateElement,
+} from "../editor/actions";
 import { CREATIVE_DIRECTION } from "./creative-direction";
 import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
 import { getActiveAnthropicKey } from "../vault/vault-store";
@@ -253,9 +257,13 @@ function handleLocalCommand(prompt: string, context: ExecutionContext): string {
 		if (match) {
 			const values: Record<string, string | number | boolean> = {};
 			for (const c of match.controls) values[c.id] = c.defaultValue;
-			useHtmlTemplateStore
-				.getState()
-				.addClip(match.id, context.currentTimeSeconds, match.defaultDuration || 4, values, "html-track");
+			insertHtmlTemplateElement({
+				editor: context.editor,
+				templateId: match.id,
+				values,
+				startSeconds: context.currentTimeSeconds,
+				durationSec: match.defaultDuration || 4,
+			});
 			return `Added the "${match.name}" motion graphic at ${context.currentTimeSeconds.toFixed(2)}s. Tap Templates to edit its text and colours.`;
 		}
 	}

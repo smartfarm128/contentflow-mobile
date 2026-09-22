@@ -1045,7 +1045,18 @@
 .cc-timeline__quick-add {
 	position: absolute;
 	left: 0;
-	top: calc(var(--cc-ruler-height) + var(--cc-track-height) + 14px);
+	/* Anchored BELOW every track row, not at a fixed "one row down".
+	   The literal `ruler + track-height + 14px` here hardcoded a
+	   single-row timeline: add a second text track and this column's ♪
+	   "Add audio" button landed physically on top of that second text
+	   row, which is why it read as the audio lane (founder's iPhone,
+	   2026-09-22: "I added two texts and then one was on the audio
+	   timeline"). The track itself was always correctly typed and
+	   badged "T Text" — only this chrome was lying. --cc-track-count is
+	   set from the timeline VM. */
+	top: calc(
+		var(--cc-ruler-height) + (var(--cc-track-height) * var(--cc-track-count, 1)) + 14px
+	);
 	display: flex;
 	flex-direction: column;
 	align-items: flex-end;
@@ -1113,6 +1124,12 @@
 .cc-timeline__track-badge--overlay {
 	background: rgba(0, 202, 224, 0.2);
 	color: #00cae0;
+}
+/* Graphic lane (stickers + HTML motion templates). Keyed to
+   --cc-track-color-sticker so the badge and the clip body read as one lane. */
+.cc-timeline__track-badge--sticker {
+	background: rgba(167, 88, 167, 0.22);
+	color: #d18ad1;
 }
 
 .cc-timeline__clip-badge {

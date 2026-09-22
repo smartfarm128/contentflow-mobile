@@ -5,22 +5,32 @@ import { SegmentedControl } from "../segmented-control";
 import { ParamRow, ToggleRow } from "../editor/param-row";
 import { getAllHtmlTemplates, getHtmlTemplate } from "../../motion-templates/registry";
 import { TemplateThumbnail } from "../../motion-templates/ui/template-thumbnail";
-import { useHtmlTemplateStore } from "../../motion-templates/html-template-store";
-import type { HtmlTemplate, HtmlTemplateClip } from "../../motion-templates/types";
+import type { HtmlTemplate } from "../../motion-templates/types";
 import { Plus, Trash2, LayoutTemplate, Sliders } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
+import { useEditor } from "@kneecap/editor-core/react";
+import { mediaTimeToSeconds } from "@kneecap/editor-core";
+import type { ElementRef, TimelineElement } from "@kneecap/editor-core/timeline";
+import {
+	isHtmlTemplateGraphic,
+	templateIdFromDefinitionId,
+} from "../../motion-templates/engine-bridge";
+import {
+	insertHtmlTemplateElement,
+	updateHtmlTemplateValues,
+	setElementParam,
+	deleteSelected,
+	selectElement,
+} from "../../editor/actions";
+import { useSelectedElement } from "../../editor/use-live-editor";
 
 interface MotionTemplatesPanelProps {
   currentTimeSeconds: number;
-  selectedClipId: string | null;
-  onSelectClip: (id: string | null) => void;
   onClose: () => void;
 }
 
 export function MotionTemplatesPanel({
   currentTimeSeconds,
-  selectedClipId,
-  onSelectClip,
   onClose,
 }: MotionTemplatesPanelProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
@@ -28,16 +38,35 @@ export function MotionTemplatesPanel({
   const [tab, setTab] = useState<string>("library");
   const [previewingId, setPreviewingId] = useState<string | null>(null);
 
-  const clips = useHtmlTemplateStore((s) => s.clips);
-  const addClip = useHtmlTemplateStore((s) => s.addClip);
-  const updateClip = useHtmlTemplateStore((s) => s.updateClip);
-  const updateValues = useHtmlTemplateStore((s) => s.updateValues);
-  const removeClip = useHtmlTemplateStore((s) => s.removeClip);
+  const editor = useEditor();
+  // The engine's own selection drives this panel — tapping a template on the
+  // canvas and opening this sheet now refer to the same thing. (They used to
+  // be two unrelated ids: the engine's, and the template store's.)
+  const [selectedRef, selectedElement] = useSelectedElement();
 
-  const selectedClip = useMemo(
-    () => clips.find((c) => c.id === selectedClipId) || null,
-    [clips, selectedClipId],
-  );
+  /** The selected element, but only when it is a template clip. */
+  const selectedClip = useMemo(() => {
+    if (!selectedRef || !selectedElement) return null;
+    if (selectedElement.type !== "graphic") return null;
+    if (!isHtmlTemplateGraphic({ definitionId: selectedElement.definitionId })) return null;
+    const templateId = templateIdFromDefinitionId({
+      definitionId: selectedElement.definitionId,
+    });
+    if (!templateId) return null;
+    return {
+      ref: selectedRef as ElementRef,
+      templateId,
+      element: selectedElement as Extract<TimelineElement, { type: "graphic" }>,
+      startSec: mediaTimeToSeconds({ time: selectedElement.startTime }),
+      durationSec: mediaTimeToSeconds({ time: selectedElement.duration }),
+      values: selectedElement.params as Record<string, string | number | boolean>,
+    };
+  }, [selectedRef, selectedElement]);
+
+  const updateValues = (values: Record<string, string | number | boolean>) => {
+    if (!selectedClip) return;
+    updateHtmlTemplateValues({ editor, ref: selectedClip.ref, values });
+  };
 
   const allTemplates = useMemo(() => getAllHtmlTemplates(), []);
 
@@ -71,15 +100,19 @@ export function MotionTemplatesPanel({
     for (const c of tmpl.controls) {
       defaultVals[c.id] = c.defaultValue;
     }
-    const newClip = addClip(
-      tmpl.id,
-      currentTimeSeconds,
-      tmpl.defaultDuration || 4,
-      defaultVals,
-      "html-track",
-    );
-    onSelectClip(newClip.id);
-    setTab("edit");
+    // Lands on a real graphic track as an engine element: it shows on the
+    // timeline, selects, drags and resizes on canvas, undoes, and survives
+    // export — none of which the old parallel store could do.
+    const ref = insertHtmlTemplateElement({
+      editor,
+      templateId: tmpl.id,
+      values: defaultVals,
+      durationSec: tmpl.defaultDuration || 4,
+    });
+    if (ref) {
+      selectElement({ editor, ref });
+      setTab("edit");
+    }
   };
 
   const selectedTemplate = selectedClip
@@ -185,15 +218,14 @@ export function MotionTemplatesPanel({
                 {selectedTemplate.name}
               </p>
               <p className="cc-panel-note" style={{ padding: 0 }}>
-                Start: {selectedClip.startTime.toFixed(2)}s · Duration:{" "}
-                {selectedClip.duration.toFixed(2)}s
+                Start: {selectedClip.startSec.toFixed(2)}s · Duration:{" "}
+                {selectedClip.durationSec.toFixed(2)}s
               </p>
             </div>
             <button
               type="button"
               onClick={() => {
-                removeClip(selectedClip.id);
-                onSelectClip(null);
+                deleteSelected({ editor, refs: [selectedClip.ref] });
                 setTab("library");
               }}
               style={{
@@ -229,9 +261,7 @@ export function MotionTemplatesPanel({
                     min={ctrl.min ?? 0}
                     max={ctrl.max ?? 100}
                     step={ctrl.step ?? 1}
-                    onChange={(n) =>
-                      updateValues(selectedClip.id, { [ctrl.id]: n })
-                    }
+                    onChange={(n) => updateValues({ [ctrl.id]: n })}
                   />
                 );
               }
@@ -242,9 +272,7 @@ export function MotionTemplatesPanel({
                     key={ctrl.id}
                     label={ctrl.label}
                     active={Boolean(val)}
-                    onToggle={() =>
-                      updateValues(selectedClip.id, { [ctrl.id]: !val })
-                    }
+                    onToggle={() => updateValues({ [ctrl.id]: !val })}
                   />
                 );
               }
@@ -267,11 +295,7 @@ export function MotionTemplatesPanel({
                         <input
                           type="color"
                           value={colorStr.startsWith("#") ? colorStr : "#ffffff"}
-                          onChange={(e) =>
-                            updateValues(selectedClip.id, {
-                              [ctrl.id]: e.target.value,
-                            })
-                          }
+                          onChange={(e) => updateValues({ [ctrl.id]: e.target.value })}
                         />
                       </div>
                     </div>
@@ -285,11 +309,7 @@ export function MotionTemplatesPanel({
                   <input
                     type="text"
                     value={String(val ?? "")}
-                    onChange={(e) =>
-                      updateValues(selectedClip.id, {
-                        [ctrl.id]: e.target.value,
-                      })
-                    }
+                    onChange={(e) => updateValues({ [ctrl.id]: e.target.value })}
                     className="cc-text-content-input"
                   />
                 </div>
@@ -308,27 +328,55 @@ export function MotionTemplatesPanel({
             }}
           >
             <p className="cc-form-label">Position & Scale</p>
+            {/* These write the SAME transform/opacity params every visual
+                element already has (params/registry.ts's visualElementParams),
+                so the canvas resize handles and these sliders move one value —
+                they are not two parallel notions of size any more. */}
             <ParamRow
               label="Scale"
-              value={Math.round(selectedClip.scale.x * 100)}
+              value={Math.round(
+                (typeof selectedClip.values["transform.scaleX"] === "number"
+                  ? (selectedClip.values["transform.scaleX"] as number)
+                  : 1) * 100,
+              )}
               min={20}
               max={250}
               step={5}
               formatValue={(v) => `${(v / 100).toFixed(2)}x`}
               onChange={(v) => {
                 const s = v / 100;
-                updateClip(selectedClip.id, { scale: { x: s, y: s } });
+                setElementParam({
+                  editor,
+                  ref: selectedClip.ref,
+                  key: "transform.scaleX",
+                  value: s,
+                });
+                setElementParam({
+                  editor,
+                  ref: selectedClip.ref,
+                  key: "transform.scaleY",
+                  value: s,
+                });
               }}
             />
             <ParamRow
               label="Opacity"
-              value={Math.round(selectedClip.opacity * 100)}
+              value={Math.round(
+                (typeof selectedClip.values.opacity === "number"
+                  ? (selectedClip.values.opacity as number)
+                  : 1) * 100,
+              )}
               min={0}
               max={100}
               step={1}
               formatValue={(v) => `${v}%`}
               onChange={(v) => {
-                updateClip(selectedClip.id, { opacity: v / 100 });
+                setElementParam({
+                  editor,
+                  ref: selectedClip.ref,
+                  key: "opacity",
+                  value: v / 100,
+                });
               }}
             />
           </div>

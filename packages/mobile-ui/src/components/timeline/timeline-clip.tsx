@@ -6,6 +6,12 @@ import {
 	visibleThumbnailSlots,
 } from "../../timeline/virtualization";
 import { resolveSnap, type SnapTarget } from "../../timeline/snapping";
+import {
+	exceedsMoveThreshold,
+	resolveLongPressOutcome,
+	LONG_PRESS_MS,
+	MOVE_THRESHOLD_PX,
+} from "../../timeline/clip-gesture";
 import { hapticTick } from "../../timeline/haptics";
 import { FilmstripThumbnail } from "./filmstrip-thumbnail";
 import { AudioWaveformMini } from "./audio-waveform-mini";
@@ -13,14 +19,11 @@ import { AudioWaveformMini } from "./audio-waveform-mini";
 export const MIN_CLIP_DURATION_SEC = 0.2;
 const TARGET_THUMB_WIDTH_PX = 44;
 const TRACK_HEIGHT_PX = 48; // matches --cc-track-height; kept in sync by src/__tests__ (visual, not enforced by types)
-/** Horizontal px a pointer must travel on a SELECTED clip's body before the
- *  gesture becomes a move-drag (below it, it's a tap → selection only). Keeps
- *  taps and the strip's native horizontal scroll working on unselected clips —
- *  the same selection-gating rule the preview gestures adopted (round 23). */
-const MOVE_THRESHOLD_PX = 6;
-/** Hold duration before a clip LIFTS into reorder mode (CapCut long-press).
- *  Movement past MOVE_THRESHOLD_PX before this fires cancels the hold. */
-const LONG_PRESS_MS = 450;
+/** Gesture thresholds + the long-press arbitration rule live in
+ *  ../../timeline/clip-gesture so they can be unit-tested without a DOM (the
+ *  drag-after-rest bug they guard was invisible to synthetic pointer events).
+ *  Re-exported: existing importers take these from this module. */
+export { LONG_PRESS_MS, MOVE_THRESHOLD_PX } from "../../timeline/clip-gesture";
 
 export type TrimEdge = "start" | "end";
 
@@ -59,13 +62,23 @@ interface TimelineClipProps {
 	/** CapCut hold-to-reorder: fires once when the pointer has stayed put on
 	 *  the clip body for LONG_PRESS_MS. The VIEW then owns the pointer via
 	 *  window listeners (this element may unmount when the row switches to
-	 *  reorder tiles), so no further events are reported here. */
+	 *  reorder tiles), so no further events are reported here.
+	 *
+	 *  MUST return whether it actually entered reorder mode. The view declines
+	 *  holds it can't honour (single-clip main track, etc.), and this handler
+	 *  used to tear down the in-flight move-drag BEFORE asking — so a finger
+	 *  that rested past the timer before sliding found `moveRef` already
+	 *  nulled and the clip simply refused to move (founder's iPhone,
+	 *  2026-09-22: "when I cut I can't drag the videos"). Synthetic pointer
+	 *  events move within milliseconds and never hit the timer, which is
+	 *  exactly why every CDP run passed. Move state now survives a declined
+	 *  hold. */
 	onLongPress?: (params: {
 		clipId: string;
 		trackId: string;
 		pointerId: number;
 		clientX: number;
-	}) => void;
+	}) => boolean;
 	/** Manual strip pan: clips carry touch-action:none (our handlers own
 	 *  every touch), so a horizontal drag on an UNSELECTED clip pans the
 	 *  scroll strip through this callback instead of native scrolling
@@ -118,6 +131,7 @@ export function TimelineClip({
 	const pressRef = useRef<{
 		pointerId: number;
 		startClientX: number;
+		startClientY: number;
 		timer: ReturnType<typeof setTimeout>;
 	} | null>(null);
 	/** Manual strip-pan session (UNSELECTED clip body drags). */
@@ -162,11 +176,22 @@ export function TimelineClip({
 				pressRef.current = {
 					pointerId,
 					startClientX: clientX,
+					startClientY: event.clientY,
 					timer: setTimeout(() => {
 						pressRef.current = null;
-						moveRef.current = null;
-						panRef.current = null;
-						onLongPress({ clipId: clip.id, trackId: clip.trackId, pointerId, clientX });
+						// Ask FIRST, tear down only if the view took the gesture.
+						// A declined hold must leave the move/pan session intact
+						// so the drag still works after a long rest (see the
+						// prop's comment).
+						const lifted = onLongPress({
+							clipId: clip.id,
+							trackId: clip.trackId,
+							pointerId,
+							clientX,
+						});
+						const outcome = resolveLongPressOutcome({ lifted });
+						if (outcome.clearMoveSession) moveRef.current = null;
+						if (outcome.clearPanSession) panRef.current = null;
 					}, LONG_PRESS_MS),
 				};
 			}
@@ -205,7 +230,14 @@ export function TimelineClip({
 			if (
 				press &&
 				press.pointerId === event.pointerId &&
-				Math.abs(event.clientX - press.startClientX) >= MOVE_THRESHOLD_PX
+				// Travel in ANY direction cancels, not just X: a finger sliding
+				// diagonally off the clip used to leave the hold armed.
+				exceedsMoveThreshold({
+					startClientX: press.startClientX,
+					startClientY: press.startClientY,
+					clientX: event.clientX,
+					clientY: event.clientY,
+				})
 			) {
 				cancelLongPress();
 			}
