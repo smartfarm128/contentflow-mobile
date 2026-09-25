@@ -10,23 +10,37 @@
 import { useAIDirectorStore } from "./ai-store";
 import { AI_TOOLS } from "./ai-tools";
 import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
-import { getAllHtmlTemplates } from "../motion-templates/registry";
-import {
-	splitAtPlayhead,
-	cutDeadSpace,
-	insertTextElement,
-	insertHtmlTemplateElement,
-} from "../editor/actions";
 import { CREATIVE_DIRECTION } from "./creative-direction";
 import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
 import { getActiveAnthropicKey } from "../vault/vault-store";
 import { runApprovedPlan, buildPlanReviewPrompt } from "./plan-runner";
-import type { EditorCore } from "@kneecap/editor-core";
 
 export type ExecutionContext = ToolContext;
 
 /** Hard stop so a confused model can't loop forever on the user's phone. */
-const MAX_TURNS = 8;
+const MAX_TURNS = 12;
+
+/** Room for a long plan or a detailed review; 2048 truncated multi-step plans. */
+const MAX_TOKENS = 8192;
+
+const NO_KEY_MESSAGE =
+	"The AI Director needs your Anthropic API key. Open Settings → Anthropic API Key to add it to the Key Vault, then ask again.";
+
+/**
+ * The chat feed as Anthropic messages. Only real conversation goes out: tool
+ * strips and local status lines (errors, "no key") are UI, and sending them as
+ * assistant turns would put words in the model's mouth. The window must also
+ * open on a user turn.
+ */
+function conversationHistory(): Array<{ role: "user" | "assistant"; content: any }> {
+	const turns = useAIDirectorStore
+		.getState()
+		.messages.filter((m) => (m.role === "user" || m.role === "assistant") && !m.toolName && !m.local)
+		.slice(-12)
+		.map((m) => ({ role: m.role as "user" | "assistant", content: m.content as any }));
+	while (turns.length > 0 && turns[0]!.role !== "user") turns.shift();
+	return turns;
+}
 
 export const AI_DIRECTOR_PROMPT = CREATIVE_DIRECTION;
 
@@ -62,21 +76,12 @@ export async function askAIDirector(prompt: string, context: ExecutionContext): 
 	const store = useAIDirectorStore.getState();
 	store.addMessage({ role: "user", content: prompt });
 
-	const apiKey = getActiveAnthropicKey() || store.apiKey;
-	if (!apiKey) {
-		const reply = handleLocalCommand(prompt, context);
-		store.addMessage({ role: "assistant", content: reply });
-		return reply;
+	if (!getActiveAnthropicKey()) {
+		store.addMessage({ role: "assistant", content: NO_KEY_MESSAGE, local: true });
+		return NO_KEY_MESSAGE;
 	}
 
-	// Conversation transcript in Anthropic wire format, seeded from chat history.
-	const history = useAIDirectorStore
-		.getState()
-		.messages.filter((m) => m.role === "user" || m.role === "assistant")
-		.slice(-12)
-		.map((m) => ({ role: m.role as "user" | "assistant", content: m.content as any }));
-
-	return driveAgentLoop({ history, context });
+	return driveAgentLoop({ history: conversationHistory(), context });
 }
 
 /**
@@ -95,18 +100,13 @@ export async function executeApprovedPlan(context: ExecutionContext): Promise<st
 
 	// No key: the steps still ran (they are local tool calls), there is just no
 	// model available to review them. Say so rather than implying a review.
-	const activeKey = getActiveAnthropicKey() || store.apiKey;
-	if (!activeKey) {
+	if (!getActiveAnthropicKey()) {
 		const msg = `Applied ${summary.ran} step(s)${summary.failed ? `, ${summary.failed} failed` : ""}. Add an API key for the Director to review the result.`;
-		store.addMessage({ role: "assistant", content: msg });
+		store.addMessage({ role: "assistant", content: msg, local: true });
 		return msg;
 	}
 
-	const history = useAIDirectorStore
-		.getState()
-		.messages.filter((m) => m.role === "user" || m.role === "assistant")
-		.slice(-12)
-		.map((m) => ({ role: m.role as "user" | "assistant", content: m.content as any }));
+	const history = conversationHistory();
 	history.push({ role: "user", content: buildPlanReviewPrompt(summary) as any });
 
 	return driveAgentLoop({ history, context });
@@ -130,13 +130,13 @@ async function driveAgentLoop({
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"x-api-key": getActiveAnthropicKey() || useAIDirectorStore.getState().apiKey,
+					"x-api-key": getActiveAnthropicKey(),
 					"anthropic-version": "2023-06-01",
 					"anthropic-dangerous-direct-browser-access": "true",
 				},
 				body: JSON.stringify({
 					model: useAIDirectorStore.getState().selectedModel || "claude-sonnet-5",
-					max_tokens: 2048,
+					max_tokens: MAX_TOKENS,
 					system: buildSystemPrompt(),
 					tools: AI_TOOLS,
 					messages: history,
@@ -163,6 +163,14 @@ async function driveAgentLoop({
 				store.addMessage({ role: "assistant", content: text });
 			}
 
+			if (data.stop_reason === "max_tokens" && toolUses.length === 0) {
+				store.addMessage({
+					role: "assistant",
+					content: "The Director's reply was cut off before it finished. Ask it to continue, or break the request into smaller steps.",
+					local: true,
+				});
+				break;
+			}
 			if (data.stop_reason !== "tool_use" || toolUses.length === 0) break;
 
 			history.push({ role: "assistant", content: blocks as any });
@@ -220,58 +228,9 @@ async function driveAgentLoop({
 		return finalText || "Done.";
 	} catch (error) {
 		console.error("[AIDirector]", error);
-		const msg = `Couldn't reach the AI Director: ${error instanceof Error ? error.message : String(error)}. Quick actions below still work offline.`;
-		store.addMessage({ role: "assistant", content: msg });
+		const msg = `Couldn't reach the AI Director: ${error instanceof Error ? error.message : String(error)}. Check your connection and API key, then try again.`;
+		store.addMessage({ role: "assistant", content: msg, local: true });
 		store.setIsStreaming(false);
 		return msg;
 	}
-}
-
-/**
- * Keyless fallback. Deliberately small: it performs the handful of edits we can
- * resolve from plain keywords, and is honest that it is not the real Director.
- */
-function handleLocalCommand(prompt: string, context: ExecutionContext): string {
-	const lower = prompt.toLowerCase();
-	const project = context.editor.project.getActive();
-	const main = project.scenes[0]?.tracks?.main;
-	const firstRef = main?.elements?.[0]
-		? { trackId: main.id, elementId: main.elements[0].id }
-		: null;
-
-	if (lower.includes("silence") || lower.includes("dead space") || lower.includes("pause")) {
-		if (!firstRef) return "There's no footage on the timeline yet — import a clip first.";
-		void cutDeadSpace({ editor: context.editor, ref: firstRef });
-		return "Cutting dead space from your main clip to tighten the pacing.";
-	}
-
-	if (lower.includes("split") || lower.includes("cut at playhead")) {
-		if (!firstRef) return "Nothing to split — the timeline is empty.";
-		splitAtPlayhead({ editor: context.editor, ref: firstRef });
-		return `Split the clip at ${context.currentTimeSeconds.toFixed(2)}s.`;
-	}
-
-	if (lower.includes("motion") || lower.includes("graphic") || lower.includes("title")) {
-		const all = getAllHtmlTemplates();
-		const match = all.find((t) => lower.includes(t.name.toLowerCase())) ?? all[0];
-		if (match) {
-			const values: Record<string, string | number | boolean> = {};
-			for (const c of match.controls) values[c.id] = c.defaultValue;
-			insertHtmlTemplateElement({
-				editor: context.editor,
-				templateId: match.id,
-				values,
-				startSeconds: context.currentTimeSeconds,
-				durationSec: match.defaultDuration || 4,
-			});
-			return `Added the "${match.name}" motion graphic at ${context.currentTimeSeconds.toFixed(2)}s. Tap Templates to edit its text and colours.`;
-		}
-	}
-
-	if (lower.includes("caption") || lower.includes("subtitle")) {
-		insertTextElement({ editor: context.editor, content: "New Caption" });
-		return "Added a caption overlay. For full automatic transcription, open Captions in the toolbar.";
-	}
-
-	return "Add your Anthropic API key in the Director settings (the slider icon) to unlock the full AI Director — it can then plan and execute complete edits for you. Without a key I can still handle: cut silences, split clip, add motion title, add caption.";
 }

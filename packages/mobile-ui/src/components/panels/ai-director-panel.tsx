@@ -9,13 +9,9 @@ import {
   Sparkles,
   Send,
   Sliders,
-  Check,
-  X,
-  Bot,
   Scissors,
   Captions,
   Film,
-  Zap,
   Wrench,
   Clapperboard,
   Lock,
@@ -49,9 +45,6 @@ export function AIDirectorPanel({
   const vaultAnthropicKey = useVaultStore((s) => s.keys.anthropic);
   const selectedModel = useAIDirectorStore((s) => s.selectedModel);
   const setSelectedModel = useAIDirectorStore((s) => s.setSelectedModel);
-  const updateMessageProposal = useAIDirectorStore(
-    (s) => s.updateMessageProposal,
-  );
 
   // Scroll the FEED only, by setting its own scrollTop — never
   // `scrollIntoView`. The sheet body (`.cc-sheet__body`) is also scrollable,
@@ -84,7 +77,6 @@ export function AIDirectorPanel({
     { label: "Cut Silences", icon: Scissors, action: "Cut all silent pauses in the video" },
     { label: "Auto Captions", icon: Captions, action: "Add subtitles to the video" },
     { label: "Motion Graphic", icon: Film, action: "Add an energetic motion title overlay" },
-    { label: "Idea to Video", icon: Zap, action: "Generate a 30-second video about my idea" },
   ];
 
   return (
@@ -162,8 +154,8 @@ export function AIDirectorPanel({
                 className="cc-select"
               >
                 <option value="claude-sonnet-5">Claude Sonnet 5 (Recommended)</option>
-                <option value="claude-opus-5">Claude Opus 5 (Deep Creative Direction)</option>
-                <option value="claude-fable-5">Claude Fable 5 (Highest Intelligence)</option>
+                <option value="claude-opus-5-5">Claude Opus 5.5 (Deep Creative Direction)</option>
+                <option value="claude-fable-5-1">Claude Fable 5.1 (Highest Intelligence)</option>
               </select>
             </div>
           </div>
@@ -171,6 +163,13 @@ export function AIDirectorPanel({
 
         {/* Message Chat Feed */}
         <div className="cc-director__chat-feed" ref={chatFeedRef}>
+          {messages.length === 0 && !isStreaming && (
+            <p className="cc-panel-note">
+              {vaultUnlocked && vaultAnthropicKey
+                ? "Tell the Director what you want: cut silences, add captions, match a reference, add titles."
+                : "Add your Anthropic API key in Settings to start directing edits."}
+            </p>
+          )}
           {messages.map((msg) =>
             msg.toolName ? (
               <div
@@ -202,85 +201,6 @@ export function AIDirectorPanel({
                 }`}
               >
                 {msg.content}
-
-                {/* Proposal card if present */}
-                {msg.proposal && (
-                  <div
-                    style={{
-                      marginTop: "8px",
-                      padding: "10px",
-                      borderRadius: "10px",
-                      background: "rgba(0, 0, 0, 0.4)",
-                      border: "1px solid rgba(0, 202, 224, 0.3)",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "6px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        color: "var(--cc-accent)",
-                      }}
-                    >
-                      <Bot size={13} />
-                      <span>
-                        {msg.proposal.type.toUpperCase()}: {msg.proposal.title}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: "11px", color: "#bbb", margin: 0 }}>
-                      {msg.proposal.description}
-                    </p>
-                    {msg.proposal.status === "pending" ? (
-                      <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
-                        <button
-                          type="button"
-                          onClick={() => updateMessageProposal(msg.id, "approved")}
-                          style={{
-                            flex: 1,
-                            padding: "6px",
-                            borderRadius: "6px",
-                            background: "var(--cc-accent)",
-                            color: "var(--cc-accent-contrast)",
-                            fontWeight: 600,
-                            fontSize: "11px",
-                            border: "none",
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <Check size={12} />
-                          <span>Approve & Run</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateMessageProposal(msg.id, "rejected")}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: "6px",
-                            background: "rgba(255,255,255,0.08)",
-                            color: "var(--cc-text-secondary)",
-                            border: "none",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: "10px", color: "#777", fontStyle: "italic" }}>
-                        {msg.proposal.status === "approved" ? "✓ Approved" : "✗ Dismissed"}
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
             ),
           )}

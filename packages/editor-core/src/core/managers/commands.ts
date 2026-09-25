@@ -44,6 +44,27 @@ export class CommandManager {
 		this.redoStack = [];
 	}
 
+	/** Current history position, to hand back to `squashSince`. */
+	mark(): number {
+		return this.history.length;
+	}
+
+	/**
+	 * Replaces every entry recorded since `mark` with one already-applied
+	 * command, so a multi-step operation (an approved AI plan) is exactly one
+	 * undo. Merely pushing a snapshot on top is not enough: after undoing it,
+	 * the per-step entries are still below it and the next undo re-applies an
+	 * intermediate state of the operation.
+	 */
+	squashSince(mark: number, command: Command): void {
+		const squashed = this.history.splice(mark);
+		this.history.push({
+			command,
+			previousSelection: squashed[0]?.previousSelection ?? this.getSelectionSnapshot(),
+		});
+		this.redoStack = [];
+	}
+
 	registerReactor(reactor: () => void): void {
 		this.reactors.push(reactor);
 	}

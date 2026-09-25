@@ -93,3 +93,53 @@ describe("review prompt", () => {
 		expect(prompt.toLowerCase()).toContain("did not work");
 	});
 });
+
+describe("runApprovedPlan undo", () => {
+	it("an applied plan is exactly one undo, with no half-applied state behind it", async () => {
+		const { EditorCore } = await import("@kneecap/editor-core");
+		const { buildFixtureProject, buildFixtureScene } = await import(
+			"../../../editor-core/src/edl/__tests__/fixture"
+		);
+		const { runApprovedPlan } = await import("./plan-runner");
+
+		EditorCore.reset();
+		const editor = EditorCore.getInstance();
+		// Loaded the way the app loads a project: the scene lives in the
+		// project too, which is where the executors look clips up.
+		const scene = buildFixtureScene();
+		editor.project.setActiveProject({ project: { ...buildFixtureProject(), scenes: [scene] } });
+		editor.scenes.initializeScenes({ scenes: [scene], currentSceneId: scene.id });
+		const ids = () =>
+			editor.scenes
+				.getActiveScene()
+				.tracks.main.elements.map((e) => e.id)
+				.join(",");
+		const original = ids();
+		const [first, second] = editor.scenes.getActiveScene().tracks.main.elements;
+		expect(first && second).toBeTruthy();
+
+		useAIDirectorStore.getState().setPendingPlan({
+			id: "p1",
+			summary: "two deletes",
+			steps: [
+				step({ id: "a", tool: "delete_clip", input: { clip_id: first!.id } }),
+				step({ id: "b", tool: "delete_clip", input: { clip_id: second!.id } }),
+			],
+			status: "running",
+		});
+		const summary = await runApprovedPlan({ ctx: { editor, currentTimeSeconds: 0 } });
+		expect(summary.lines.join("\n")).not.toContain("Error");
+		expect(summary.ran).toBe(2);
+		const afterPlan = ids();
+		expect(afterPlan).not.toBe(original);
+
+		editor.command.undo();
+		expect(ids()).toBe(original);
+		// Previously a second undo re-applied the first delete from the stale
+		// per-step entry still sitting beneath the plan snapshot.
+		expect(editor.command.canUndo()).toBe(false);
+
+		editor.command.redo();
+		expect(ids()).toBe(afterPlan);
+	});
+});

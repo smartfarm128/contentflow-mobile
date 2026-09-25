@@ -8,13 +8,9 @@ export interface ChatMessage {
   /** Set when this message reports an executed tool call, so the UI can render
    *  it as a compact edit strip instead of a chat bubble. */
   toolName?: string;
-  proposal?: {
-    type: "plan" | "script" | "storyboard" | "assembly";
-    title: string;
-    description: string;
-    data: any;
-    status: "pending" | "approved" | "rejected";
-  };
+  /** A status line produced by the app (no key, network error, truncation),
+   *  not by the model. Shown in the feed, never sent back to the API. */
+  local?: boolean;
 }
 
 /**
@@ -46,28 +42,16 @@ export interface PendingPlan {
   styleProfileName?: string;
 }
 
-export interface IdeaToVideoStage {
-  stage: "script" | "storyboard" | "generate" | "assemble";
-  script?: string;
-  scenes?: Array<{ id: string; prompt: string; duration: number; text: string }>;
-  voiceId?: string;
-}
-
 interface AIDirectorState {
-  apiKey: string;
   selectedModel: string;
   messages: ChatMessage[];
   isStreaming: boolean;
-  activeStage: IdeaToVideoStage | null;
   /** The plan awaiting the user's review, if any. Only ever one at a time —
    *  a second proposal replaces the first rather than stacking approvals. */
   pendingPlan: PendingPlan | null;
-  setApiKey: (key: string) => void;
   setSelectedModel: (model: string) => void;
   addMessage: (message: Omit<ChatMessage, "id" | "timestamp">) => void;
-  updateMessageProposal: (id: string, status: "approved" | "rejected") => void;
   setIsStreaming: (streaming: boolean) => void;
-  setActiveStage: (stage: IdeaToVideoStage | null) => void;
   setPendingPlan: (plan: PendingPlan | null) => void;
   togglePlanStep: (stepId: string) => void;
   updatePlanStep: (stepId: string, patch: Partial<PlanStep>) => void;
@@ -76,27 +60,13 @@ interface AIDirectorState {
 }
 
 export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
-  apiKey: typeof localStorage !== "undefined" ? localStorage.getItem("cf_anthropic_api_key") || "" : "",
   selectedModel: "claude-sonnet-5",
-  messages: [
-    {
-      id: "welcome",
-      role: "assistant",
-      content:
-        "Hey! I'm your AI Director for ContentFlow. Tell me what kind of video you want to make, ask me to cut silences, generate captions, add motion graphics, or produce a video from scratch.",
-      timestamp: Date.now(),
-    },
-  ],
+  // Starts empty: every message in the feed is either the user's or the
+  // model's. A scripted greeting would be sent to the API as something the
+  // model "said".
+  messages: [],
   isStreaming: false,
-  activeStage: null,
   pendingPlan: null,
-
-  setApiKey: (key: string) => {
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem("cf_anthropic_api_key", key);
-    }
-    set({ apiKey: key });
-  },
 
   setSelectedModel: (selectedModel: string) => set({ selectedModel }),
 
@@ -109,19 +79,7 @@ export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
     set((s) => ({ messages: [...s.messages, newMessage] }));
   },
 
-  updateMessageProposal: (id, status) => {
-    set((s) => ({
-      messages: s.messages.map((m) =>
-        m.id === id && m.proposal
-          ? { ...m, proposal: { ...m.proposal, status } }
-          : m,
-      ),
-    }));
-  },
-
   setIsStreaming: (isStreaming) => set({ isStreaming }),
-
-  setActiveStage: (activeStage) => set({ activeStage }),
 
   setPendingPlan: (pendingPlan) => set({ pendingPlan }),
 

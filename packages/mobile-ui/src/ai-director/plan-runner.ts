@@ -47,6 +47,7 @@ export async function runApprovedPlan({
 	const beforeTracks = JSON.parse(
 		JSON.stringify(ctx.editor.scenes.getActiveScene().tracks),
 	);
+	const historyMark = ctx.editor.command.mark();
 
 	const lines: string[] = [];
 	let ran = 0;
@@ -92,14 +93,13 @@ export async function runApprovedPlan({
 		const afterTracks = JSON.parse(
 			JSON.stringify(ctx.editor.scenes.getActiveScene().tracks),
 		);
-		// Consolidate the entire multi-step plan into one undoable snapshot
-		// so tapping Undo reverts the whole AI edit in a single tap.
-		ctx.editor.command.execute({
-			command: new TracksSnapshotCommand({
-				before: beforeTracks,
-				after: afterTracks,
-			}),
-		});
+		// Collapse the steps' own history entries into one snapshot so a single
+		// Undo reverts the whole AI edit and the next Undo goes to whatever the
+		// user did before it, never to a half-applied plan.
+		ctx.editor.command.squashSince(
+			historyMark,
+			new TracksSnapshotCommand({ before: beforeTracks, after: afterTracks }),
+		);
 	}
 
 	useAIDirectorStore.getState().setPlanStatus("complete");
