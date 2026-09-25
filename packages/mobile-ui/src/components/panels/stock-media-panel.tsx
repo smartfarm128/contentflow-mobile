@@ -136,7 +136,7 @@ export function StockMediaPanel({ editor, currentTimeSeconds, onClose, onOpenVau
 				{error && <p style={{ fontSize: "12px", color: "#ffaa00", margin: "4px 0" }}>{error}</p>}
 				{loading && (
 					<div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", padding: "20px 0" }}>
-						<Loader2 size={16} className="animate-spin text-[#00cae0]" />
+						<Loader2 size={16} className="animate-spin" style={{ color: "var(--cc-accent)" }} />
 						<span style={{ fontSize: "12px", color: "var(--cc-text-secondary)" }}>Searching Pexels…</span>
 					</div>
 				)}

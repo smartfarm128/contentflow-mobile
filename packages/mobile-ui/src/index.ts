@@ -49,8 +49,8 @@ export type {
 } from "./timeline/types";
 
 // ======================== Panels/toolbars/export (M8) ========================
-export { EditorShell } from "./components/editor/editor-shell";
-export { toEdlMediaAssets, buildNativeEdlAssetResolver } from "./editor/actions";
+export { EditorShell, type EditorShellProps, type SheetId } from "./components/editor/editor-shell";
+export { toEdlMediaAssets, buildNativeEdlAssetResolver, insertHtmlTemplateElement } from "./editor/actions";
 export { generateCaptions, getAllCaptions } from "./editor/captions-actions";
 export { PreviewRenderer, ensurePreviewGpu } from "./components/editor/preview-renderer";
 export { TopBar } from "./components/editor/top-bar";
@@ -60,3 +60,10 @@ export { PRIMARY_TOOLBAR_ITEMS, type PrimaryToolId } from "./components/editor/t
 export { bootstrapDemoProject, resetDemoProjectBootstrap, type DemoProjectRefs } from "./editor/demo-project";
 export { KeyVaultSheet } from "./components/panels/key-vault-sheet";
 export * from "./vault/vault-store";
+export {
+	getAllHtmlTemplates,
+	getHtmlTemplate,
+	getHtmlTemplateDefaultValues,
+	HTML_TEMPLATES,
+} from "./motion-templates/registry";
+export type { HtmlTemplate } from "./motion-templates/types";

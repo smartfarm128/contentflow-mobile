@@ -11,7 +11,7 @@ import { getLocallyAvailableFonts } from "@kneecap/editor-core/fonts/local-fonts
 import { setElementParam } from "../../editor/actions";
 import { DEFAULT_TEXT_BORDER_WIDTH } from "@kneecap/editor-core/text/typography";
 
-const SWATCHES = ["#f5f5f5", "#00cae0", "#ff5a5f", "#ffd54a", "#4ade80", "#000000"];
+const SWATCHES = ["#f5f5f5", "#ff4d2e", "#00cae0", "#ffd54a", "#4ade80", "#000000"];
 
 interface TextPanelProps {
 	editor: EditorCore;

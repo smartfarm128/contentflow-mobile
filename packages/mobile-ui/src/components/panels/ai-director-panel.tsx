@@ -217,7 +217,7 @@ export function AIDirectorPanel({
               className="cc-director__bubble cc-director__bubble--ai"
               style={{ display: "flex", alignItems: "center", gap: "8px" }}
             >
-              <Sparkles size={13} className="animate-spin text-[#00cae0]" />
+              <Sparkles size={13} className="animate-spin" style={{ color: "var(--cc-accent)" }} />
               <span style={{ fontSize: "12px", color: "var(--cc-text-secondary)" }}>
                 Director is thinking & reviewing footage…
               </span>

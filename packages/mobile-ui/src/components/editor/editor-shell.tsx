@@ -74,9 +74,9 @@ import { SheetHeader } from "../sheet-header";
 import { ProgressOverlay } from "../progress-overlay";
 import { KeyVaultSheet } from "../panels/key-vault-sheet";
 
-type SheetId = PrimaryToolId | "export" | "graph" | "vault";
+export type SheetId = PrimaryToolId | "export" | "graph" | "vault";
 
-interface EditorShellProps {
+export interface EditorShellProps {
 	className?: string;
 	/** Back (top-left arrow) tap handler — `TopBar` has always rendered that
 	 *  arrow, but nothing here ever wired it to anything (dead button; the
@@ -95,6 +95,8 @@ interface EditorShellProps {
 	 *  no-op here instead — bootstrapping the demo project on top of an
 	 *  already-active real one would be wrong, not just redundant. */
 	bootstrap?: () => Promise<unknown>;
+	/** Opens directly into a tool sheet on mount (e.g. from Home tools shortcuts). */
+	initialSheet?: SheetId;
 }
 
 /** Selected-clip actions, CapCut-style: the frequent verbs live DIRECTLY
@@ -229,10 +231,10 @@ const BACKGROUND_PRESETS = ["#000000", "#FFFFFF", "#101010", "#1E3A5F", "#4A1942
  * only the dev harness — see `bootstrap`/`onBack` above for the two knobs
  * that made that possible without forking the component.
  */
-export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) {
+export function EditorShell({ className, onBack, bootstrap, initialSheet }: EditorShellProps) {
 	const editor = useLiveEditor();
 	const [ready, setReady] = useState(false);
-	const [activeSheet, setActiveSheet] = useState<SheetId | null>(null);
+	const [activeSheet, setActiveSheet] = useState<SheetId | null>(initialSheet ?? null);
 	/**
 	 * Fullscreen preview is an IN-APP expansion, not the Fullscreen API.
 	 * `Element.requestFullscreen` is unimplemented in WKWebView for anything
@@ -441,6 +443,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				onPlayPause={() => togglePlayback({ editor })}
 				onUndo={() => editor.command.undo()}
 				onRedo={() => editor.command.redo()}
+				onPrev={() => seekToSeconds({ editor, seconds: 0 })}
+				onNext={() => seekToSeconds({ editor, seconds: durationSeconds })}
 				canUndo={editor.command.canUndo()}
 				canRedo={editor.command.canRedo()}
 				isPreviewFullscreen={isPreviewFullscreen}

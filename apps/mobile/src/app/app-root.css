@@ -1,39 +1,40 @@
-/* Home (project list) screen — app-shell chrome only. The editor itself is
- * styled entirely by @kneecap/mobile-ui's tokens.css/components.css; these
- * rules lean on the same --cc-* tokens so home matches the editor theme. */
+/* ContentFlow Mobile (Capacitor 8) — Shell Chrome & Navigation Styles
+ *
+ * Implements the ContentFlow design system (SageOfSixStacks/contentFlow Expo parity):
+ * - Light theme Home Screen surfaces (#F5F4F0 bg, #ECEAE4 cards, #1C1C1E text, #FF4D2E primary)
+ * - Seamless dark theme EditorShell transition (#0A0A0A base, #161618 panel, #2C2C2E raised)
+ * - iOS Safe Area insets and touch responsiveness
+ */
 
-/* The editor shell (.cc-editor-shell) sizes itself with height:100% — give
- * it a real chain to inherit from. Without this the whole editor collapses
- * to content height (verified in-browser: app squeezed into the top half). */
 html,
 body,
 #app {
 	height: 100%;
 	margin: 0;
-	/* This is a fixed full-screen app surface, not a document: never let
-	   the WebView page-scroll or rubber-band (on device, any layout
-	   overflow otherwise becomes a scrollable page — 2026-08-19). Screens
-	   that need scrolling own it internally (.kc-home__grid,
-	   .kc-crash__detail). */
 	overflow: hidden;
 	overscroll-behavior: none;
 }
+
 #app {
 	height: 100dvh;
 }
+
 body {
-	background: #000;
-	color: #f5f5f5;
+	background: #0a0a0a;
+	color: #ffffff;
 	font-family:
-		-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+		-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
 	-webkit-text-size-adjust: 100%;
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Crash Boundary
+   ────────────────────────────────────────────────────────────────────────── */
 .kc-crash {
 	height: 100dvh;
 	box-sizing: border-box;
 	overflow-y: auto;
-	background: #000;
+	background: #0a0a0a;
 	color: #ff9c9c;
 	padding: calc(env(safe-area-inset-top, 0px) + 24px) 16px 24px;
 	display: flex;
@@ -43,9 +44,10 @@ body {
 }
 
 .kc-crash__title {
-	font-size: 17px;
+	font-size: 18px;
 	font-weight: 700;
 	margin: 0;
+	color: #ffffff;
 }
 
 .kc-crash__detail {
@@ -55,232 +57,838 @@ body {
 	margin: 0;
 	max-height: 60dvh;
 	overflow-y: auto;
+	background: #161618;
+	padding: 12px;
+	border-radius: 8px;
+	border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.kc-home {
-	height: 100vh;
+/* ──────────────────────────────────────────────────────────────────────────
+   Home Screen Layout Container (Light theme #F5F4F0)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-home-layout {
 	height: 100dvh;
-	/* border-box, or the safe-area padding grows the box past the viewport
-	   and the whole page scrolls (same class of bug as .cc-editor-shell —
-	   found on device 2026-08-19). The project list scrolls internally. */
+	width: 100%;
 	box-sizing: border-box;
-	overflow: hidden;
-	background: var(--cc-bg, #0b0b0b);
-	color: var(--cc-text-primary, #f5f5f5);
 	display: flex;
 	flex-direction: column;
-	padding: calc(env(safe-area-inset-top, 0px) + 16px)
-		calc(env(safe-area-inset-right, 0px) + 16px)
-		calc(env(safe-area-inset-bottom, 0px) + 16px)
-		calc(env(safe-area-inset-left, 0px) + 16px);
-	gap: 16px;
-	font-family: var(--cc-font-family, system-ui, sans-serif);
+	background: #f5f4f0;
+	color: #1c1c1e;
+	overflow: hidden;
+	position: relative;
 }
 
-.kc-home__header {
+/* ──────────────────────────────────────────────────────────────────────────
+   Header (Expo CustomTabHeader parity: 56px, circle actions)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-tab-header {
+	height: calc(56px + max(env(safe-area-inset-top, 0px), 12px));
+	padding-top: max(env(safe-area-inset-top, 0px), 12px);
+	padding-left: 20px;
+	padding-right: 20px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	background: #f5f4f0;
+	flex-shrink: 0;
+	border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+	box-sizing: border-box;
+	z-index: 10;
+}
+
+.cf-tab-header__title {
+	font-size: 26px;
+	font-weight: 700;
+	letter-spacing: -0.6px;
+	color: #1c1c1e;
+	margin: 0;
+}
+
+.cf-tab-header__actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.cf-tab-header__circle-btn {
+	width: 40px;
+	height: 40px;
+	border-radius: 50%;
+	background: #eceae4;
+	border: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #1c1c1e;
+	cursor: pointer;
+	position: relative;
+	transition: transform 120ms ease, background 120ms ease;
+	touch-action: manipulation;
+}
+
+.cf-tab-header__circle-btn:active {
+	transform: scale(0.94);
+	background: #e2dfd7;
+}
+
+.cf-vault-indicator {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	position: absolute;
+	top: 7px;
+	right: 7px;
+	border: 2px solid #eceae4;
+}
+
+.cf-vault-indicator--active {
+	background: #34c759;
+}
+
+.cf-vault-indicator--missing {
+	background: #ff3b30;
+}
+
+.cf-home-error {
+	margin: 8px 16px 0;
+	padding: 10px 14px;
+	background: #ffebee;
+	color: #c62828;
+	border-radius: 8px;
+	font-size: 13px;
+	font-weight: 500;
+	border: 1px solid #ffcdd2;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Main Scrollable Area
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-home-content {
+	flex: 1;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	padding-bottom: 24px;
+	min-height: 0;
+}
+
+.cf-home-view {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	padding: 16px 20px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Herocard (Expo parity: 140px, #111, stripes)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-herocard {
+	height: 140px;
+	background: #111111;
+	border-radius: 20px;
+	padding: 18px 20px;
+	position: relative;
+	overflow: hidden;
+	cursor: pointer;
+	display: flex;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+	touch-action: manipulation;
+	transition: transform 120ms ease;
+	box-sizing: border-box;
+}
+
+.cf-herocard:active {
+	transform: scale(0.985);
+}
+
+.cf-herocard__content {
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	z-index: 2;
+	flex: 1;
+}
+
+.cf-herocard__overline {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 1.2px;
+	color: rgba(255, 255, 255, 0.5);
+	text-transform: uppercase;
+}
+
+.cf-herocard__headline {
+	font-size: 32px;
+	font-weight: 800;
+	line-height: 1.05;
+	letter-spacing: -1px;
+	color: #ffffff;
+	display: flex;
+	flex-direction: column;
+}
+
+.cf-herocard__cta-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.cf-herocard__plus-pill {
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+	background: #ff4d2e;
+	color: #140400;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.cf-herocard__cta-text {
+	font-size: 13px;
+	font-weight: 600;
+	color: #ffffff;
+}
+
+.cf-herocard__stripes {
+	position: absolute;
+	right: 0;
+	top: 0;
+	bottom: 0;
+	width: 100px;
+	display: flex;
+	pointer-events: none;
+}
+
+.cf-herocard__stripe {
+	flex: 1;
+	height: 100%;
+}
+
+.cf-herocard__stripe--1 {
+	background: #ff4d2e;
+}
+
+.cf-herocard__stripe--2 {
+	background: #1e1e1e;
+}
+
+.cf-herocard__stripe--3 {
+	background: rgba(255, 77, 46, 0.4);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Tools Section (4-column grid)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-tools-section {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.cf-section-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 }
 
-.kc-home__header h1 {
-	font-size: 20px;
+.cf-section-overline {
+	font-size: 11px;
 	font-weight: 700;
-	margin: 0;
+	letter-spacing: 1px;
+	color: #6e6e73;
+	text-transform: uppercase;
 }
 
-.kc-home__new {
-	font-family: inherit;
-	background: var(--cc-accent, #00cae0);
-	color: #000;
-	border: none;
-	border-radius: 8px;
-	padding: 10px 16px;
-	font-size: 14px;
+.cf-section-toggle {
+	font-size: 12px;
 	font-weight: 600;
+	color: #ff4d2e;
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 0;
 }
 
-.kc-home__new:disabled {
-	opacity: 0.5;
-}
-
-.kc-home__error {
-	color: var(--cc-danger, #ff5c5c);
-	font-size: 13px;
-	margin: 0;
-}
-
-.kc-home__empty {
-	opacity: 0.6;
-	font-size: 14px;
-	text-align: center;
-	margin-top: 40vh;
-	transform: translateY(-50%);
-}
-
-/* Two-up thumbnail grid (2026-09-07). The screen is fixed-height; a long
-   project list scrolls here, not the page. `align-content: start` keeps a
-   single row of cards at the top instead of stretching it to fill. */
-.kc-home__grid {
-	list-style: none;
-	margin: 0;
-	padding: 0 0 8px;
+.cf-tools-grid {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 14px 12px;
-	align-content: start;
-	overflow-y: auto;
-	min-height: 0;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 12px;
 }
 
-.kc-home__card {
-	position: relative;
-	min-width: 0;
-}
-
-/* The whole card is the open tap. `touch-action: manipulation` drops the
-   double-tap-to-zoom delay WebKit adds to a tap on a button. */
-.kc-home__card-open {
-	font-family: inherit;
-	width: 100%;
+.cf-tool-btn {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	align-items: center;
+	gap: 6px;
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 0;
+	touch-action: manipulation;
+}
+
+.cf-tool-btn__icon {
+	width: 52px;
+	height: 52px;
+	border-radius: 16px;
+	background: #eceae4;
+	color: #1c1c1e;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: transform 120ms ease, background 120ms ease;
+}
+
+.cf-tool-btn:active .cf-tool-btn__icon {
+	transform: scale(0.92);
+	background: #e2dfd7;
+}
+
+.cf-tool-btn__icon--ai {
+	background: #1c1c1e;
+	color: #ff4d2e;
+}
+
+.cf-tool-btn__label {
+	font-size: 11px;
+	font-weight: 600;
+	color: #1c1c1e;
+	text-align: center;
+	white-space: nowrap;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Projects Section (Home Tab)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-projects-section {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.cf-section-title {
+	font-size: 20px;
+	font-weight: 700;
+	color: #1c1c1e;
+	letter-spacing: -0.4px;
+	margin: 0;
+}
+
+.cf-section-cloud-badge {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 11px;
+	font-weight: 500;
+	color: #6e6e73;
+	background: #eceae4;
+	padding: 4px 8px;
+	border-radius: 12px;
+}
+
+.cf-projects-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 14px;
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.cf-project-card {
+	position: relative;
+	background: #eceae4;
+	border-radius: 14px;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.cf-project-card__open-btn {
 	background: none;
 	border: none;
 	padding: 0;
-	color: inherit;
+	cursor: pointer;
 	text-align: left;
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	color: inherit;
 	touch-action: manipulation;
-	-webkit-tap-highlight-color: transparent;
 }
 
-.kc-home__card-open:disabled {
-	opacity: 0.5;
-}
-
-.kc-home__card-open:active .kc-home__thumb-frame {
+.cf-project-card__open-btn:active .cf-project-card__thumb-frame {
 	transform: scale(0.98);
 }
 
-/* 3:4 thumbnail frame. Project thumbnails render at canvas size — mostly
-   9:16 on mobile — so `cover` trims a sliver top/bottom rather than
-   letterboxing; a landscape project gets centre-cropped, like CapCut. */
-.kc-home__thumb-frame {
-	position: relative;
-	display: block;
-	width: 100%;
+.cf-project-card__thumb-frame {
 	aspect-ratio: 3 / 4;
-	border-radius: var(--cc-radius-card, 12px);
+	width: 100%;
+	background: #1c1c1e;
+	position: relative;
 	overflow: hidden;
-	background: var(--cc-surface, #1a1a1a);
 	transition: transform 120ms ease;
 }
 
-.kc-home__thumb {
-	position: absolute;
-	inset: 0;
+.cf-project-card__thumb {
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
 	display: block;
 }
 
-.kc-home__thumb--empty {
+.cf-project-card__thumb--empty {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	color: var(--cc-text-secondary, #8b8a90);
-	background: var(--cc-surface-raised, #262626);
+	color: rgba(255, 255, 255, 0.3);
 }
 
-/* CapCut's duration pill: bottom-left of the thumbnail. */
-.kc-home__duration {
+.cf-project-card__duration {
 	position: absolute;
-	left: 8px;
 	bottom: 8px;
-	padding: 2px 6px;
-	border-radius: var(--cc-radius-chip, 8px);
-	background: rgb(0 0 0 / 60%);
-	color: #fff;
-	font-size: 11px;
+	left: 8px;
+	background: rgba(0, 0, 0, 0.7);
+	backdrop-filter: blur(8px);
+	color: #ffffff;
+	font-size: 10px;
 	font-weight: 600;
+	padding: 2px 6px;
+	border-radius: 4px;
 	font-variant-numeric: tabular-nums;
-	line-height: 1.4;
-	pointer-events: none;
 }
 
-.kc-home__meta {
+.cf-project-card__meta {
+	padding: 10px 12px;
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-	min-width: 0;
-	padding: 0 2px;
 }
 
-.kc-home__name {
-	font-size: 14px;
+.cf-project-card__name {
+	font-size: 13px;
 	font-weight: 600;
-	white-space: nowrap;
+	color: #1c1c1e;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.kc-home__date {
-	font-size: 12px;
-	opacity: 0.55;
+.cf-project-card__date {
+	font-size: 11px;
+	color: #6e6e73;
 }
 
-/* "⋯" chip over the thumbnail's top-right corner — the delete affordance
-   (sibling of the open button, see ProjectCard). 32px hit target on a
-   28px visual. */
-.kc-home__more {
+.cf-project-card__more-btn {
 	position: absolute;
 	top: 6px;
 	right: 6px;
-	width: 32px;
-	height: 32px;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	background: rgba(0, 0, 0, 0.55);
+	color: #ffffff;
 	border: none;
-	border-radius: var(--cc-radius-pill, 999px);
-	background: rgb(0 0 0 / 55%);
-	color: #fff;
-	font-size: 18px;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 14px;
 	font-weight: 700;
-	line-height: 1;
+	touch-action: manipulation;
+}
+
+.cf-projects-empty {
+	padding: 36px 16px;
+	text-align: center;
+	color: #6e6e73;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	background: #eceae4;
+	border-radius: 16px;
+}
+
+.cf-projects-empty p {
+	margin: 0;
+	font-size: 14px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Templates View (Tab 2)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-templates-view {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 16px 20px;
+}
+
+.cf-templates-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+}
+
+.cf-view-title {
+	font-size: 24px;
+	font-weight: 700;
+	color: #1c1c1e;
+	letter-spacing: -0.5px;
+	margin: 0;
+}
+
+.cf-view-subtitle {
+	font-size: 13px;
+	color: #6e6e73;
+	margin: 3px 0 0 0;
+}
+
+.cf-search-box {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	background: #eceae4;
+	border-radius: 12px;
+	padding: 10px 14px;
+}
+
+.cf-search-input {
+	flex: 1;
+	background: none;
+	border: none;
+	font-size: 14px;
+	color: #1c1c1e;
+	outline: none;
+	font-family: inherit;
+}
+
+.cf-search-input::placeholder {
+	color: #8e8e93;
+}
+
+.cf-search-clear {
+	background: none;
+	border: none;
+	color: #8e8e93;
+	cursor: pointer;
 	padding: 0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+}
+
+.cf-category-scroll {
+	display: flex;
+	gap: 8px;
+	overflow-x: auto;
+	padding-bottom: 4px;
+	-webkit-overflow-scrolling: touch;
+}
+
+.cf-category-pill {
+	padding: 6px 14px;
+	border-radius: 18px;
+	background: #eceae4;
+	color: #1c1c1e;
+	border: none;
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background 120ms ease;
 	touch-action: manipulation;
-	-webkit-tap-highlight-color: transparent;
 }
 
-.kc-home__more:disabled {
-	opacity: 0.5;
+.cf-category-pill--active {
+	background: #ff4d2e;
+	color: #140400;
 }
 
-.kc-home__header-actions {
+.cf-templates-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: 14px;
+}
+
+.cf-template-card {
+	background: #ffffff;
+	border: 1px solid #e5e5ea;
+	border-radius: 14px;
+	padding: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+}
+
+.cf-template-card__badge-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.cf-template-card__tag {
+	font-size: 10px;
+	font-weight: 700;
+	color: #ff4d2e;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.cf-template-card__aspect {
+	font-size: 10px;
+	font-weight: 600;
+	color: #8e8e93;
+	background: #eceae4;
+	padding: 2px 6px;
+	border-radius: 4px;
+}
+
+.cf-template-card__name {
+	font-size: 14px;
+	font-weight: 700;
+	color: #1c1c1e;
+	margin: 0;
+}
+
+.cf-template-card__desc {
+	font-size: 12px;
+	color: #6e6e73;
+	margin: 0;
+	line-height: 1.4;
+	flex: 1;
+}
+
+.cf-template-card__use-btn {
+	margin-top: 8px;
+	background: #1c1c1e;
+	color: #ffffff;
+	border: none;
+	border-radius: 8px;
+	padding: 8px 12px;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	touch-action: manipulation;
+}
+
+.cf-template-card__use-btn:active {
+	background: #333333;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Projects View (Tab 3)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-projects-view {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 16px 20px;
+}
+
+.cf-view-header-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Me View (Tab 4)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-me-view {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 16px 20px;
+}
+
+.cf-card {
+	background: #ffffff;
+	border: 1px solid #e5e5ea;
+	border-radius: 16px;
+	padding: 18px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.cf-profile-card {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+
+.cf-profile-avatar {
+	width: 52px;
+	height: 52px;
+	border-radius: 50%;
+	background: #1c1c1e;
+	color: #ff4d2e;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-weight: 800;
+	font-size: 17px;
+}
+
+.cf-profile-info {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.cf-profile-name {
+	font-size: 16px;
+	font-weight: 700;
+	color: #1c1c1e;
+	margin: 0;
+}
+
+.cf-profile-subtitle {
+	font-size: 12px;
+	color: #6e6e73;
+	margin: 0;
+}
+
+.cf-vault-card {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.cf-card-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.cf-card-title-group {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 }
 
-.kc-home__vault-btn {
-	font-family: inherit;
-	background: var(--cc-bg-raised, #2e2e2e);
-	color: var(--cc-text-primary, #f5f5f5);
-	border: 1px solid rgba(255, 255, 255, 0.12);
-	border-radius: 8px;
-	padding: 9px 12px;
-	font-size: 13px;
+.cf-card-title {
+	font-size: 15px;
+	font-weight: 700;
+	color: #1c1c1e;
+	margin: 0;
+}
+
+.cf-status-pill {
+	font-size: 11px;
 	font-weight: 600;
+	padding: 3px 8px;
+	border-radius: 10px;
+}
+
+.cf-status-pill--active {
+	background: #e8f8ee;
+	color: #1c8b3e;
+}
+
+.cf-status-pill--missing {
+	background: #feeceb;
+	color: #d32f2f;
+}
+
+.cf-card-body {
+	font-size: 13px;
+	color: #6e6e73;
+	line-height: 1.45;
+	margin: 0;
+}
+
+.cf-diag-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+.cf-diag-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 12px;
+	padding: 4px 0;
+	border-bottom: 1px solid #f0f0f0;
+}
+
+.cf-diag-label {
+	color: #6e6e73;
+}
+
+.cf-diag-value {
+	font-weight: 600;
+	color: #1c1c1e;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Fixed Bottom Navigation Bar (Expo _layout.tsx parity)
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-bottom-nav {
+	height: calc(56px + max(env(safe-area-inset-bottom, 0px), 8px));
+	padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+	background: #ffffff;
+	border-top: 1px solid #e5e5ea;
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	justify-content: space-around;
+	position: sticky;
+	bottom: 0;
+	z-index: 100;
+	flex-shrink: 0;
+	box-sizing: border-box;
+}
+
+.cf-bottom-nav__item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 3px;
+	background: none;
+	border: none;
+	color: #8e8e93;
 	cursor: pointer;
+	padding: 4px 14px;
+	transition: color 120ms ease;
+	touch-action: manipulation;
 }
 
-.kc-home__vault-btn:active {
-	background: rgba(255, 255, 255, 0.08);
+.cf-bottom-nav__item--active {
+	color: #ff4d2e;
 }
 
+.cf-bottom-nav__label {
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 1.1;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Common Buttons
+   ────────────────────────────────────────────────────────────────────────── */
+.cf-btn-primary {
+	background: #ff4d2e;
+	color: #140400;
+	font-weight: 700;
+	border: none;
+	border-radius: 10px;
+	padding: 10px 18px;
+	font-size: 13px;
+	cursor: pointer;
+	transition: transform 120ms ease, background 120ms ease;
+	touch-action: manipulation;
+}
+
+.cf-btn-primary:active {
+	transform: scale(0.97);
+	background: #e03a1c;
+}
+
+.cf-btn-primary:disabled {
+	opacity: 0.5;
+	pointer-events: none;
+}

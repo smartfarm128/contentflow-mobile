@@ -14,14 +14,14 @@
 export const CC_ICON_STROKE = 2.5;
 
 export const ccColor = {
-	bgBase: "#000000",
-	bgPanel: "#202020",
-	bgRaised: "#2e2e2e",
-	textPrimary: "#f5f5f5",
-	textSecondary: "#8b8a90",
-	accent: "#00cae0",
-	accentActive: "#00a8ba",
-	accentContrast: "#04181a",
+	bgBase: "#0a0a0a",
+	bgPanel: "#161618",
+	bgRaised: "#2c2c2e",
+	textPrimary: "#ffffff",
+	textSecondary: "#8e8e93",
+	accent: "#ff4d2e",
+	accentActive: "#e03a1c",
+	accentContrast: "#140400",
 	badgePro: "#8800e8",
 } as const;
 

@@ -24,10 +24,12 @@
  * kneecap mobile-ui — CapCut MOBILE design tokens
  * Plan M6b (opencut-mobile-port.md), track B1: FULL pixel fidelity.
  *
- * FOUNDER DIRECTIVE (overrides corpus 06 §7.3's own default proposal):
- * this track ships CapCut's *actual* measured tokens, including the real
- * cyan #00CAE0 — only the app name (kneecap), icon, and splash screen are
- * original. Do not swap --cc-accent for a trade-dress color on this track.
+ * ContentFlow UI (2026-09-25, branch feat/expo-ui): surface, text and accent
+ * colors now follow the ContentFlow design (SageOfSixStacks/contentFlow,
+ * constants/Colors.ts `editorDarkColors` + `primary`), replacing the earlier
+ * CapCut-measured cyan palette (restore point: git tag `pre-expo-ui`).
+ * Provenance comments below that say MEASURED describe the ORIGINAL CapCut
+ * values; the shipped value is the ContentFlow one noted beside it.
  *
  * Every value below carries a provenance comment:
  *   MEASURED <confidence>  — pixel-sampled from real CapCut iOS App Store
@@ -61,13 +63,13 @@
 	   10/10 screenshots. Deepest bg ranged #000000-#101010; #000000 is the
 	   plain reading (2/10 screenshots, the two with the largest true-black
 	   canvas area: ip_6.jpg 10.7%, ip_9.jpg 16.2%). */
-	--cc-bg-base: #000000;
+	--cc-bg-base: #0a0a0a; /* ContentFlow editorDarkColors.bg */
 	/* MEASURED high confidence — corpus 06 §2.1: dominant color 23-43% in
 	   8/10 screenshots, the single most consistent finding in the report. */
-	--cc-bg-panel: #202020;
+	--cc-bg-panel: #161618; /* ContentFlow editorDarkColors.cardBg */
 	/* MEASURED medium-high confidence — corpus 06 §2.1: midpoint of the
 	   observed #282828-#383838 secondary/chip-surface range. */
-	--cc-bg-raised: #2e2e2e;
+	--cc-bg-raised: #2c2c2e; /* ContentFlow editorDarkColors.surface */
 	/* [NEEDS-CAPTURE] backdrop scrim opacity behind an open sheet is not
 	   legible in any marketing composite (the promo background art sits
 	   there instead of a live scrim). Placeholder: standard iOS/Android
@@ -77,15 +79,15 @@
 	/* ================================ Text ================================= */
 	/* MEASURED high confidence — corpus 06 §2.1, visible on every active
 	   tab label / headline overlay sampled. */
-	--cc-text-primary: #f5f5f5;
+	--cc-text-primary: #ffffff; /* ContentFlow editorDarkColors.text */
 	/* MEASURED high confidence — corpus 06 §2.1: isolated pixel sample off
 	   inactive tab labels in ip_1.jpg, rgb(139,138,144). Near-identical to
 	   iOS systemGray (#8E8E93) — corroborating, not coincidental (see report
 	   §3): safe to keep verbatim, it's Apple's color, not CapCut's own. */
-	--cc-text-secondary: #8b8a90;
+	--cc-text-secondary: #8e8e93; /* ContentFlow textMuted */
 	/* DERIVED — no disabled-state screenshot exists to measure from.
 	   [NEEDS-CAPTURE] real disabled-state treatment. */
-	--cc-text-disabled: rgb(139 138 144 / 50%);
+	--cc-text-disabled: rgb(142 142 147 / 50%);
 
 	/* =============================== Accent ================================ */
 	/* MEASURED very-high confidence — corpus 06 §2.2: isolated 130x30px
@@ -94,16 +96,18 @@
 	   re-sampled this session directly off iphone_shots/ip_9.jpg at
 	   box (620,2470)-(750,2500): rgb(0,202,224) in 34/36 probe points —
 	   confirms the corpus figure exactly, not just trusted secondhand. */
-	--cc-accent: #00cae0;
+	--cc-accent: #ff4d2e; /* ContentFlow Colors.primary */
 	/* DERIVED — ~12% darken of --cc-accent for a pressed/active button
 	   state. [NEEDS-CAPTURE]: no pressed-state screenshot available to
 	   measure the real value. */
-	--cc-accent-active: #00a8ba;
+	--cc-accent-active: #e03a1c; /* DERIVED darken of #ff4d2e */
 	/* DERIVED — ink color for text/icons placed on top of --cc-accent.
 	   Near-black reads correctly on #00CAE0 (contrast-checked, see
 	   src/__tests__/contrast-audit.test.ts); CapCut's own on-accent ink
 	   was not independently isolated in any screenshot. */
-	--cc-accent-contrast: #04181a;
+	/* ContentFlow's own design puts WHITE on #FF4D2E (3.31:1, fails AA
+	   for body-size labels); near-black ink clears 6:1 — see contrast-audit. */
+	--cc-accent-contrast: #140400;
 	/* MEASURED medium confidence — sampled this session directly from the
 	   "Pro" gem/diamond badges visible on grid tiles in ip_1.jpg and
 	   ip_7.jpg (dominant cluster over a scanned region, not one isolated
@@ -212,7 +216,7 @@
 	   --cc-accent/--cc-badge-pro hues plus neutral tones, not CapCut pixel
 	   reads — flagged [NEEDS-CAPTURE] for the M6a session same as the rest
 	   of this file's un-measurable metrics. */
-	--cc-track-color-main: #3a3a3a;
+	--cc-track-color-main: #2c2c2e; /* ContentFlow MainTrack clip fill */
 	--cc-track-color-overlay: #2f4a52;
 	--cc-track-color-text: #4a3f1f;
 	--cc-track-color-sticker: #4a2f4a;

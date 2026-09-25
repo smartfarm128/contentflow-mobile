@@ -1,13 +1,12 @@
-import { ChevronDown, Search, X, Lock } from "lucide-react";
+import { ChevronDown, ChevronLeft, Search, Lock } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { ExportButton } from "../export-button";
 import { cn } from "../../lib/cn";
 
 interface TopBarProps {
 	onClose?: () => void;
-	/** The "AI UHD ▾" resolution pill — in CapCut this is a quick export-
-	 *  resolution control, so kneecap wires it to the export sheet (where
-	 *  resolution/fps/quality genuinely live). */
+	/** The "1080 ▾" resolution pill from ContentFlow/Expo design — in CapCut/ContentFlow
+	 *  this is a quick export-resolution control wired to the export sheet. */
 	resolutionLabel: string;
 	onOpenExportSettings?: () => void;
 	onExport?: () => void;
@@ -16,10 +15,9 @@ interface TopBarProps {
 }
 
 /**
- * CapCut-parity top bar, MEASURED from the founder capture
- * (docs/capcut-reference/capture-editor-toolbar-start.png): ✕ close +
- * search on the left, then a spacer, then the dark "AI UHD ▾" resolution
- * pill and the cyan Export pill.
+ * ContentFlow editor top bar (Expo parity):
+ * Left: Chevron-left back + search
+ * Right: Lock (Key Vault) + dark resolution pill (1080 ▾) + orange Export button
  */
 export function TopBar({
 	onClose,
@@ -31,11 +29,11 @@ export function TopBar({
 }: TopBarProps) {
 	return (
 		<div className={cn("cc-topbar", className)}>
-			<button type="button" className="cc-topbar__icon-btn" onClick={onClose} aria-label="Close project">
-				<X size={24} strokeWidth={CC_ICON_STROKE} />
+			<button type="button" className="cc-topbar__icon-btn" onClick={onClose} aria-label="Back to projects">
+				<ChevronLeft size={26} strokeWidth={CC_ICON_STROKE} />
 			</button>
 			<span className="cc-topbar__icon-btn cc-topbar__icon-btn--chrome" aria-hidden="true">
-				<Search size={22} strokeWidth={CC_ICON_STROKE} />
+				<Search size={20} strokeWidth={CC_ICON_STROKE} />
 			</span>
 			<span className="cc-topbar__spacer" />
 			{onOpenVault && (

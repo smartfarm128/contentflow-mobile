@@ -26,6 +26,7 @@
 		"@kneecap/editor-core": "workspace:*",
 		"@kneecap/mobile-ui": "workspace:*",
 		"@kneecap/native-bridge": "workspace:*",
+		"lucide-react": "^0.562.0",
 		"mediabunny": "^1.29.1",
 		"opencut-wasm": "file:../../rust/wasm/pkg",
 		"react": "^19.0.0",

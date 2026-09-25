@@ -154,7 +154,7 @@ function PlanRow({
 }
 
 function StatusPip({ status }: { status: PlanStep["status"] }) {
-	if (status === "running") return <Loader2 size={13} className="animate-spin text-[#00cae0]" />;
+	if (status === "running") return <Loader2 size={13} className="animate-spin" style={{ color: "var(--cc-accent)" }} />;
 	if (status === "done") return <Check size={13} color="var(--cc-accent)" strokeWidth={CC_ICON_STROKE} />;
 	if (status === "failed") return <AlertTriangle size={13} color="#ffaa00" />;
 	if (status === "skipped") return <MinusCircle size={13} color="var(--cc-text-disabled)" />;
