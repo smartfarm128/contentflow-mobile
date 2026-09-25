@@ -8,7 +8,7 @@ import templates from "../motion-templates/catalog/openchatcut-templates.json";
 
 describe("template-host security and compilation", () => {
 	test("rejects forbidden security injection patterns", () => {
-		expect(() => validateTemplate("const T = () => { fetch('https://evil.com'); return <div/>; }")).toThrow("fetch");
+		expect(() => validateTemplate("const T = () => { fetch('/api/malicious'); return <div/>; }")).toThrow("fetch");
 		expect(() => validateTemplate("const T = () => { eval('bad()'); return <div/>; }")).toThrow("eval");
 		expect(() => validateTemplate("const T = () => { window.location = 'evil'; return <div/>; }")).toThrow("window");
 		expect(() => validateTemplate("const T = () => { while(true) {} return <div/>; }")).toThrow("infinite loop");
