@@ -204,6 +204,7 @@ import { ShuffleNumberTemplate } from "./templates/ShuffleNumber";
 import { ToggleSwitchTemplate } from "./templates/ToggleSwitch";
 import { TunnelHeroTemplate } from "./templates/TunnelHero";
 import { placeholderAvatar, placeholderImage, placeholderLogo } from "./local-placeholder";
+import { loadCatalogTemplates } from "./catalog-loader";
 
 const RAW_HTML_TEMPLATES: readonly HtmlTemplate[] = [
   {
@@ -3586,7 +3587,7 @@ const RAW_HTML_TEMPLATES: readonly HtmlTemplate[] = [
   },
 ];
 
-export const HTML_TEMPLATES: readonly HtmlTemplate[] = RAW_HTML_TEMPLATES.map((template) => {
+const OWN_HTML_TEMPLATES: readonly HtmlTemplate[] = RAW_HTML_TEMPLATES.map((template) => {
   const hasShowBg = template.controls.some((c) => c.id === "showBackground");
   const controls = hasShowBg
     ? template.controls
@@ -3607,12 +3608,22 @@ export const HTML_TEMPLATES: readonly HtmlTemplate[] = RAW_HTML_TEMPLATES.map((t
   };
 });
 
+// The OpenChatCut catalog is appended as-is: those templates expose their own
+// background controls (bgColor / transparentBackground), and the root-style
+// override above would land on their context provider, not a DOM node.
+export const HTML_TEMPLATES: readonly HtmlTemplate[] = [
+  ...OWN_HTML_TEMPLATES,
+  ...loadCatalogTemplates(),
+];
+
+const TEMPLATES_BY_ID = new Map(HTML_TEMPLATES.map((t) => [t.id, t]));
+
 export function getAllHtmlTemplates(): readonly HtmlTemplate[] {
   return HTML_TEMPLATES;
 }
 
 export function getHtmlTemplate(id: string): HtmlTemplate | undefined {
-  return HTML_TEMPLATES.find((t) => t.id === id);
+  return TEMPLATES_BY_ID.get(id);
 }
 
 export function getHtmlTemplateDefaultValues(

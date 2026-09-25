@@ -184,22 +184,47 @@ function templateName(code: string): string {
 	return name;
 }
 
-function evaluateTemplate(transpiled: string, name: string): MgComponent {
-	const names = [...Object.keys(WHITELIST), ...SHADOW];
-	const values = [...Object.values(WHITELIST), ...SHADOW.map(() => undefined)];
-	const factory = new Function(
-		...names,
-		`"use strict";\n${transpiled}\n;return ${name};`,
-	);
-	return factory(...values) as MgComponent;
+/**
+ * Parameter list every sandboxed factory is called with: whitelist first,
+ * then the shadowed globals (passed as undefined). Shared by the runtime
+ * `new Function` path and the build-time precompiler so the two can never
+ * disagree on ordering.
+ */
+export const SANDBOX_PARAM_NAMES: readonly string[] = [...Object.keys(WHITELIST), ...SHADOW];
+const SANDBOX_ARGS: readonly unknown[] = [
+	...Object.values(WHITELIST),
+	...SHADOW.map(() => undefined),
+];
+
+export type SandboxFactory = (...args: unknown[]) => MgComponent;
+
+/** Instantiates a precompiled factory inside the same sandbox scope. */
+export function instantiateSandboxed(factory: SandboxFactory): MgComponent {
+	return factory(...SANDBOX_ARGS);
 }
 
-export function compileTemplate(code: string): MgComponent {
+/**
+ * Validates and transpiles template source to a factory body (no eval).
+ * The build-time precompiler uses this, so the app ships plain module
+ * code and never needs 'unsafe-eval' in its CSP.
+ */
+export function transpileTemplate(code: string): string {
 	validateTemplate(code);
 	const name = templateName(code);
 	const output = transform(code, { transforms: ["jsx"] }).code;
 	if (!output) throw new Error("Template transform yielded empty code");
-	return evaluateTemplate(output, name);
+	return `${output}\n;return ${name};`;
+}
+
+/**
+ * Runtime compile path, for code that only exists at runtime (e.g. AI- or
+ * user-authored templates). Needs `new Function`, which the mobile CSP
+ * blocks -- shipped catalog templates go through the precompiled path.
+ */
+export function compileTemplate(code: string): MgComponent {
+	const body = transpileTemplate(code);
+	const factory = new Function(...SANDBOX_PARAM_NAMES, `"use strict";\n${body}`) as SandboxFactory;
+	return instantiateSandboxed(factory);
 }
 
 export function getCompiledTemplate(code: string): MgComponent {
@@ -207,5 +232,16 @@ export function getCompiledTemplate(code: string): MgComponent {
 	if (cached) return cached;
 	const compiled = compileTemplate(code);
 	cache.set(code, compiled);
+	return compiled;
+}
+
+const factoryCache = new WeakMap<SandboxFactory, MgComponent>();
+
+export function getPrecompiledTemplate(factory: SandboxFactory): MgComponent {
+	let compiled = factoryCache.get(factory);
+	if (!compiled) {
+		compiled = instantiateSandboxed(factory);
+		factoryCache.set(factory, compiled);
+	}
 	return compiled;
 }

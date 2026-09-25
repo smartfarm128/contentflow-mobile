@@ -70,16 +70,19 @@ export function MotionTemplatesPanel({
 
   const allTemplates = useMemo(() => getAllHtmlTemplates(), []);
 
+  // Most-used tags first: with 378 templates, registry order would fill the
+  // chip row with whichever library happens to be listed first.
   const categories = useMemo(() => {
-    const cats = new Set<string>(["all"]);
+    const counts = new Map<string, number>();
     for (const t of allTemplates) {
-      if (t.tags) {
-        for (const tag of t.tags) {
-          cats.add(tag);
-        }
+      for (const tag of t.tags ?? []) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
     }
-    return Array.from(cats);
+    const byUse = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag]) => tag);
+    return ["all", ...byUse];
   }, [allTemplates]);
 
   const filteredTemplates = useMemo(() => {
@@ -161,7 +164,7 @@ export function MotionTemplatesPanel({
                   className={`cc-chip ${active ? "cc-chip--active" : ""}`}
                   style={{ textTransform: "capitalize", fontSize: "12px" }}
                 >
-                  {cat}
+                  {cat.replace(/-/g, " ")}
                 </button>
               );
             })}
