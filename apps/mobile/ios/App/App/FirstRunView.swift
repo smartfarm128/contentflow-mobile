@@ -51,20 +51,12 @@ struct FirstRunView: View {
 
                 Button(action: handleGetStarted) {
                     Text("Get Started")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.white)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(Color(red: 0x14 / 255, green: 0x04 / 255, blue: 0x00 / 255))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        // Fixer pass: was 0x4E4AFF, a pre-B1 blue-violet
-                        // trade-dress accent written at M3, before the
-                        // ratified B1 hard directive ("full pixel fidelity
-                        // to CapCut mobile, cyan #00CAE0 in"). First-run
-                        // chrome isn't in B1's splash/name/icon exception
-                        // list, and packages/mobile-ui/src/tokens.css's
-                        // --cc-accent has used #00CAE0 since M6 — this
-                        // brings the one other native accent surface (see
-                        // colors.xml on Android) in line with it.
-                        .background(Color(red: 0x00 / 255, green: 0xCA / 255, blue: 0xE0 / 255))
+                        // ContentFlow primary accent #FF4D2E with #140400 dark contrast ink
+                        .background(Color(red: 0xFF / 255, green: 0x4D / 255, blue: 0x2E / 255))
                         .cornerRadius(12)
                 }
                 .padding(.horizontal, 24)
