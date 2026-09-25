@@ -230,3 +230,39 @@ export function parseMediaTimecode({
 		context: "parseMediaTimecode()",
 	});
 }
+
+/**
+ * Converts an integer frame index into integer MediaTime ticks.
+ * Frame 0 is tick 0.
+ */
+export function frameTicksForFps({
+	frame,
+	fps,
+}: {
+	frame: number;
+	fps: FrameRate;
+}): MediaTime {
+	const num = fps.numerator || 30;
+	const den = fps.denominator || 1;
+	const ticks = Math.round((TICKS_PER_SECOND * frame * den) / num);
+	return requireMediaTime({
+		value: ticks,
+		context: "frameTicksForFps()",
+	});
+}
+
+/**
+ * Converts integer MediaTime ticks into the nearest integer frame index.
+ */
+export function frameIndexForTicks({
+	ticks,
+	fps,
+}: {
+	ticks: number;
+	fps: FrameRate;
+}): number {
+	const num = fps.numerator || 30;
+	const den = fps.denominator || 1;
+	return Math.round((ticks * num) / (TICKS_PER_SECOND * den));
+}
+

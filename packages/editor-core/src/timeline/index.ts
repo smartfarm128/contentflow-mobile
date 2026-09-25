@@ -12,6 +12,8 @@ export * from "./ruler-utils";
 export * from "./pixel-utils";
 export * from "./transitions";
 export * from "./group-resize";
+export * from "./source-limits";
+export * from "./draft-engine";
 
 export function calculateTotalDuration({
 	tracks,

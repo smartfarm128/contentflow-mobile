@@ -14,6 +14,7 @@
  */
 import { useAIDirectorStore } from "./ai-store";
 import { executeTool, type ToolContext } from "./ai-executors";
+import { TracksSnapshotCommand } from "@kneecap/editor-core/commands";
 
 export interface PlanRunSummary {
 	ran: number;
@@ -42,6 +43,10 @@ export async function runApprovedPlan({
 	if (!plan) return { ran: 0, failed: 0, skipped: 0, lines: [] };
 
 	store.setPlanStatus("running");
+
+	const beforeTracks = JSON.parse(
+		JSON.stringify(ctx.editor.scenes.getActiveScene().tracks),
+	);
 
 	const lines: string[] = [];
 	let ran = 0;
@@ -81,6 +86,20 @@ export async function runApprovedPlan({
 		});
 		onStepDone?.({ stepId: step.id, ok, result });
 		lines.push(`- ${step.tool}: ${result}`);
+	}
+
+	if (ran > 0) {
+		const afterTracks = JSON.parse(
+			JSON.stringify(ctx.editor.scenes.getActiveScene().tracks),
+		);
+		// Consolidate the entire multi-step plan into one undoable snapshot
+		// so tapping Undo reverts the whole AI edit in a single tap.
+		ctx.editor.command.execute({
+			command: new TracksSnapshotCommand({
+				before: beforeTracks,
+				after: afterTracks,
+			}),
+		});
 	}
 
 	useAIDirectorStore.getState().setPlanStatus("complete");

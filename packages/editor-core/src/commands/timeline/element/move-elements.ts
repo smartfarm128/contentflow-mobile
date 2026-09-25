@@ -4,7 +4,8 @@ import {
 	type CommandResult,
 } from "@/commands/base-command";
 import { EditorCore } from "@/core";
-import type { SceneTracks, TimelineElement, TimelineTrack } from "@/timeline";
+import type { SceneTracks, TimelineElement, TimelineTrack, VideoElement, ImageElement } from "@/timeline";
+import { addMediaTime, ZERO_MEDIA_TIME } from "@/wasm";
 import {
 	buildEmptyTrack,
 	validateElementTrackCompatibility,
@@ -100,17 +101,31 @@ export class MoveElementCommand extends Command {
 			movedElementsByTargetTrackId.set(move.targetTrackId, nextTargetElements);
 		}
 
+		const touchesMain = this.moves.some(
+			(m) =>
+				m.sourceTrackId === tracksToUpdate.main.id ||
+				m.targetTrackId === tracksToUpdate.main.id,
+		);
+
 		const updatedTracks = mapSceneTracks({
 			tracks: tracksToUpdate,
-			update: (track) => ({
-				...track,
-				elements: [
-					...track.elements.filter(
-						(element) => !movedElementIds.has(element.id),
-					),
-					...(movedElementsByTargetTrackId.get(track.id) ?? []),
-				],
-			}),
+			update: (track) => {
+				const remaining = track.elements.filter(
+					(element) => !movedElementIds.has(element.id),
+				);
+				const added = movedElementsByTargetTrackId.get(track.id) ?? [];
+				const merged = [...remaining, ...added];
+				if (touchesMain && track.id === tracksToUpdate.main.id) {
+					return {
+						...track,
+						elements: rebuttMainElements(merged as (VideoElement | ImageElement)[]),
+					};
+				}
+				return {
+					...track,
+					elements: merged,
+				};
+			},
 		});
 
 		editor.timeline.updateTracks(updatedTracks);
@@ -180,4 +195,16 @@ function insertTrackAtDisplayIndex({
 			...tracks.overlay.slice(overlayInsertIndex),
 		],
 	};
+}
+
+function rebuttMainElements(
+	elements: (VideoElement | ImageElement)[],
+): (VideoElement | ImageElement)[] {
+	const sorted = [...elements].sort((a, b) => a.startTime - b.startTime);
+	let cursor = ZERO_MEDIA_TIME;
+	return sorted.map((el) => {
+		const next = el.startTime === cursor ? el : { ...el, startTime: cursor };
+		cursor = addMediaTime({ a: cursor, b: el.duration });
+		return next;
+	});
 }

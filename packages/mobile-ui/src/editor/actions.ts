@@ -27,6 +27,7 @@ import {
 	UpdateProjectSettingsCommand,
 	TransitionsSnapshotCommand,
 	TracksSnapshotCommand,
+	MoveElementCommand,
 } from "@kneecap/editor-core/commands";
 import {
 	buildTextElement,
@@ -37,6 +38,7 @@ import {
 	calculateTotalDuration,
 	isVisualElement,
 	computeGroupResize,
+	predecessorRightEdge,
 	type GroupResizeMember,
 } from "@kneecap/editor-core/timeline";
 import {
@@ -46,6 +48,8 @@ import {
 	mediaTime,
 	mediaTimeToSeconds,
 	roundFrameTicks,
+	frameTicksForFps,
+	frameIndexForTicks,
 } from "@kneecap/editor-core/wasm";
 import { registerDefaultGraphics } from "@kneecap/editor-core/graphics";
 import { buildElementFromMedia } from "@kneecap/editor-core/timeline";
@@ -148,13 +152,38 @@ export function selectElement({ editor, ref }: { editor: EditorCore; ref: Elemen
 
 // ----------------------------- Edit panel (clip) ----------------------------
 
-export function splitAtPlayhead({ editor, ref }: { editor: EditorCore; ref: ElementRef }): void {
-	editor.command.execute({
-		command: new SplitElementsCommand({
-			elements: [ref],
-			splitTime: editor.playback.getCurrentTime(),
-		}),
+export function splitAtPlayhead({
+	editor,
+	ref,
+}: {
+	editor: EditorCore;
+	ref?: ElementRef | null;
+}): ElementRef | null {
+	const splitTime = editor.playback.getCurrentTime();
+	let targetRef = ref;
+
+	// Mobile ergonomic auto-selection: if no clip is explicitly selected,
+	// resolve the active clip under the playhead on the main track.
+	if (!targetRef) {
+		const tracks = editor.scenes.getActiveScene().tracks;
+		const mainEl = tracks.main.elements.find(
+			(el) =>
+				splitTime > el.startTime &&
+				splitTime < addMediaTime({ a: el.startTime, b: el.duration }),
+		);
+		if (mainEl) {
+			targetRef = { trackId: tracks.main.id, elementId: mainEl.id };
+		}
+	}
+
+	if (!targetRef) return null;
+
+	const cmd = new SplitElementsCommand({
+		elements: [targetRef],
+		splitTime,
 	});
+	editor.command.execute({ command: cmd });
+	return targetRef;
 }
 
 /**
@@ -190,6 +219,8 @@ export function deleteSelected({ editor, refs }: { editor: EditorCore; refs: Ele
 	editor.command.execute({ command: new TracksSnapshotCommand({ before, after }) });
 	editor.selection.setSelectedElements({ elements: [] });
 }
+
+export const rippleDelete = deleteSelected;
 
 export function duplicateSelected({ editor, refs }: { editor: EditorCore; refs: ElementRef[] }): void {
 	editor.command.execute({ command: new DuplicateElementsCommand({ elements: refs }) });
@@ -306,15 +337,19 @@ function computeTrimPatches({
 	let leftNeighborBound: MediaTime | null = null;
 	let rightNeighborBound: MediaTime | null = null;
 	if (isMainTrack && side === "left") {
-		// Magnetic left-trim pins startTime, so the absolute-0 floor that a
-		// null bound implies ("can't drag the start before time 0") does not
-		// apply — extending the FIRST clip's in-point is legal and pushes
-		// everything right. A far-left synthetic bound leaves the source
-		// extent (or nothing, for unbounded elements) as the only clamp.
-		leftNeighborBound = subMediaTime({
-			a: element.startTime,
-			b: mediaTime({ ticks: 2 ** 52 }),
+		const currentStartFrame = frameIndexForTicks({ ticks: element.startTime, fps });
+		const predEdgeFrame = predecessorRightEdge({
+			tracks,
+			elementId,
+			trackId,
+			baseStartFrame: currentStartFrame,
+			fps,
 		});
+		if (predEdgeFrame > 0) {
+			leftNeighborBound = frameTicksForFps({ frame: predEdgeFrame, fps });
+		} else {
+			leftNeighborBound = ZERO_MEDIA_TIME;
+		}
 	}
 	if (!isMainTrack) {
 		for (const other of track.elements) {
@@ -439,11 +474,13 @@ export function commitElementMove({
 	trackId,
 	elementId,
 	startSec,
+	targetTrackId,
 }: {
 	editor: EditorCore;
 	trackId: string;
 	elementId: string;
 	startSec: number;
+	targetTrackId?: string;
 }): void {
 	const tracks = editor.scenes.getActiveScene().tracks;
 	const track = findTrackInSceneTracks({ tracks, trackId });
@@ -457,6 +494,27 @@ export function commitElementMove({
 			fps,
 		}),
 	});
+
+	// Cross-track move: moving between tracks via MoveElementCommand
+	if (targetTrackId && targetTrackId !== trackId) {
+		const targetTrack = findTrackInSceneTracks({ tracks, trackId: targetTrackId });
+		if (targetTrack) {
+			editor.command.execute({
+				command: new MoveElementCommand({
+					moves: [
+						{
+							sourceTrackId: trackId,
+							targetTrackId,
+							elementId,
+							newStartTime: candidate,
+						},
+					],
+				}),
+			});
+			return;
+		}
+	}
+
 	const isMainTrack = tracks.main.id === trackId;
 
 	if (!isMainTrack) {

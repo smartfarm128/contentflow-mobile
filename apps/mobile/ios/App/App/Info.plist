@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CAPACITOR_DEBUG</key>
+	<key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>ContentFlow</string>
+	<string>ContentFlow</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -20,18 +20,6 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>ContentFlow saves exported videos back to your library when you tap Export.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>ContentFlow uses the camera to record clips directly into your project.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>ContentFlow transcribes your clips' audio on this device to generate captions. Audio never leaves your phone.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>ContentFlow uses the microphone to record voiceovers and camera audio.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -39,33 +27,45 @@
 			<string>com.contentflow.app.spike</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<!-- kneecap M1 spike — throwaway deep link that navigates the
-				     already-loaded WKWebView to spike.html (the hidden
-				     diagnostics screen). See SceneDelegate.swift and
-				     docs/SPIKE-GUIDE.md. Not a product feature; safe/expected
-				     to delete once M1 is read. -->
 				<string>kneecap-spike</string>
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>ContentFlow uses the camera to record clips directly into your project.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ContentFlow uses the microphone to record voiceovers and camera audio.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>ContentFlow saves exported videos back to your library when you tap Export.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>ContentFlow transcribes your clips' audio on this device to generate captions. Audio never leaves your phone.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>fonts/AlbertSans-Regular.ttf</string>
+		<string>fonts/AlbertSans-Bold.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
-    <false/>
-    <key>UISceneConfigurations</key>
-    <dict>
-      <key>UIWindowSceneSessionRoleApplication</key>
-      <array>
-        <dict>
-            <key>UISceneConfigurationName</key>
-            <string>Default Configuration</string>
-            <key>UISceneDelegateClassName</key>
-            <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
-            <key>UISceneStoryboardFile</key>
-            <string>Main</string>
-        </dict>
-      </array>
-    </dict>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
 	</dict>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
@@ -90,10 +90,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<key>UIAppFonts</key>
-	<array>
-		<string>fonts/AlbertSans-Regular.ttf</string>
-		<string>fonts/AlbertSans-Bold.ttf</string>
-	</array>
 </dict>
 </plist>
