@@ -463,8 +463,14 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						onTrimScrub={({ clipId, trackId, edge, boundarySec }) =>
 							scrubElementTrim({ editor, trackId, elementId: clipId, edge, boundarySec })
 						}
-						onMoveClip={({ clipId, trackId, startSec }) =>
-							commitElementMove({ editor, trackId, elementId: clipId, startSec })
+						onMoveClip={({ clipId, trackId, startSec, targetTrackId }) =>
+							commitElementMove({
+								editor,
+								trackId,
+								elementId: clipId,
+								startSec,
+								targetTrackId,
+							})
 						}
 						onReorderMainTrack={({ trackId, orderedClipIds }) =>
 							commitMainTrackReorder({ editor, trackId, orderedElementIds: orderedClipIds })

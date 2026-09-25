@@ -761,6 +761,15 @@
 	pointer-events: none;
 }
 
+/* Cross-track drop target: the lane a dragged clip will land on lights up
+   while the finger is still down, so the destination is obvious before the
+   lift (founder's iPhone, 2026-09-25 — vertical dragging had no feedback
+   at all because the move gesture discarded clientY entirely). */
+.cc-timeline__track-row--drop-target {
+	background: color-mix(in srgb, var(--cc-accent) 14%, transparent);
+	box-shadow: inset 0 0 0 1.5px var(--cc-accent);
+}
+
 .cc-timeline__trim-readout {
 	position: absolute;
 	top: -22px;
@@ -962,13 +971,21 @@
 	position: absolute;
 	top: 2px;
 	left: var(--cc-space-3);
-	background: transparent;
+	/* Opaque, not transparent: the left gutter also holds the helper chips
+	   ("Mute clip audio" / AI clipper / Cover), and with a see-through
+	   background the two rendered on top of each other — the founder's
+	   iPhone showed "00:01/00:23" colliding with the chip labels
+	   (2026-09-25). A solid plate plus a little padding keeps the readout
+	   legible over whatever sits behind it. */
+	background: var(--cc-bg-base);
+	padding: 1px 5px;
+	border-radius: var(--cc-radius-chip);
 	color: var(--cc-text-primary);
 	font-variant-numeric: var(--cc-tabular-nums);
 	font-size: 12px;
 	font-weight: 500;
 	pointer-events: none;
-	z-index: 6;
+	z-index: 7;
 }
 
 /* ---- CapCut timeline chrome (founder capture 2026-08-18) ---- */

@@ -51,6 +51,7 @@ export function TimelineTrackRow({
 	onTrimPreview,
 	onTrimCommit,
 	movePreview,
+	isDropTarget,
 	onMovePreview,
 	onMoveEnd,
 	onLongPress,
@@ -84,12 +85,20 @@ export function TimelineTrackRow({
 		boundarySec: number;
 	}) => void;
 	movePreview: MovePreview | null;
+	/** True while a cross-track drag hovers THIS lane — the row lights up
+	 *  so the destination is visible before the finger lifts. */
+	isDropTarget?: boolean;
 	onMovePreview?: (params: {
 		clipId: string;
 		trackId: string;
 		candidateStartSec: number;
+		clientY?: number;
 	}) => void;
-	onMoveEnd?: (params: { clipId: string; trackId: string }) => void;
+	onMoveEnd?: (params: {
+		clipId: string;
+		trackId: string;
+		clientY?: number;
+	}) => void;
 	/** Returns whether the hold was honoured — see TimelineClip's onLongPress. */
 	onLongPress?: (params: {
 		clipId: string;
@@ -152,7 +161,9 @@ export function TimelineTrackRow({
 	}
 
 	return (
-		<div className={`cc-timeline__track-row cc-timeline__track-row--${track.kind}`}>
+		<div
+			className={`cc-timeline__track-row cc-timeline__track-row--${track.kind}${isDropTarget ? " cc-timeline__track-row--drop-target" : ""}`}
+		>
 			{track.kind !== "main" && (
 				<div className={`cc-timeline__track-badge cc-timeline__track-badge--${track.kind}`} aria-hidden="true">
 					<span>

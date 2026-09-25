@@ -57,8 +57,19 @@ interface TimelineClipProps {
 	 *  body). The clip reports RAW candidate start times; the view owns
 	 *  snapping/clamping and echoes the resolved position back through the
 	 *  `effectiveStartSec` prop, then commits on `onMoveEnd`. */
-	onMovePreview?: (params: { clipId: string; trackId: string; candidateStartSec: number }) => void;
-	onMoveEnd?: (params: { clipId: string; trackId: string }) => void;
+	onMovePreview?: (params: {
+		clipId: string;
+		trackId: string;
+		candidateStartSec: number;
+		/** Live finger Y — the view resolves the destination lane from it. */
+		clientY?: number;
+	}) => void;
+	onMoveEnd?: (params: {
+		clipId: string;
+		trackId: string;
+		/** Release-point Y — decides which lane the clip actually lands on. */
+		clientY?: number;
+	}) => void;
 	/** CapCut hold-to-reorder: fires once when the pointer has stayed put on
 	 *  the clip body for LONG_PRESS_MS. The VIEW then owns the pointer via
 	 *  window listeners (this element may unmount when the row switches to
@@ -123,6 +134,13 @@ export function TimelineClip({
 	const moveRef = useRef<{
 		pointerId: number;
 		startClientX: number;
+		/** Vertical origin — cross-track dragging resolves the destination
+		 *  lane from the finger's CURRENT clientY against the live track
+		 *  rects (founder's iPhone, 2026-09-25: "i have not been able to
+		 *  move it up and down to create a new timeline"). Before this the
+		 *  move gesture read clientX only and clientY was discarded, so a
+		 *  clip could never leave its own row. */
+		startClientY: number;
 		originalStartSec: number;
 		moving: boolean;
 	} | null>(null);
@@ -199,6 +217,7 @@ export function TimelineClip({
 				moveRef.current = {
 					pointerId: event.pointerId,
 					startClientX: event.clientX,
+					startClientY: event.clientY,
 					originalStartSec: effectiveStartSec,
 					moving: false,
 				};
@@ -265,6 +284,11 @@ export function TimelineClip({
 					clipId: clip.id,
 					trackId: clip.trackId,
 					candidateStartSec,
+					// The finger's live vertical position — the view maps it to
+					// a destination lane. Passing it on every move (not just at
+					// release) is what lets the strip highlight the target row
+					// while the drag is still in flight.
+					clientY: event.clientY,
 				});
 				return;
 			}
@@ -300,7 +324,11 @@ export function TimelineClip({
 			if (!move || move.pointerId !== event.pointerId) return;
 			moveRef.current = null;
 			if (move.moving) {
-				onMoveEnd?.({ clipId: clip.id, trackId: clip.trackId });
+				onMoveEnd?.({
+					clipId: clip.id,
+					trackId: clip.trackId,
+					clientY: event.clientY,
+				});
 			} else {
 				const now = Date.now();
 				if (now - lastTapRef.current < 350) {

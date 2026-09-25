@@ -41,6 +41,7 @@ import {
 	predecessorRightEdge,
 	type GroupResizeMember,
 } from "@kneecap/editor-core/timeline";
+import { canElementGoOnTrack } from "@kneecap/editor-core/timeline/placement";
 import {
 	addMediaTime,
 	subMediaTime,
@@ -495,10 +496,24 @@ export function commitElementMove({
 		}),
 	});
 
-	// Cross-track move: moving between tracks via MoveElementCommand
+	// Cross-track move (vertical drag): route through MoveElementCommand,
+	// which also re-butts the main track when a clip enters or leaves it.
+	//
+	// Compatibility is checked HERE rather than letting the command throw:
+	// a video clip dragged onto a text lane is an ordinary miss, not an
+	// error, and on a phone it must silently fall back to a same-track move
+	// instead of surfacing an exception. `MoveElementCommand` throws on an
+	// incompatible pair by design (it is the engine's invariant), so the UI
+	// has to filter before calling it.
 	if (targetTrackId && targetTrackId !== trackId) {
 		const targetTrack = findTrackInSceneTracks({ tracks, trackId: targetTrackId });
-		if (targetTrack) {
+		const compatible =
+			targetTrack &&
+			canElementGoOnTrack({
+				elementType: element.type,
+				trackType: targetTrack.type,
+			});
+		if (compatible) {
 			editor.command.execute({
 				command: new MoveElementCommand({
 					moves: [
@@ -513,6 +528,8 @@ export function commitElementMove({
 			});
 			return;
 		}
+		// Incompatible lane: fall through to the same-track move below so the
+		// horizontal part of the drag is still honoured.
 	}
 
 	const isMainTrack = tracks.main.id === trackId;
@@ -854,6 +871,19 @@ export function toggleEffectEnabled({
 
 // ---------------------------------- Text ------------------------------------
 
+/**
+ * Adds a text overlay at the playhead.
+ *
+ * Placement rule (founder's iPhone, 2026-09-25 — "the text timeline is not
+ * done properly": three texts produced three separate stacked lanes): a new
+ * text lands on the FIRST existing text track with room for it, and only
+ * spawns a new lane when every existing one is genuinely occupied at that
+ * moment. `mode: "auto"` already resolves first-available, but each text was
+ * inserted at the SAME playhead with the same default duration, so every one
+ * overlapped its predecessor and forced a fresh track. Nudging the start to
+ * the end of the last text on a track when it would collide keeps related
+ * titles on one readable row instead of a growing stack.
+ */
 export function insertTextElement({
 	editor,
 	content,
@@ -861,11 +891,49 @@ export function insertTextElement({
 	editor: EditorCore;
 	content: string;
 }): ElementRef | null {
+	const playhead = editor.playback.getCurrentTime();
 	const create = buildTextElement({
 		raw: { params: { content } },
-		startTime: editor.playback.getCurrentTime(),
+		startTime: playhead,
 	});
-	const command = new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "text" } });
+
+	const tracks = editor.scenes.getActiveScene().tracks;
+	const newEnd = addMediaTime({ a: playhead, b: create.duration });
+
+	// Does any existing text track have a free slot at the playhead?
+	const textTracks = tracks.overlay.filter((t) => t.type === "text");
+	const hasFreeSlot = textTracks.some((t) =>
+		t.elements.every((el) => {
+			const elEnd = addMediaTime({ a: el.startTime, b: el.duration });
+			return elEnd <= playhead || el.startTime >= newEnd;
+		}),
+	);
+
+	let startTime = playhead;
+	if (!hasFreeSlot && textTracks.length > 0) {
+		// Every text lane is busy right here. Rather than stacking another
+		// row, append after the last text that ends soonest — the user gets
+		// a sequence of titles on one lane, which is what "add text" means
+		// on a phone-sized timeline.
+		let earliestFreeTime: MediaTime | null = null;
+		for (const t of textTracks) {
+			let trackEnd = playhead;
+			for (const el of t.elements) {
+				const elEnd = addMediaTime({ a: el.startTime, b: el.duration });
+				if (elEnd > trackEnd) trackEnd = elEnd;
+			}
+			if (earliestFreeTime === null || trackEnd < earliestFreeTime) {
+				earliestFreeTime = trackEnd;
+			}
+		}
+		if (earliestFreeTime !== null) startTime = earliestFreeTime;
+	}
+
+	const element = startTime === playhead ? create : { ...create, startTime };
+	const command = new InsertElementCommand({
+		element,
+		placement: { mode: "auto", trackType: "text" },
+	});
 	editor.command.execute({ command });
 	const trackId = command.getTrackId();
 	return trackId ? { trackId, elementId: command.getElementId() } : null;

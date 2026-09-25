@@ -45,7 +45,8 @@
 		"./services/waveform-cache": "./src/services/waveform-cache/service.ts",
 		"./media/native-paths": "./src/media/native-paths.ts",
 		"./text/typography": "./src/text/typography.ts",
-		"./export/overlay-frames": "./src/export/overlay-frames.ts"
+		"./export/overlay-frames": "./src/export/overlay-frames.ts",
+		"./timeline/placement": "./src/timeline/placement/index.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --project tsconfig.json --noEmit",

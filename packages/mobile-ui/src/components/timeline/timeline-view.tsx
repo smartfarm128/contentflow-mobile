@@ -151,6 +151,10 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		clipId: string;
 		trackId: string;
 		startSec: number;
+		/** Set when the drag ENDED over a different lane — the shell routes
+		 *  it through MoveElementCommand (cross-track), which also re-butts
+		 *  the main track when a clip enters or leaves it. */
+		targetTrackId?: string;
 	}) => void;
 	/** CapCut hold-to-reorder commit: long-press lifts a MAIN-track clip,
 	 *  every clip collapses to a uniform tile, the drop slot decides the
@@ -192,6 +196,31 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	ref,
 ) {
 	const { ref: scrollRef, width: viewportWidthPx } = useElementSize<HTMLDivElement>();
+	/** Wraps the rendered track rows so a cross-track drag can hit-test the
+	 *  finger's clientY against each lane's live rect. Measured on demand
+	 *  (not cached) so zoom, track add/remove and scroll never stale it. */
+	const trackRowsRef = useRef<HTMLDivElement>(null);
+	/** Destination lane while a cross-track drag is in flight — drives the
+	 *  target-row highlight and decides where the clip lands on release. */
+	const [dropTargetTrackId, setDropTargetTrackId] = useState<string | null>(null);
+
+	/** Maps a viewport Y to the track row under it. Returns null when the
+	 *  finger is outside every lane (the caller keeps the source track). */
+	const trackIdFromClientY = useCallback(
+		(clientY: number): string | null => {
+			const container = trackRowsRef.current;
+			if (!container) return null;
+			const rows = container.children;
+			for (let i = 0; i < rows.length; i++) {
+				const rect = rows[i].getBoundingClientRect();
+				if (clientY >= rect.top && clientY <= rect.bottom) {
+					return project.tracks[i]?.id ?? null;
+				}
+			}
+			return null;
+		},
+		[project.tracks],
+	);
 	const [zoom, setZoom] = useState(1);
 	const [currentTimeSec, setCurrentTimeSec] = useState(0);
 	const [localSelectedClipId, setSelectedClipId] = useState<string | null>(null);
@@ -416,7 +445,24 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	 *  clip's original neighbors (free-position tracks don't overlap); the
 	 *  main track drags freely — its commit re-butts the whole track. */
 	const handleMovePreview = useCallback(
-		(params: { clipId: string; trackId: string; candidateStartSec: number }) => {
+		(params: {
+			clipId: string;
+			trackId: string;
+			candidateStartSec: number;
+			clientY?: number;
+		}) => {
+			// Vertical hit-test first: a drag that leaves its own row is a
+			// cross-track move, and the target lane must light up DURING the
+			// drag so the destination is obvious before the finger lifts.
+			if (params.clientY != null) {
+				const overTrackId = trackIdFromClientY(params.clientY);
+				const nextTarget =
+					overTrackId && overTrackId !== params.trackId ? overTrackId : null;
+				setDropTargetTrackId((current) => {
+					if (current !== nextTarget && nextTarget) hapticTick();
+					return nextTarget;
+				});
+			}
 			const track = project.tracks.find((t) => t.id === params.trackId);
 			const clipIndex = track?.clips.findIndex((c) => c.id === params.clipId) ?? -1;
 			const clip = clipIndex >= 0 ? track?.clips[clipIndex] : undefined;
@@ -481,25 +527,46 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			movePreviewRef.current = preview;
 			setMovePreview(preview);
 		},
-		[project.tracks, project.durationSec, currentTimeSec, snapThresholdSec],
+		[
+			project.tracks,
+			project.durationSec,
+			currentTimeSec,
+			snapThresholdSec,
+			trackIdFromClientY,
+		],
 	);
 
 	const handleMoveEnd = useCallback(
-		(params: { clipId: string; trackId: string }) => {
+		(params: { clipId: string; trackId: string; clientY?: number }) => {
 			const preview = movePreviewRef.current;
+			// Resolve the landing lane from the RELEASE point, not from the
+			// in-flight highlight: a finger can drift back over its own row
+			// between the last pointermove and the lift.
+			const releaseTrackId =
+				params.clientY != null
+					? trackIdFromClientY(params.clientY)
+					: dropTargetTrackId;
+			const targetTrackId =
+				releaseTrackId && releaseTrackId !== params.trackId
+					? releaseTrackId
+					: undefined;
+
 			movePreviewRef.current = null;
 			moveWasSnappedRef.current = false;
 			setMovePreview(null);
 			setSnapIndicatorSec(null);
+			setDropTargetTrackId(null);
+
 			if (preview && preview.clipId === params.clipId) {
 				onMoveClip?.({
 					clipId: params.clipId,
 					trackId: params.trackId,
 					startSec: preview.startSec,
+					targetTrackId,
 				});
 			}
 		},
-		[onMoveClip],
+		[onMoveClip, trackIdFromClientY, dropTargetTrackId],
 	);
 
 	/** Manual strip pan (clip bodies have touch-action:none — see
@@ -792,6 +859,9 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 							)}
 						</div>
 					)}
+					{/* Measurable lane container: cross-track drag resolves the
+					    destination row from the finger's clientY against these rects. */}
+					<div ref={trackRowsRef}>
 					{project.tracks.map((track) => (
 						<TimelineTrackRow
 							key={track.id}
@@ -809,6 +879,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 							onTrimPreview={handleTrimPreview}
 							onTrimCommit={handleTrimCommit}
 							movePreview={movePreview}
+						isDropTarget={dropTargetTrackId === track.id}
 							onMovePreview={onMoveClip ? handleMovePreview : undefined}
 							onMoveEnd={onMoveClip ? handleMoveEnd : undefined}
 							onLongPress={
@@ -845,6 +916,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 							}
 						/>
 					))}
+					</div>
 					{showAddAudio && onAddAudio && (
 						<button
 							type="button"
