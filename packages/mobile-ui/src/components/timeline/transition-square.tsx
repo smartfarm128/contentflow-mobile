@@ -1,3 +1,4 @@
+import { Plus } from "lucide-react";
 import { timeToPixels } from "../../timeline/time-scale";
 
 /**
@@ -31,6 +32,8 @@ export function TransitionSquare({
 				event.stopPropagation();
 				onTap({ afterClipId });
 			}}
-		/>
+		>
+			<Plus size={11} strokeWidth={2.8} color={applied ? "#ffffff" : "#1a1a1a"} />
+		</button>
 	);
 }

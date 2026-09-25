@@ -572,8 +572,140 @@
 	overflow: hidden;
 	touch-action: none; /* all gestures here are interpreted by our own pointer handlers */
 }
+.cc-timeline__body {
+	display: flex;
+	flex-direction: row;
+	flex: 1;
+	height: 100%;
+	overflow: hidden;
+	position: relative;
+}
+.cc-timeline__sidebar {
+	width: 48px;
+	flex-shrink: 0;
+	background: var(--cc-bg-base);
+	border-right: 1px solid rgba(255, 255, 255, 0.08);
+	display: flex;
+	flex-direction: column;
+	z-index: 6;
+	overflow: hidden;
+}
+.cc-timeline__sidebar-row {
+	height: var(--cc-track-height, 48px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	position: relative;
+	flex-shrink: 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.cc-timeline__sidebar-row--audio {
+	height: 34px;
+}
+.cc-timeline__sidebar-row--caption,
+.cc-timeline__sidebar-row--text {
+	height: 34px;
+}
+.cc-timeline__sidebar-row--graphic,
+.cc-timeline__sidebar-row--sticker,
+.cc-timeline__sidebar-row--overlay {
+	height: 36px;
+}
+.cc-timeline__sidebar-row--main,
+.cc-timeline__sidebar-row--video {
+	height: 56px;
+}
+.cc-timeline__sidebar-ruler-spacer {
+	height: 22px;
+	flex-shrink: 0;
+	background: var(--cc-bg-base);
+	border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cc-timeline__sidebar-btn {
+	width: 26px;
+	height: 26px;
+	border-radius: 50%;
+	background: #1c1c1e;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	color: #ffffff;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	position: relative;
+	padding: 0;
+	cursor: pointer;
+	touch-action: manipulation;
+	transition: transform 120ms ease, background 120ms ease;
+}
+.cc-timeline__sidebar-btn--video {
+	width: 32px;
+	height: 32px;
+}
+.cc-timeline__sidebar-btn:active {
+	transform: scale(0.92);
+	background: #2c2c2e;
+}
+.cc-timeline__sidebar-btn--audio {
+	color: #b76eeb;
+}
+.cc-timeline__sidebar-btn--subtitle {
+	color: #ffa552;
+}
+.cc-timeline__sidebar-btn--graphic {
+	color: #42a5f5;
+}
+.cc-timeline__sidebar-btn--video {
+	color: #ffffff;
+}
+.cc-timeline__sidebar-btn--muted {
+	color: var(--cc-accent);
+}
+.cc-timeline__sidebar-plus {
+	position: absolute;
+	bottom: -2px;
+	right: -2px;
+	width: 11px;
+	height: 11px;
+	border-radius: 50%;
+	background: #ffffff;
+	color: #000000;
+	font-size: 9px;
+	font-weight: 700;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.cc-timeline__tracks-container {
+	flex: 1;
+	height: 100%;
+	position: relative;
+	overflow: hidden;
+	background: linear-gradient(
+		to bottom,
+		rgba(155, 81, 224, 0.04) 0px,
+		rgba(155, 81, 224, 0.04) 33px,
+		rgba(255, 255, 255, 0.06) 33px,
+		rgba(255, 255, 255, 0.06) 34px,
+		rgba(238, 141, 61, 0.04) 34px,
+		rgba(238, 141, 61, 0.04) 67px,
+		rgba(255, 255, 255, 0.06) 67px,
+		rgba(255, 255, 255, 0.06) 68px,
+		rgba(30, 136, 229, 0.04) 68px,
+		rgba(30, 136, 229, 0.04) 103px,
+		rgba(255, 255, 255, 0.06) 103px,
+		rgba(255, 255, 255, 0.06) 104px,
+		rgba(255, 255, 255, 0.015) 104px,
+		rgba(255, 255, 255, 0.015) 159px,
+		rgba(255, 255, 255, 0.08) 159px,
+		rgba(255, 255, 255, 0.08) 160px,
+		transparent 160px
+	);
+}
 .cc-timeline__scroll {
 	flex: 1;
+	height: 100%;
 	overflow-x: auto;
 	overflow-y: auto;
 	/* Single-finger pan (both axes) stays native/cheap; two-finger pinch is
@@ -591,11 +723,11 @@
 }
 .cc-timeline__ruler {
 	position: sticky;
-	top: 0;
+	bottom: 0;
 	z-index: 3;
-	height: var(--cc-ruler-height);
+	height: 22px;
 	background: var(--cc-bg-base);
-	border-bottom: 1px solid var(--cc-bg-panel);
+	border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 .cc-timeline__ruler-tick {
 	position: absolute;
@@ -615,28 +747,58 @@
 	transform: translateX(2px);
 }
 
+.cc-timeline__track-rows {
+	display: flex;
+	flex-direction: column;
+}
 .cc-timeline__track-row {
 	position: relative;
 	height: var(--cc-track-height);
-	border-bottom: 1px solid var(--cc-bg-base);
+	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+	flex-shrink: 0;
 }
 .cc-timeline__track-row--main {
-	/* Capture 2026-08-18: CapCut paints no track background where there are
-	   no clips — the filmstrip thumbnails ARE the visual; an empty stretch
-	   of main track is just the timeline surface. */
 	background: transparent;
-}
-.cc-timeline__track-row--overlay {
-	background: var(--cc-track-color-overlay);
-}
-.cc-timeline__track-row--text {
-	background: var(--cc-track-color-text);
-}
-.cc-timeline__track-row--sticker {
-	background: var(--cc-track-color-sticker);
+	height: 56px;
 }
 .cc-timeline__track-row--audio {
-	background: var(--cc-track-color-audio);
+	background: rgba(155, 81, 224, 0.06);
+	height: 34px;
+}
+.cc-timeline__track-row--text,
+.cc-timeline__track-row--caption {
+	background: rgba(238, 141, 61, 0.06);
+	height: 34px;
+}
+.cc-timeline__track-row--sticker,
+.cc-timeline__track-row--graphic,
+.cc-timeline__track-row--overlay {
+	background: rgba(30, 136, 229, 0.06);
+	height: 36px;
+}
+
+.cc-timeline__placeholder-lane {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 4px;
+	bottom: 4px;
+	display: flex;
+	align-items: center;
+	padding-left: 12px;
+	cursor: pointer;
+	pointer-events: auto;
+}
+.cc-timeline__placeholder-text {
+	font-size: 12px;
+	font-weight: 500;
+	color: rgba(255, 255, 255, 0.38);
+	letter-spacing: 0.2px;
+	transition: color 120ms ease;
+	user-select: none;
+}
+.cc-timeline__placeholder-lane:active .cc-timeline__placeholder-text {
+	color: rgba(255, 255, 255, 0.7);
 }
 
 .cc-timeline__clip {
@@ -657,8 +819,59 @@
 	touch-action: none;
 }
 .cc-timeline__clip--selected {
-	border: var(--cc-clip-selection-border);
+	border: 2px solid #F4C430 !important;
 	z-index: 2;
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.cc-timeline__clip--audio {
+	background: #9b51e0;
+}
+.cc-timeline__clip--caption,
+.cc-timeline__clip--text {
+	background: #ee8d3d;
+}
+.cc-timeline__clip--graphic,
+.cc-timeline__clip--sticker {
+	background: #1e88e5;
+}
+.cc-timeline__clip--overlay {
+	background: #1976d2;
+}
+.cc-timeline__clip-graphic-content {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 8px;
+	height: 100%;
+}
+.cc-timeline__clip-graphic-label {
+	font-size: 11px;
+	font-weight: 500;
+	color: #ffffff;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	pointer-events: none;
+	user-select: none;
+}
+.cc-timeline__clip-graphic-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 4px;
+	background: rgba(255, 255, 255, 0.22);
+	flex-shrink: 0;
+}
+.cc-timeline__video-waveform {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 16px;
+	pointer-events: none;
+	overflow: hidden;
 }
 .cc-timeline__clip-thumbnails {
 	position: absolute;
@@ -939,19 +1152,10 @@
 	border-radius: 1px;
 	pointer-events: none;
 	z-index: 5;
+	box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 .cc-timeline__playhead-handle {
-	position: absolute;
-	top: 0;
-	left: 50%;
-	transform: translateX(-50%);
-	width: 14px;
-	height: 24px;
-	background: #ffffff;
-	border-radius: 0 0 4px 4px;
-	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
-	cursor: ew-resize;
-	pointer-events: auto;
+	display: none;
 }
 
 .cc-timeline__snap-indicator {
@@ -1160,41 +1364,7 @@
 	border-radius: 3px;
 	line-height: 1;
 }
-.cc-timeline__clip--text {
-	background: #2a2216;
-	border: 1px solid rgba(245, 158, 11, 0.35);
-}
-.cc-timeline__clip--text .cc-timeline__clip-label {
-	color: #fbbf24;
-}
-.cc-timeline__clip--text .cc-timeline__clip-badge {
-	background: #d97706;
-	color: #000;
-}
 
-.cc-timeline__clip--audio {
-	background: #0f241a;
-	border: 1px solid rgba(16, 185, 129, 0.35);
-}
-.cc-timeline__clip--audio .cc-timeline__clip-label {
-	color: #34d399;
-}
-.cc-timeline__clip--audio .cc-timeline__clip-badge {
-	background: #10b981;
-	color: #000;
-}
-
-.cc-timeline__clip--caption {
-	background: #ee8d3d;
-	color: #241303;
-}
-.cc-timeline__clip--caption .cc-timeline__clip-label {
-	color: #241303;
-	font-weight: 500;
-}
-.cc-timeline__track-row--caption {
-	height: var(--cc-track-height);
-}
 
 /* ============================================================================
  * M8 — editor chrome, panel rows, export sheet (plan M8: panels/toolbars/
@@ -1415,6 +1585,14 @@
 	flex: 1;
 	justify-content: flex-end;
 }
+.cc-playbackbar__timecode {
+	font-size: 13px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum";
+	color: var(--cc-text-primary);
+	white-space: nowrap;
+}
 .cc-playbackbar__btn {
 	width: 32px;
 	height: 32px;
@@ -1435,6 +1613,17 @@
 }
 .cc-playbackbar__btn:active:not(:disabled) {
 	background: var(--cc-bg-raised);
+}
+.cc-playbackbar__btn--play {
+	background: var(--cc-accent, #ff4d2e);
+	color: #ffffff;
+	border-radius: 50%;
+	width: 36px;
+	height: 36px;
+}
+.cc-playbackbar__btn--play:active {
+	background: var(--cc-accent-active, #e03a1c);
+	transform: scale(0.95);
 }
 .cc-playbackbar__play {
 	background: none;

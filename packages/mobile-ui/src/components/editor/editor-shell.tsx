@@ -347,7 +347,13 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 	};
 
 	useEffect(() => {
-		(bootstrap ?? bootstrapDemoProject)().then(() => setReady(true));
+		(bootstrap ?? bootstrapDemoProject)()
+			.catch((err) => {
+				console.error("Bootstrap error, proceeding to editor:", err);
+			})
+			.finally(() => {
+				setReady(true);
+			});
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- `bootstrap`/`bootstrapDemoProject` are meant to run exactly once per mount (the demo bootstrap is itself idempotent via its own module-level cache — see demo-project.ts — and re-running a real caller's bootstrap on every render would be wrong, not just wasteful); depending on `bootstrap` would re-run this whenever a caller passes a fresh closure identity, which apps/mobile's own memoized `NOOP_BOOTSTRAP` avoids but nothing enforces.
 	}, []);
 
@@ -443,10 +449,51 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 				onPlayPause={() => togglePlayback({ editor })}
 				onUndo={() => editor.command.undo()}
 				onRedo={() => editor.command.redo()}
-				onPrev={() => seekToSeconds({ editor, seconds: 0 })}
-				onNext={() => seekToSeconds({ editor, seconds: durationSeconds })}
+				onPrev={() => {
+					if (!timelineProject) {
+						seekToSeconds({ editor, seconds: 0 });
+						return;
+					}
+					let targetSec = 0;
+					for (const track of timelineProject.tracks) {
+						for (const clip of track.clips) {
+							const start = clip.startSec;
+							const end = clip.startSec + clip.durationSec;
+							if (start < currentTimeSeconds - 0.05 && start > targetSec) {
+								targetSec = start;
+							}
+							if (end < currentTimeSeconds - 0.05 && end > targetSec) {
+								targetSec = end;
+							}
+						}
+					}
+					seekToSeconds({ editor, seconds: targetSec });
+				}}
+				onNext={() => {
+					if (!timelineProject) {
+						seekToSeconds({ editor, seconds: durationSeconds });
+						return;
+					}
+					let targetSec = durationSeconds;
+					for (const track of timelineProject.tracks) {
+						for (const clip of track.clips) {
+							const start = clip.startSec;
+							const end = clip.startSec + clip.durationSec;
+							if (start > currentTimeSeconds + 0.05 && start < targetSec) {
+								targetSec = start;
+							}
+							if (end > currentTimeSeconds + 0.05 && end < targetSec) {
+								targetSec = end;
+							}
+						}
+					}
+					seekToSeconds({ editor, seconds: targetSec });
+				}}
 				canUndo={editor.command.canUndo()}
 				canRedo={editor.command.canRedo()}
+				currentTimeSec={currentTimeSeconds}
+				durationSec={durationSeconds}
+				onOpenSpeed={() => setActiveSheet("edit")}
 				isPreviewFullscreen={isPreviewFullscreen}
 				onToggleFullscreen={() => setIsPreviewFullscreen((on) => !on)}
 			/>
@@ -512,12 +559,20 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 								applyToAll,
 							})
 						}
-						currentTimeLabel={`${formatTimecode(currentTimeSeconds)} / ${formatTimecode(durationSeconds)}`}
 						playbackTimeSec={currentTimeSeconds}
 						isPlaying={isPlaying}
 						onAddClip={() => runMediaImport(importAndPlaceMedia)}
 						showAddAudio={!timelineProject.tracks.some((t) => t.kind === "audio")}
 						onAddAudio={() => setActiveSheet("audio")}
+						onAddSubtitle={() => setActiveSheet("captions")}
+						onAddGraphic={() => setActiveSheet("template")}
+						isMainTrackMuted={isMainTrackMuted}
+						onToggleMainTrackMute={() => {
+							const mainTrackId = editor.scenes.getActiveSceneOrNull()?.tracks.main.id;
+							if (mainTrackId) {
+								editor.timeline.toggleTrackMute({ trackId: mainTrackId });
+							}
+						}}
 						onQuickAddAudio={() => setActiveSheet("audio")}
 						onQuickAddText={() => {
 							const ref = insertTextElement({ editor, content: "New text" });
@@ -531,52 +586,6 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 								setActiveSheet("captions");
 							}
 						}}
-						leadingChips={
-							<>
-								<button
-									type="button"
-									className={`cc-timeline__helper-chip${isMainTrackMuted ? " cc-timeline__helper-chip--active" : ""}`}
-									onClick={(e) => {
-										e.stopPropagation();
-										const mainTrackId = editor.scenes.getActiveSceneOrNull()?.tracks.main.id;
-										if (mainTrackId) {
-											editor.timeline.toggleTrackMute({ trackId: mainTrackId });
-										}
-									}}
-									aria-label={isMainTrackMuted ? "Unmute main track audio" : "Mute main track audio"}
-								>
-									{isMainTrackMuted ? (
-										<VolumeX size={18} strokeWidth={CC_ICON_STROKE} color="var(--cc-accent)" />
-									) : (
-										<Volume2 size={18} strokeWidth={CC_ICON_STROKE} />
-									)}
-									<span style={{ color: isMainTrackMuted ? "var(--cc-accent)" : undefined }}>
-										{isMainTrackMuted ? (
-											<>
-												Unmute
-												<br />
-												audio
-											</>
-										) : (
-											<>
-												Mute clip
-												<br />
-												audio
-											</>
-										)}
-									</span>
-								</button>
-								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
-									<span className="cc-timeline__helper-badge">New</span>
-									<WandSparkles size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>AI clipper</span>
-								</span>
-								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
-									<ImagePlus size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>Cover</span>
-								</span>
-							</>
-						}
 					/>
 				</div>
 			)}

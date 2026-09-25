@@ -89,28 +89,39 @@ function colorHueForId(id: string): number {
 	return hash % 360;
 }
 
-function clipKindForElement(element: TimelineElement): TimelineClipKind {
+function generateFallbackPeaks(id: string, durationSec: number): number[] {
+	const count = Math.min(120, Math.max(16, Math.round(durationSec * 20)));
+	let hash = 0;
+	for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+	const peaks: number[] = [];
+	let val = 0.45;
+	for (let i = 0; i < count; i++) {
+		hash = (hash * 1664525 + 1013904223) >>> 0;
+		const r = (hash & 0xffff) / 0xffff;
+		val = Math.min(0.95, Math.max(0.15, val + (r - 0.5) * 0.35));
+		peaks.push(val);
+	}
+	return peaks;
+}
+
+function clipKindForElement(element: TimelineElement, isMain = true): TimelineClipKind {
 	switch (element.type) {
 		case "video":
-			return "video";
+			return isMain ? "video" : "overlay";
 		case "image":
-			return "image";
+			return isMain ? "image" : "overlay";
 		case "audio":
 			return "audio";
 		case "text":
 			return "text";
 		case "sticker":
-			return "sticker";
+			return "graphic";
 		case "graphic":
-			// Closest visual family to a single non-media shape/effect node —
-			// `TimelineClipVM` has no dedicated "graphic" kind.
-			return "sticker";
+			return "graphic";
 		case "caption":
-			// Founder capture 2026-08-18: captions are orange blocks in CapCut,
-			// not text-styled clips — dedicated kind + CSS class.
 			return "caption";
 		default:
-			return "text";
+			return "graphic";
 	}
 }
 
@@ -124,7 +135,7 @@ function trackKindFor({ track, isMain }: { track: TimelineTrack; isMain: boolean
 		case "audio":
 			return "audio";
 		case "graphic":
-			return "sticker";
+			return "graphic";
 		case "effect":
 			return "overlay";
 		case "caption":
@@ -194,7 +205,7 @@ function mapTrack({
 	const clips: TimelineClipVM[] = track.elements.map((element) => ({
 		id: element.id,
 		trackId: track.id,
-		kind: clipKindForElement(element),
+		kind: clipKindForElement(element, isMain),
 		name: element.name,
 		startSec: mediaTimeToSeconds({ time: element.startTime }),
 		durationSec: mediaTimeToSeconds({ time: element.duration }),
@@ -212,8 +223,8 @@ function mapTrack({
 		retimeRate:
 			"retime" in element && element.retime ? element.retime.rate : undefined,
 		waveformPeaks:
-			(element.type === "audio" || (element.type === "video" && assetById.get(element.mediaId)?.hasAudio)) && "mediaId" in element
-				? audioClipPeaks({ element, asset: assetById.get(element.mediaId) })
+			(element.type === "audio" || (element.type === "video" && (assetById.get(element.mediaId)?.hasAudio ?? true))) && "mediaId" in element
+				? (audioClipPeaks({ element, asset: assetById.get(element.mediaId) }) ?? generateFallbackPeaks(element.id, mediaTimeToSeconds({ time: element.duration })))
 				: undefined,
 		// Round 47: one diamond per clip-keyframe TIME (the group model in
 		// keyframes.ts), drawn on the clip by TimelineClip. Ticks ride along
@@ -255,10 +266,51 @@ export function useTimelineProjectVM(): TimelineProjectVM | null {
 		if (!tracks || !fps) return null;
 
 		const assetById = new Map(mediaAssets.map((asset) => [asset.id, asset]));
+
+		// Map all tracks from the live engine
+		const mainTrackVM = mapTrack({ track: tracks.main, isMain: true, assetById });
+		const overlayVMs = tracks.overlay.map((track) => mapTrack({ track, isMain: false, assetById }));
+		const audioVMs = tracks.audio.map((track) => mapTrack({ track, isMain: false, assetById }));
+
+		// VN Editor Vertical Hierarchy:
+		// 1. Audio tracks (top lane)
+		// 2. Subtitle / Caption / Text tracks (second lane)
+		// 3. Graphic / Sticker / PIP / Overlay tracks (third lane)
+		// 4. Main Video track (fourth lane)
+		const audioTracks = audioVMs.filter((t) => t.kind === "audio");
+		const subtitleTracks = overlayVMs.filter((t) => t.kind === "caption" || t.kind === "text");
+		const graphicTracks = overlayVMs.filter(
+			(t) => t.kind === "graphic" || t.kind === "sticker" || t.kind === "overlay",
+		);
+
+		// Always provide at least one lane for each category so VN Editor's 4-tier
+		// structure and left sidebar affordances are present and accessible.
+		const resolvedAudioTracks: TimelineTrackVM[] =
+			audioTracks.length > 0
+				? audioTracks
+				: [{ id: "placeholder-audio", kind: "audio", name: "Music", clips: [] }];
+
+		const resolvedSubtitleTracks: TimelineTrackVM[] =
+			subtitleTracks.length > 0
+				? subtitleTracks
+				: [{ id: "placeholder-caption", kind: "caption", name: "Subtitles", clips: [] }];
+
+		// Consolidate graphic tracks into a single canonical Tier-3 Graphic / Sticker / PIP lane
+		const allGraphicClips = graphicTracks.flatMap((t) => t.clips);
+		const resolvedGraphicTracks: TimelineTrackVM[] = [
+			{
+				id: graphicTracks[0]?.id ?? "placeholder-graphic",
+				kind: "graphic",
+				name: "Stickers & PIP",
+				clips: allGraphicClips,
+			},
+		];
+
 		const trackVMs: TimelineTrackVM[] = [
-			mapTrack({ track: tracks.main, isMain: true, assetById }),
-			...tracks.overlay.map((track) => mapTrack({ track, isMain: false, assetById })),
-			...tracks.audio.map((track) => mapTrack({ track, isMain: false, assetById })),
+			...resolvedAudioTracks,
+			...resolvedSubtitleTracks,
+			...resolvedGraphicTracks,
+			mainTrackVM,
 		];
 
 		return {

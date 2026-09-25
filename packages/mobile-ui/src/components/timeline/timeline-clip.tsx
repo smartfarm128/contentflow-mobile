@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Sparkles } from "lucide-react";
 import type { TimelineClipVM } from "../../timeline/types";
 import { pixelsToTime, timeToPixels } from "../../timeline/time-scale";
 import {
@@ -457,7 +458,7 @@ export function TimelineClip({
 			aria-label={`${clip.name}, ${durationLabel}${isSelected ? ", selected" : ""}`}
 			aria-pressed={isSelected}
 		>
-			{(clip.kind === "video" || clip.kind === "image") && (
+			{(clip.kind === "video" || clip.kind === "image" || clip.kind === "overlay") && (
 				<ClipFilmstrip
 					clip={clip}
 					widthPx={widthPx}
@@ -468,28 +469,42 @@ export function TimelineClip({
 					effectiveDurationSec={effectiveDurationSec}
 				/>
 			)}
+			{(clip.kind === "graphic" || clip.kind === "sticker" || clip.kind === "overlay") && (
+				<div className="cc-timeline__clip-graphic-content">
+					<span className="cc-timeline__clip-graphic-icon">
+						<Sparkles size={12} strokeWidth={2.4} color="#ffffff" />
+					</span>
+					<span className="cc-timeline__clip-graphic-label">{clip.name}</span>
+				</div>
+			)}
 			{clip.kind === "video" && clip.waveformPeaks && (
 				<div className="cc-timeline__video-waveform">
 					<AudioWaveformMini
 						peaks={clip.waveformPeaks}
 						widthPx={widthPx}
 						heightPx={16}
+						mode="bottom"
+						color={isSelected ? "#F4C430" : "rgba(255, 255, 255, 0.45)"}
 					/>
 				</div>
 			)}
-			{clip.kind === "audio" && clip.waveformPeaks && (
+			{clip.kind === "audio" && (
 				<AudioWaveformMini
-					peaks={clip.waveformPeaks}
+					peaks={clip.waveformPeaks ?? [0.3, 0.6, 0.8, 0.5, 0.7, 0.4, 0.9, 0.6, 0.3]}
 					widthPx={widthPx}
-					heightPx={TRACK_HEIGHT_PX - 4}
+					heightPx={28}
+					color="rgba(255, 255, 255, 0.45)"
 				/>
 			)}
-			<span className="cc-timeline__clip-label">
-				{clip.kind === "text" && <span className="cc-timeline__clip-badge">T</span>}
-				{clip.kind === "caption" && <span className="cc-timeline__clip-badge">CC</span>}
-				{clip.kind === "audio" && <span className="cc-timeline__clip-badge">♪</span>}
-				{clip.name}
-			</span>
+			{clip.kind !== "graphic" && clip.kind !== "sticker" && clip.kind !== "overlay" && (
+				<span className="cc-timeline__clip-label">
+					{clip.kind === "text" && <span className="cc-timeline__clip-badge">T</span>}
+					{clip.kind === "caption" && <span className="cc-timeline__clip-badge">CC</span>}
+					{clip.kind === "audio" && <span className="cc-timeline__clip-badge">♪</span>}
+					{clip.name}
+				</span>
+			)}
+			<span className="cc-timeline__clip-duration-badge">{durationLabel}</span>
 			{isSelected && trimEdge && (
 				<span
 					className="cc-timeline__trim-readout"

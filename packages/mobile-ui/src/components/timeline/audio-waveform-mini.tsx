@@ -26,10 +26,14 @@ export function AudioWaveformMini({
 	peaks,
 	widthPx,
 	heightPx,
+	color = "rgba(255, 255, 255, 0.75)",
+	mode = "center",
 }: {
 	peaks: number[];
 	widthPx: number;
 	heightPx: number;
+	color?: string;
+	mode?: "center" | "bottom";
 }) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -44,10 +48,7 @@ export function AudioWaveformMini({
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, widthPx, heightPx);
-		// A dimmed accent tone (canvas can't read CSS custom properties
-		// directly) — visually a lighter, desaturated cyan, distinct enough
-		// from --cc-accent's own full-saturation use elsewhere on the clip.
-		ctx.fillStyle = "#7fd8e2";
+		ctx.fillStyle = color;
 
 		const barCount = Math.max(1, Math.floor(widthPx / BAR_STEP));
 		const mid = heightPx / 2;
@@ -58,9 +59,13 @@ export function AudioWaveformMini({
 			const hi = Math.min(peaks.length - 1, lo + 1);
 			const amplitude = peaks[lo] + (peaks[hi] - peaks[lo]) * (rawIndex - lo);
 			const barHeight = Math.max(1, amplitude * heightPx * 0.9);
-			ctx.fillRect(i * BAR_STEP, mid - barHeight / 2, BAR_WIDTH, barHeight);
+			if (mode === "bottom") {
+				ctx.fillRect(i * BAR_STEP, heightPx - barHeight, BAR_WIDTH, barHeight);
+			} else {
+				ctx.fillRect(i * BAR_STEP, mid - barHeight / 2, BAR_WIDTH, barHeight);
+			}
 		}
-	}, [peaks, widthPx, heightPx]);
+	}, [peaks, widthPx, heightPx, color, mode]);
 
 	return (
 		<canvas

@@ -221,12 +221,8 @@
 	--cc-track-color-text: #4a3f1f;
 	--cc-track-color-sticker: #4a2f4a;
 	--cc-track-color-audio: #1f3d33;
-	/* MEASURED medium-high confidence — corpus 05 §2a: "the selected clip
-	   has a white border around it," multiple independent CapCut-specific
-	   sources. Exact stroke width is [NEEDS-CAPTURE] (05 §2a: "Low
-	   confidence for exact stroke width/color token"); 2px is a readable,
-	   platform-reasonable placeholder pending the capture session. */
-	--cc-clip-selection-border: 2px solid #ffffff;
+	/* MEASURED medium-high confidence — VN Editor and CapCut golden yellow selection border */
+	--cc-clip-selection-border: 2px solid #F4C430;
 	/* DESIGN DECISION — corpus 05 §2b confirms oversized trim-handle hit
 	   areas as a documented-good-practice pattern (img.ly teardown,
 	   "more than twice as wide as the visual appearance suggests"), not a

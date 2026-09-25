@@ -24,7 +24,7 @@
  * `timeline/pixel-utils.ts`).
  */
 
-export type TimelineTrackKind = "main" | "overlay" | "text" | "sticker" | "audio" | "caption";
+export type TimelineTrackKind = "main" | "overlay" | "text" | "sticker" | "audio" | "caption" | "graphic";
 
 export type TimelineClipKind =
 	| "video"
@@ -32,10 +32,9 @@ export type TimelineClipKind =
 	| "audio"
 	| "text"
 	| "sticker"
-	/** Founder capture 2026-08-18: caption clips render as ORANGE blocks in
-	 *  CapCut (capture-editor-toolbar-start.png), visually distinct from
-	 *  text clips — a dedicated kind, not a text-shaped stand-in. */
-	| "caption";
+	| "caption"
+	| "graphic"
+	| "overlay";
 
 export interface TimelineKeyframeVM {
 	id: string;

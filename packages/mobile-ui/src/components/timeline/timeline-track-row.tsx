@@ -63,6 +63,10 @@ export function TimelineTrackRow({
 	onKeyframeTap,
 	transitionAfterClipIds,
 	onTransitionTap,
+	onAddAudio,
+	onAddSubtitle,
+	onAddGraphic,
+	onAddClip,
 }: {
 	track: TimelineTrackVM;
 	pixelsPerSecond: number;
@@ -116,6 +120,10 @@ export function TimelineTrackRow({
 	/** Which afterClipId gaps already have an applied transition — main track only. */
 	transitionAfterClipIds?: ReadonlySet<string>;
 	onTransitionTap?: (params: { afterClipId: string }) => void;
+	onAddAudio?: () => void;
+	onAddSubtitle?: () => void;
+	onAddGraphic?: () => void;
+	onAddClip?: () => void;
 }) {
 	const { startIndex, endIndex } = useMemo(
 		() =>
@@ -164,19 +172,27 @@ export function TimelineTrackRow({
 		<div
 			className={`cc-timeline__track-row cc-timeline__track-row--${track.kind}${isDropTarget ? " cc-timeline__track-row--drop-target" : ""}`}
 		>
-			{track.kind !== "main" && (
-				<div className={`cc-timeline__track-badge cc-timeline__track-badge--${track.kind}`} aria-hidden="true">
-					<span>
-						{track.kind === "text"
-							? "T Text"
-							: track.kind === "audio"
-								? "♪ Audio"
-								: track.kind === "caption"
-									? "CC Captions"
-									: track.kind === "sticker"
-										? // Graphic tracks carry stickers AND html motion templates.
-											"✦ Graphics"
-										: "PIP"}
+			{track.clips.length === 0 && (
+				<div
+					className="cc-timeline__placeholder-lane"
+					onPointerDown={(e) => e.stopPropagation()}
+					onClick={() => {
+						if (track.kind === "audio") onAddAudio?.();
+						else if (track.kind === "caption" || track.kind === "text") onAddSubtitle?.();
+						else if (track.kind === "graphic" || track.kind === "sticker" || track.kind === "overlay") onAddGraphic?.();
+						else if (track.kind === "main") onAddClip?.();
+					}}
+					role="button"
+					tabIndex={0}
+				>
+					<span className="cc-timeline__placeholder-text">
+						{track.kind === "audio"
+							? "+ Tap to add music"
+							: track.kind === "caption" || track.kind === "text"
+								? "Tap to add subtitle"
+								: track.kind === "graphic" || track.kind === "sticker" || track.kind === "overlay"
+									? "+ Tap to add sticker / PIP"
+									: "+ Tap to add video / photo"}
 					</span>
 				</div>
 			)}

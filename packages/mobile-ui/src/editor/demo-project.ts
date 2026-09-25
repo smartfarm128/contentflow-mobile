@@ -22,6 +22,7 @@ import {
 	buildLibraryAudioElement,
 	buildStickerElement,
 	buildGraphicElement,
+	buildElementFromMedia,
 } from "@kneecap/editor-core/timeline";
 import { getLocalSounds } from "@kneecap/editor-core/sounds/local-sounds";
 import { browseCategory } from "@kneecap/editor-core/stickers";
@@ -125,12 +126,60 @@ async function runBootstrap(): Promise<DemoProjectRefs> {
 		// harness — the Stickers panel itself still browses/inserts live.
 	}
 
+	// --- Main track video clips (VN Editor parity) -----------------------
+	try {
+		const videoAsset = await editor.media.addMediaAsset({
+			projectId,
+			asset: {
+				name: "sample-video.mp4",
+				type: "video",
+				width: 1080,
+				height: 1920,
+				duration: 6,
+				fps: 30,
+				hasAudio: true,
+				url: "/spike-assets/full.mp4",
+				file: new File([], "sample-video.mp4", { type: "video/mp4" }),
+			},
+		});
+		if (videoAsset) {
+			const mainTrack = editor.scenes.getActiveScene().tracks.main;
+			const clip1 = buildElementFromMedia({
+				mediaId: videoAsset.id,
+				mediaType: "video",
+				name: "Intro Scene",
+				duration: mediaTimeFromSeconds({ seconds: 2.5 }),
+				startTime: ZERO_MEDIA_TIME,
+			});
+			const cmd1 = new InsertElementCommand({
+				element: clip1,
+				placement: { mode: "explicit", trackId: mainTrack.id },
+			});
+			editor.command.execute({ command: cmd1 });
+
+			const clip2 = buildElementFromMedia({
+				mediaId: videoAsset.id,
+				mediaType: "video",
+				name: "Action Scene",
+				duration: mediaTimeFromSeconds({ seconds: 2.5 }),
+				startTime: mediaTimeFromSeconds({ seconds: 2.5 }),
+			});
+			const cmd2 = new InsertElementCommand({
+				element: clip2,
+				placement: { mode: "explicit", trackId: mainTrack.id },
+			});
+			editor.command.execute({ command: cmd2 });
+		}
+	} catch (err) {
+		console.warn("Could not insert sample video clips:", err);
+	}
+
 	// --- Overlay graphic (opacity + blend mode live on a SECOND track) ----
 	registerDefaultGraphics();
 	const overlayCreate = buildGraphicElement({
 		definitionId: "rectangle",
 		name: "Overlay shape",
-		startTime: ZERO_MEDIA_TIME,
+		startTime: mediaTimeFromSeconds({ seconds: 2.5 }),
 		params: { "transform.scaleX": 0.4, "transform.scaleY": 0.4, opacity: 0.8 },
 	});
 	const overlayCommand = new InsertElementCommand({

@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { Film, Image as ImageIcon, Music, Sparkles, Type, Volume2, VolumeX } from "lucide-react";
 import type { TimelineProjectVM } from "../../timeline/types";
 import {
 	clampTime,
@@ -90,6 +91,10 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	 *  already has an audio track. */
 	onAddAudio?: () => void;
 	showAddAudio?: boolean;
+	onAddSubtitle?: () => void;
+	onAddGraphic?: () => void;
+	isMainTrackMuted?: boolean;
+	onToggleMainTrackMute?: () => void;
 	/** The small ♪ / T quick-add squares left of time 0. */
 	onQuickAddAudio?: () => void;
 	onQuickAddText?: () => void;
@@ -179,6 +184,10 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		onAddClip,
 		onAddAudio,
 		showAddAudio,
+		onAddSubtitle,
+		onAddGraphic,
+		isMainTrackMuted,
+		onToggleMainTrackMute,
 		onQuickAddAudio,
 		onQuickAddText,
 		leadingChips,
@@ -196,6 +205,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	ref,
 ) {
 	const { ref: scrollRef, width: viewportWidthPx } = useElementSize<HTMLDivElement>();
+	const sidebarRef = useRef<HTMLDivElement>(null);
 	/** Wraps the rendered track rows so a cross-track drag can hit-test the
 	 *  finger's clientY against each lane's live rect. Measured on demand
 	 *  (not cached) so zoom, track add/remove and scroll never stale it. */
@@ -322,12 +332,15 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	);
 
 	const handleScroll = useCallback(() => {
+		const node = scrollRef.current;
+		if (!node) return;
+		if (sidebarRef.current) {
+			sidebarRef.current.scrollTop = node.scrollTop;
+		}
 		if (isProgrammaticScrollRef.current) {
 			isProgrammaticScrollRef.current = false;
 			return;
 		}
-		const node = scrollRef.current;
-		if (!node) return;
 		const timeSec = clampTime({
 			timeSec: pixelsToTime({ px: node.scrollLeft, pixelsPerSecond }),
 			durationSec: project.durationSec,
@@ -719,8 +732,32 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		return { before, after };
 	}, [mainTrack, openTransitionAfterClipId]);
 
-	const totalContentHeightPx =
-		24 /* ruler, --cc-ruler-height */ + project.tracks.length * 48; /* --cc-track-height */
+	const getTrackHeightPx = (kind: string): number => {
+		switch (kind) {
+			case "audio":
+				return 34;
+			case "caption":
+			case "text":
+				return 34;
+			case "graphic":
+			case "sticker":
+			case "overlay":
+				return 36;
+			case "main":
+			case "video":
+				return 56;
+			default:
+				return 36;
+		}
+	};
+	const trackHeights = project.tracks.map((t) => getTrackHeightPx(t.kind));
+	const tracksTotalHeightPx = trackHeights.reduce((sum, h) => sum + h, 0);
+	const totalContentHeightPx = 22 /* ruler */ + tracksTotalHeightPx;
+	let mainTrackTopPx = 0;
+	for (let i = 0; i < project.tracks.length; i++) {
+		if (project.tracks[i].kind === "main") break;
+		mainTrackTopPx += trackHeights[i];
+	}
 
 	return (
 		<div
@@ -728,278 +765,311 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			style={
 				{
 					height: "100%",
-					// Drives .cc-timeline__quick-add's vertical anchor so the
-					// left-gutter ♪/T buttons sit below EVERY row rather than a
-					// hardcoded one-row-down offset (see components.css).
 					"--cc-track-count": project.tracks.length,
 				} as React.CSSProperties
 			}
 		>
-			<div
-				ref={scrollRef}
-				className="cc-timeline__scroll"
-				onScroll={handleScroll}
-				onWheel={handleWheel}
-				onPointerDown={pinch.onPointerDown}
-				onPointerMove={pinch.onPointerMove}
-				onPointerUp={pinch.onPointerEnd}
-				onPointerCancel={pinch.onPointerEnd}
-			>
-				<div
-					className="cc-timeline__content"
-					style={{
-						width:
-							timeToPixels({ timeSec: project.durationSec, pixelsPerSecond }) +
-							edgePaddingPx * 2,
-						paddingLeft: edgePaddingPx,
-						paddingRight: edgePaddingPx,
-						minHeight: totalContentHeightPx,
-					}}
-					onPointerDown={(event) => {
-						if (event.target !== event.currentTarget) return;
-						setSelectedClipId(null);
-						onClearSelection?.();
-
-						const startX = event.clientX;
-						contentDragRef.current = { startX, lastX: startX, isDrag: false };
-						try {
-							event.currentTarget.setPointerCapture(event.pointerId);
-						} catch {}
-					}}
-					onPointerMove={(event) => {
-						const drag = contentDragRef.current;
-						if (!drag) return;
-						const deltaTotal = Math.abs(event.clientX - drag.startX);
-						if (deltaTotal > 4) {
-							drag.isDrag = true;
-							const deltaX = event.clientX - drag.lastX;
-							drag.lastX = event.clientX;
-							handlePanBy({ deltaPx: deltaX });
+			<div className="cc-timeline__body">
+				{/* Pinned Left Track Header Sidebar (VN Editor parity) */}
+				<div ref={sidebarRef} className="cc-timeline__sidebar">
+					{project.tracks.map((track) => {
+						if (track.kind === "audio") {
+							return (
+								<div key={track.id} className="cc-timeline__sidebar-row cc-timeline__sidebar-row--audio">
+									<button
+										type="button"
+										className="cc-timeline__sidebar-btn cc-timeline__sidebar-btn--audio"
+										onClick={onAddAudio}
+										aria-label="Add music"
+									>
+										<Music size={14} strokeWidth={2.4} />
+										<span className="cc-timeline__sidebar-plus">+</span>
+									</button>
+								</div>
+							);
 						}
-					}}
-					onPointerUp={(event) => {
-						const drag = contentDragRef.current;
-						contentDragRef.current = null;
-						if (!drag) return;
-
-						if (!drag.isDrag) {
-							const clickX = contentXFromClient(event.clientX);
-							const timeSec = clampTime({
-								timeSec: pixelsToTime({ px: clickX, pixelsPerSecond }),
-								durationSec: project.durationSec,
-							});
-							setCurrentTimeSec(timeSec);
-							syncScrollToTime(timeSec);
-							onTimeChange?.({ timeSec });
+						if (track.kind === "caption" || track.kind === "text") {
+							return (
+								<div key={track.id} className="cc-timeline__sidebar-row cc-timeline__sidebar-row--caption">
+									<button
+										type="button"
+										className="cc-timeline__sidebar-btn cc-timeline__sidebar-btn--subtitle"
+										onClick={onAddSubtitle}
+										aria-label="Add subtitle"
+									>
+										<Type size={14} strokeWidth={2.4} />
+										<span className="cc-timeline__sidebar-plus">+</span>
+									</button>
+								</div>
+							);
 						}
-					}}
-					onPointerCancel={() => {
-						contentDragRef.current = null;
-					}}
-				>
-					<TimelineRuler
-						durationSec={project.durationSec}
-						pixelsPerSecond={pixelsPerSecond}
-						onSeek={({ timeSec }) => {
-							const clamped = clampTime({ timeSec, durationSec: project.durationSec });
-							setCurrentTimeSec(clamped);
-							syncScrollToTime(clamped);
-							onTimeChange?.({ timeSec: clamped });
-						}}
-						onScrubBy={({ deltaPx }) => {
-							handlePanBy({ deltaPx });
+						if (track.kind === "graphic" || track.kind === "sticker" || track.kind === "overlay") {
+							return (
+								<div key={track.id} className="cc-timeline__sidebar-row cc-timeline__sidebar-row--graphic">
+									<button
+										type="button"
+										className="cc-timeline__sidebar-btn cc-timeline__sidebar-btn--graphic"
+										onClick={onAddGraphic}
+										aria-label="Add sticker or PIP"
+									>
+										<Sparkles size={14} strokeWidth={2.4} />
+										<span className="cc-timeline__sidebar-plus">+</span>
+									</button>
+								</div>
+							);
+						}
+						return (
+							<div key={track.id} className="cc-timeline__sidebar-row cc-timeline__sidebar-row--main">
+								<button
+									type="button"
+									className={`cc-timeline__sidebar-btn cc-timeline__sidebar-btn--video${isMainTrackMuted ? " cc-timeline__sidebar-btn--muted" : ""}`}
+									onClick={onToggleMainTrackMute}
+									aria-label={isMainTrackMuted ? "Unmute main track audio" : "Mute main track audio"}
+								>
+									{isMainTrackMuted ? (
+										<VolumeX size={15} strokeWidth={2.4} />
+									) : (
+										<Volume2 size={15} strokeWidth={2.4} />
+									)}
+								</button>
+							</div>
+						);
+					})}
+					<div className="cc-timeline__sidebar-ruler-spacer" aria-hidden="true" />
+				</div>
+
+				{/* Tracks container holding scrollable content + centered playhead */}
+				<div className="cc-timeline__tracks-container">
+					<div
+						ref={scrollRef}
+						className="cc-timeline__scroll"
+						onScroll={handleScroll}
+						onWheel={handleWheel}
+						onPointerDown={pinch.onPointerDown}
+						onPointerMove={pinch.onPointerMove}
+						onPointerUp={pinch.onPointerEnd}
+						onPointerCancel={pinch.onPointerEnd}
+					>
+						<div
+							className="cc-timeline__content"
+							style={{
+								width:
+									timeToPixels({ timeSec: project.durationSec, pixelsPerSecond }) +
+									edgePaddingPx * 2,
+								paddingLeft: edgePaddingPx,
+								paddingRight: edgePaddingPx,
+								minHeight: totalContentHeightPx,
+							}}
+							onPointerDown={(event) => {
+								if (event.target !== event.currentTarget) return;
+								setSelectedClipId(null);
+								onClearSelection?.();
+
+								const startX = event.clientX;
+								contentDragRef.current = { startX, lastX: startX, isDrag: false };
+								try {
+									event.currentTarget.setPointerCapture(event.pointerId);
+								} catch {}
+							}}
+							onPointerMove={(event) => {
+								const drag = contentDragRef.current;
+								if (!drag) return;
+								const deltaTotal = Math.abs(event.clientX - drag.startX);
+								if (deltaTotal > 4) {
+									drag.isDrag = true;
+									const deltaX = event.clientX - drag.lastX;
+									drag.lastX = event.clientX;
+									handlePanBy({ deltaPx: deltaX });
+								}
+							}}
+							onPointerUp={(event) => {
+								const drag = contentDragRef.current;
+								contentDragRef.current = null;
+								if (!drag) return;
+
+								if (!drag.isDrag) {
+									const clickX = contentXFromClient(event.clientX);
+									const timeSec = clampTime({
+										timeSec: pixelsToTime({ px: clickX, pixelsPerSecond }),
+										durationSec: project.durationSec,
+									});
+									setCurrentTimeSec(timeSec);
+									syncScrollToTime(timeSec);
+									onTimeChange?.({ timeSec });
+								}
+							}}
+							onPointerCancel={() => {
+								contentDragRef.current = null;
+							}}
+						>
+							{/* Track Rows Container */}
+							<div ref={trackRowsRef} className="cc-timeline__track-rows">
+								{project.tracks.map((track) => (
+									<TimelineTrackRow
+										key={track.id}
+										track={track}
+										pixelsPerSecond={pixelsPerSecond}
+										viewStartSec={viewStartSec - VIEW_OVERSCAN_SEC}
+										viewEndSec={viewEndSec + VIEW_OVERSCAN_SEC}
+										durationSec={project.durationSec}
+										selectedClipId={selectedClipId}
+										onSelectClip={({ clipId }) => {
+											setSelectedClipId(clipId);
+											onSelectClip?.({ clipId, trackId: track.id });
+										}}
+										trimPreview={trimPreview}
+										onTrimPreview={handleTrimPreview}
+										onTrimCommit={handleTrimCommit}
+										movePreview={movePreview}
+										isDropTarget={dropTargetTrackId === track.id}
+										onMovePreview={onMoveClip ? handleMovePreview : undefined}
+										onMoveEnd={onMoveClip ? handleMoveEnd : undefined}
+										onLongPress={
+											onReorderMainTrack && track.kind === "main" ? handleLongPress : undefined
+										}
+										onPanBy={handlePanBy}
+										onDoubleTap={onDoubleTapClip}
+										reorder={
+											reorderSession && reorderSession.trackId === track.id
+												? ({
+														draggedClipId: reorderSession.clipId,
+														insertionIndex: reorderInsertionIndex(reorderSession),
+														dragXPx: reorderSession.dragXPx,
+														baseXPx: reorderSession.baseXPx,
+													} satisfies ReorderState)
+												: null
+										}
+										snapTargets={snapTargets}
+										snapThresholdSec={snapThresholdSec}
+										onKeyframeTap={
+											onKeyframeTap
+												? ({ clipId, keyframeId }) => onKeyframeTap({ clipId, trackId: track.id, keyframeId })
+												: undefined
+										}
+										transitionAfterClipIds={
+											track.kind === "main"
+												? new Set(Object.keys(transitions))
+												: undefined
+										}
+										onTransitionTap={
+											track.kind === "main"
+												? ({ afterClipId }) => setOpenTransitionAfterClipId(afterClipId)
+												: undefined
+										}
+										onAddAudio={onAddAudio}
+										onAddSubtitle={onAddSubtitle}
+										onAddGraphic={onAddGraphic}
+										onAddClip={onAddClip}
+									/>
+								))}
+							</div>
+
+							{/* Ruler positioned at the bottom, directly beneath the track rows */}
+							<TimelineRuler
+								durationSec={project.durationSec}
+								pixelsPerSecond={pixelsPerSecond}
+								onSeek={({ timeSec }) => {
+									const clamped = clampTime({ timeSec, durationSec: project.durationSec });
+									setCurrentTimeSec(clamped);
+									syncScrollToTime(clamped);
+									onTimeChange?.({ timeSec: clamped });
+								}}
+								onScrubBy={({ deltaPx }) => {
+									handlePanBy({ deltaPx });
+								}}
+							/>
+
+							{onAddClip && (
+								<button
+									type="button"
+									className="cc-timeline__add-clip"
+									style={{
+										left: edgePaddingPx + mainTrackEndPx + 8,
+										top: mainTrackTopPx + 8,
+									}}
+									onPointerDown={(event) => event.stopPropagation()}
+									onClick={onAddClip}
+									aria-label="Add clip"
+								>
+									+
+								</button>
+							)}
+
+							{snapIndicatorSec !== null && (
+								<div
+									className="cc-timeline__snap-indicator"
+									style={{
+										left: timeToPixels({ timeSec: snapIndicatorSec, pixelsPerSecond }),
+										height: totalContentHeightPx,
+									}}
+								/>
+							)}
+						</div>
+					</div>
+
+					<TimelinePlayhead
+						onPointerDown={(event) => {
+							event.stopPropagation();
+							let lastX = event.clientX;
+							const onPointerMove = (e: PointerEvent) => {
+								const deltaPx = e.clientX - lastX;
+								lastX = e.clientX;
+								handlePanBy({ deltaPx });
+							};
+							const onPointerUp = () => {
+								window.removeEventListener("pointermove", onPointerMove);
+								window.removeEventListener("pointerup", onPointerUp);
+							};
+							window.addEventListener("pointermove", onPointerMove);
+							window.addEventListener("pointerup", onPointerUp);
 						}}
 					/>
-					{leadingChips && (
-						<div
-							className="cc-timeline__leading-chips"
-							style={{ width: Math.max(0, edgePaddingPx - 8) }}
-						>
-							{leadingChips}
-						</div>
-					)}
-					{onAddClip && (
-						<button
-							type="button"
-							className="cc-timeline__add-clip"
-							style={{ left: edgePaddingPx + mainTrackEndPx + 8 }}
-							onPointerDown={(event) => event.stopPropagation()}
-							onClick={onAddClip}
-							aria-label="Add clip"
-						>
-							+
-						</button>
-					)}
-					{(onQuickAddAudio || onQuickAddText) && (
-						<div
-							className="cc-timeline__quick-add"
-							style={{ width: Math.max(0, edgePaddingPx - 8) }}
-						>
-							{onQuickAddAudio && (
-								<button
-									type="button"
-									className="cc-timeline__quick-add-btn"
-									onPointerDown={(event) => event.stopPropagation()}
-									onClick={onQuickAddAudio}
-									aria-label="Add audio"
-								>
-									♪
-								</button>
+					{currentTimeLabel && <div className="cc-timeline__timecode">{currentTimeLabel}</div>}
+					{keyframeControl && <div className="cc-timeline__keyframe-control">{keyframeControl}</div>}
+
+					{openTransitionNeighbors && openTransitionAfterClipId && (
+						<TransitionSheet
+							afterClipId={openTransitionAfterClipId}
+							initialKind={transitions[openTransitionAfterClipId]?.kind}
+							initialDurationSec={
+								transitions[openTransitionAfterClipId]?.durationSec ??
+								DEFAULT_TRANSITION_DURATION_SEC
+							}
+							maxDurationSec={Math.min(
+								openTransitionNeighbors.before.durationSec,
+								openTransitionNeighbors.after.durationSec,
 							)}
-							{onQuickAddText && (
-								<button
-									type="button"
-									className="cc-timeline__quick-add-btn"
-									onPointerDown={(event) => event.stopPropagation()}
-									onClick={onQuickAddText}
-									aria-label="Add text"
-								>
-									T
-								</button>
-							)}
-						</div>
-					)}
-					{/* Measurable lane container: cross-track drag resolves the
-					    destination row from the finger's clientY against these rects. */}
-					<div ref={trackRowsRef}>
-					{project.tracks.map((track) => (
-						<TimelineTrackRow
-							key={track.id}
-							track={track}
-							pixelsPerSecond={pixelsPerSecond}
-							viewStartSec={viewStartSec - VIEW_OVERSCAN_SEC}
-							viewEndSec={viewEndSec + VIEW_OVERSCAN_SEC}
-							durationSec={project.durationSec}
-							selectedClipId={selectedClipId}
-							onSelectClip={({ clipId }) => {
-								setSelectedClipId(clipId);
-								onSelectClip?.({ clipId, trackId: track.id });
+							onConfirm={({ afterClipId, kind, durationSec, applyToAll }) => {
+								hapticTick();
+								if (onTransitionCommit) {
+									onTransitionCommit({ afterClipId, kind, durationSec, applyToAll });
+								} else {
+									setLocalTransitions((prev) => {
+										const applyOne = (
+											next: Record<string, Transition>,
+											id: string,
+										) => {
+											if (kind === "none") delete next[id];
+											else next[id] = { kind, durationSec };
+										};
+										const next = { ...prev };
+										if (!applyToAll || !mainTrack) {
+											applyOne(next, afterClipId);
+											return next;
+										}
+										for (let i = 0; i < mainTrack.clips.length - 1; i++) {
+											applyOne(next, mainTrack.clips[i].id);
+										}
+										return next;
+									});
+								}
+								setOpenTransitionAfterClipId(null);
 							}}
-							trimPreview={trimPreview}
-							onTrimPreview={handleTrimPreview}
-							onTrimCommit={handleTrimCommit}
-							movePreview={movePreview}
-						isDropTarget={dropTargetTrackId === track.id}
-							onMovePreview={onMoveClip ? handleMovePreview : undefined}
-							onMoveEnd={onMoveClip ? handleMoveEnd : undefined}
-							onLongPress={
-								onReorderMainTrack && track.kind === "main" ? handleLongPress : undefined
-							}
-							onPanBy={handlePanBy}
-							onDoubleTap={onDoubleTapClip}
-							reorder={
-								reorderSession && reorderSession.trackId === track.id
-									? ({
-											draggedClipId: reorderSession.clipId,
-											insertionIndex: reorderInsertionIndex(reorderSession),
-											dragXPx: reorderSession.dragXPx,
-											baseXPx: reorderSession.baseXPx,
-										} satisfies ReorderState)
-									: null
-							}
-							snapTargets={snapTargets}
-							snapThresholdSec={snapThresholdSec}
-							onKeyframeTap={
-								onKeyframeTap
-									? ({ clipId, keyframeId }) => onKeyframeTap({ clipId, trackId: track.id, keyframeId })
-									: undefined
-							}
-							transitionAfterClipIds={
-								track.kind === "main"
-									? new Set(Object.keys(transitions))
-									: undefined
-							}
-							onTransitionTap={
-								track.kind === "main"
-									? ({ afterClipId }) => setOpenTransitionAfterClipId(afterClipId)
-									: undefined
-							}
-						/>
-					))}
-					</div>
-					{showAddAudio && onAddAudio && (
-						<button
-							type="button"
-							className="cc-timeline__add-audio"
-							style={{ width: Math.max(mainTrackEndPx, (viewportWidthPx || 320) * 0.88) }}
-							onPointerDown={(event) => event.stopPropagation()}
-							onClick={onAddAudio}
-						>
-							<span className="cc-timeline__add-audio-plus">+</span> Add audio
-						</button>
-					)}
-					{snapIndicatorSec !== null && (
-						<div
-							className="cc-timeline__snap-indicator"
-							style={{
-								left: timeToPixels({ timeSec: snapIndicatorSec, pixelsPerSecond }),
-								height: totalContentHeightPx,
-							}}
+							onClose={() => setOpenTransitionAfterClipId(null)}
 						/>
 					)}
 				</div>
 			</div>
-			<TimelinePlayhead
-				onPointerDown={(event) => {
-					event.stopPropagation();
-					let lastX = event.clientX;
-					const onPointerMove = (e: PointerEvent) => {
-						const deltaPx = e.clientX - lastX;
-						lastX = e.clientX;
-						handlePanBy({ deltaPx });
-					};
-					const onPointerUp = () => {
-						window.removeEventListener("pointermove", onPointerMove);
-						window.removeEventListener("pointerup", onPointerUp);
-					};
-					window.addEventListener("pointermove", onPointerMove);
-					window.addEventListener("pointerup", onPointerUp);
-				}}
-			/>
-			{currentTimeLabel && <div className="cc-timeline__timecode">{currentTimeLabel}</div>}
-			{keyframeControl && <div className="cc-timeline__keyframe-control">{keyframeControl}</div>}
-
-			{openTransitionNeighbors && openTransitionAfterClipId && (
-				<TransitionSheet
-					afterClipId={openTransitionAfterClipId}
-					initialKind={transitions[openTransitionAfterClipId]?.kind}
-					initialDurationSec={
-						transitions[openTransitionAfterClipId]?.durationSec ??
-						DEFAULT_TRANSITION_DURATION_SEC
-					}
-					maxDurationSec={Math.min(
-						openTransitionNeighbors.before.durationSec,
-						openTransitionNeighbors.after.durationSec,
-					)}
-					onConfirm={({ afterClipId, kind, durationSec, applyToAll }) => {
-						hapticTick();
-						if (onTransitionCommit) {
-							onTransitionCommit({ afterClipId, kind, durationSec, applyToAll });
-						} else {
-							setLocalTransitions((prev) => {
-								const applyOne = (
-									next: Record<string, Transition>,
-									id: string,
-								) => {
-									if (kind === "none") delete next[id];
-									else next[id] = { kind, durationSec };
-								};
-								const next = { ...prev };
-								if (!applyToAll || !mainTrack) {
-									applyOne(next, afterClipId);
-									return next;
-								}
-								for (let i = 0; i < mainTrack.clips.length - 1; i++) {
-									applyOne(next, mainTrack.clips[i].id);
-								}
-								return next;
-							});
-						}
-						setOpenTransitionAfterClipId(null);
-					}}
-					onClose={() => setOpenTransitionAfterClipId(null)}
-				/>
-			)}
 		</div>
 	);
 });

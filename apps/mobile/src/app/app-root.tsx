@@ -42,6 +42,7 @@ import {
 	insertHtmlTemplateElement,
 	getActiveAnthropicKey,
 	useVaultStore,
+	bootstrapDemoProject,
 	type SheetId,
 	type HtmlTemplate,
 } from "@kneecap/mobile-ui";
@@ -116,15 +117,43 @@ type Screen = { name: "home" } | { name: "editor"; initialSheet?: SheetId };
 type TabId = "home" | "templates" | "projects" | "me";
 
 function App() {
-	const [screen, setScreen] = useState<Screen>({ name: "home" });
+	const [screen, setScreen] = useState<Screen>(() => {
+		if (typeof window !== "undefined" && window.location.hash === "#home") {
+			return { name: "home" };
+		}
+		return { name: "editor" };
+	});
+
+	useEffect(() => {
+		const handleHash = () => {
+			if (window.location.hash.includes("editor")) {
+				setScreen({ name: "editor" });
+			} else if (
+				window.location.hash === "" ||
+				window.location.hash === "#" ||
+				window.location.hash === "#home"
+			) {
+				setScreen({ name: "home" });
+			}
+		};
+		window.addEventListener("hashchange", handleHash);
+		return () => window.removeEventListener("hashchange", handleHash);
+	}, []);
 
 	if (screen.name === "editor") {
 		return (
 			<EditorShell
-				bootstrap={NOOP_BOOTSTRAP}
+				bootstrap={async () => {
+					const active = EditorCore.getInstance().project.getActiveOrNull();
+					const mainTrack = active ? EditorCore.getInstance().scenes.getActiveSceneOrNull()?.tracks.main : null;
+					if (!active || !mainTrack || mainTrack.elements.length === 0) {
+						await bootstrapDemoProject();
+					}
+				}}
 				initialSheet={screen.initialSheet}
 				onBack={() => {
 					void EditorCore.getInstance().project.saveCurrentProject();
+					window.location.hash = "#home";
 					setScreen({ name: "home" });
 				}}
 			/>
@@ -133,9 +162,10 @@ function App() {
 
 	return (
 		<HomeScreen
-			onOpenEditor={(initialSheet?: SheetId) =>
-				setScreen({ name: "editor", initialSheet })
-			}
+			onOpenEditor={(initialSheet?: SheetId) => {
+				window.location.hash = "#editor";
+				setScreen({ name: "editor", initialSheet });
+			}}
 		/>
 	);
 }
