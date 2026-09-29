@@ -1,5 +1,7 @@
+import { rmSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import wasm from "vite-plugin-wasm";
 
 const editorCoreSrc = fileURLToPath(
@@ -7,16 +9,41 @@ const editorCoreSrc = fileURLToPath(
 );
 
 /**
+ * `public/` is copied verbatim into every build, so without this a release
+ * `www/` would still carry `spike-assets/` (~15 MB of M1 spike test video that
+ * only spike.html and the dev-server demo project read). Vite has no per-mode
+ * publicDir filter; deleting the copied directory once the bundle is written
+ * is the smallest equivalent. Registered for production builds only — dev
+ * serves `public/` directly and `--mode debug` keeps it for spike.html.
+ */
+function dropSpikeAssetsFromRelease(): Plugin {
+	let outDir = "";
+	return {
+		name: "kneecap:drop-spike-assets-from-release",
+		apply: "build",
+		configResolved(config) {
+			outDir = resolve(config.root, config.build.outDir);
+		},
+		closeBundle() {
+			rmSync(resolve(outDir, "spike-assets"), { recursive: true, force: true });
+		},
+	};
+}
+
+/**
  * kneecap M3 (+ M1 spike, see apps/mobile/src/spike/) — builds
  * apps/mobile/src into apps/mobile/www, the static bundle Capacitor packages
  * into both native apps (plan M3 item 2: bundled locally, never loaded from
  * a dev server or a remote URL at runtime).
  *
- * Two pages, one bundle: `index.html` (M3's product placeholder — untouched
- * by the M1 spike) and `spike.html` (the M1 spike's hidden diagnostics
- * screen). Both ship in the same www/ output and therefore the same native
- * app binary; `spike.html` is reachable only via the deep link documented in
- * docs/SPIKE-GUIDE.md, never linked from index.html.
+ * Two pages: `index.html` (the product) and `spike.html` (the M1 spike's
+ * hidden diagnostics screen). `spike.html` is built only in non-production
+ * modes (`bun run dev`, `bun run build:debug` = `--mode debug`); a release
+ * `bun run build` emits index.html alone (and drops the `spike-assets/` test
+ * video, see dropSpikeAssetsFromRelease above), so neither the spike page nor
+ * its fixtures ship in a store binary. In debug builds it is reachable only via the deep link
+ * documented in docs/SPIKE-GUIDE.md (itself debug-only on both platforms),
+ * never linked from index.html.
  *
  * `wasm()`: `opencut-wasm` is wasm-bindgen's `--target bundler` output
  * (`import * as wasm from "./opencut_wasm_bg.wasm"` inside its own glue —
@@ -59,9 +86,12 @@ const editorCoreSrc = fileURLToPath(
  * `jsx`/`jsxImportSource` transform options, forwarded here, are sufficient
  * for a one-shot build.
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
 	root: __dirname,
-	plugins: [wasm()],
+	plugins: [
+		wasm(),
+		...(mode === "production" ? [dropSpikeAssetsFromRelease()] : []),
+	],
 	esbuild: {
 		jsx: "automatic",
 		jsxImportSource: "react",
@@ -87,7 +117,7 @@ export default defineConfig({
 		rollupOptions: {
 			input: {
 				main: "index.html",
-				spike: "spike.html",
+				...(mode === "production" ? {} : { spike: "spike.html" }),
 			},
 		},
 	},
@@ -106,4 +136,4 @@ export default defineConfig({
 		// never something a packaged app points at (plan M3 item 2).
 		port: 5183,
 	},
-});
+}));

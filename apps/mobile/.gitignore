@@ -27,3 +27,4 @@ android/app/src/main/assets/public/
 android/local.properties
 android/.idea/
 android/**/*.iml
+ios/App/build-device/

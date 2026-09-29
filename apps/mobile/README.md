@@ -47,6 +47,8 @@ interface defined and stubbed."
 ```sh
 # from apps/mobile/
 bun run build            # Vite -> www/ (the locally-bundled static app)
+bun run build:debug      # same, plus #/diagnostics, #/autotest and spike.html
+                         # (what the Debug/assembleDebug builds below expect)
 bunx cap sync ios        # copies www/ into ios/App/App/public
 bunx cap sync android    # copies www/ into android/app/src/main/assets/public
 
@@ -116,7 +118,8 @@ Capacitor/UIKit-free — Foundation/AVFoundation/CoreImage only).
   executable and runs them against a real bundled fixture
   (`App/App/Fixtures/kneecap-test-clip.mp4` — a 960x540/4s/H.264+AAC clip
   generated with `ffmpeg`'s `testsrc2` filter, not a shipped copyrighted
-  asset). This is real, not a mock: probe (dims/duration/codec/fps),
+  asset; copied into Debug app bundles only — the Release configuration's
+  `EXCLUDED_SOURCE_FILE_NAMES = Fixtures` keeps it out of shipped builds). This is real, not a mock: probe (dims/duration/codec/fps),
   downscale-transcode (960x540 → 480x270), and thumbnail generation (6
   frames) all genuinely ran and asserted on real output. The short-GOP claim
   was independently checked with `ffprobe`, not just self-reported by the

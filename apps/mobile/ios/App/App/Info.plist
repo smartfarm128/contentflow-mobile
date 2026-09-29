@@ -20,6 +20,13 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<!-- M1 spike deep link (the kneecap-spike scheme, docs/SPIKE-GUIDE.md):
+	     Debug builds only. INFOPLIST_PREPROCESS runs this file through the C
+	     preprocessor, and only the Debug configuration defines
+	     KNEECAP_SPIKE_DEEPLINK (see project.pbxproj), so Release registers
+	     no URL scheme at all. Keep double slashes out of this file: the
+	     preprocessor would read them as a line comment. -->
+#if KNEECAP_SPIKE_DEEPLINK
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -31,6 +38,7 @@
 			</array>
 		</dict>
 	</array>
+#endif
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>

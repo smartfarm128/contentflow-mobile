@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug build type only: merged over src/main/AndroidManifest.xml by the
+     manifest merger, never present in a release APK. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <!-- kneecap M1 spike ONLY — throwaway deep link to the hidden
+             diagnostics screen. See MainActivity.java#onNewIntent and
+             docs/SPIKE-GUIDE.md. Safe/expected to delete once M1 is read.
+             android:exported flips to true (main's is false) only so this
+             scheme is externally reachable, the same way iOS's Debug-only
+             CFBundleURLTypes is. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            tools:replace="android:exported">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kneecap-spike" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

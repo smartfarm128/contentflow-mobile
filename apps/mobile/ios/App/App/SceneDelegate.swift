@@ -14,7 +14,12 @@ import Capacitor
 class KneecapBridgeViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeBridgePlugin())
+        // M1 spike plugin: Debug builds only (SpikeDiagnosticsPlugin.swift is
+        // itself compiled out of Release), so a shipped app exposes no
+        // `SpikeDiagnostics` bridge surface.
+        #if DEBUG
         bridge?.registerPluginInstance(SpikeDiagnosticsPlugin())
+        #endif
     }
 }
 
@@ -51,13 +56,18 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // trigger commands). Purely additive: only intercepts our own
         // scheme and always still forwards to SceneDelegateProxy so
         // Capacitor's own URL-open plugin handling (e.g. OAuth deep links)
-        // is untouched.
+        // is untouched. Debug builds only: Release neither registers the
+        // scheme (Info.plist's CFBundleURLTypes is preprocessed out) nor
+        // bundles spike.html (see apps/mobile/vite.config.ts).
+        #if DEBUG
         if let url = URLContexts.first?.url, url.scheme == "kneecap-spike" {
             navigateToSpikeHarness()
         }
+        #endif
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
     }
 
+    #if DEBUG
     private func navigateToSpikeHarness() {
         guard let bridgeViewController = window?.rootViewController as? CAPBridgeViewController,
               let webView = bridgeViewController.bridge?.webView else {
@@ -68,6 +78,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         webView.evaluateJavaScript("window.location.href = 'spike.html';")
     }
+    #endif
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)

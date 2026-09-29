@@ -2,7 +2,7 @@
 
 **Audience: the founder, on real hardware.** Plan M1 exists to be cheap to fail, and it can only do that with real device numbers — an agent session cannot produce them (no iPhone, no Android device, and the iOS Simulator numbers below are explicitly *not* a substitute; see "What is and isn't verified" at the bottom). This doc is the exact install → run → read-the-numbers path, plus the kill-threshold table the whole milestone hinges on.
 
-The harness itself is **throwaway** (plan M1: "Build a throwaway harness — not the product"). It ships inside the same `apps/mobile` build as the M3 product placeholder, as a second, unlinked page (`spike.html`) — nothing here is the CapCut UI, and none of this code is meant to survive past M1.
+The harness itself is **throwaway** (plan M1: "Build a throwaway harness — not the product"). It ships inside **debug** `apps/mobile` builds only, as a second, unlinked page (`spike.html`) — nothing here is the CapCut UI, and none of this code is meant to survive past M1. A release build carries none of it: `bun run build` emits no `spike.html` and strips `spike-assets/`; the Xcode Release configuration compiles out the `SpikeDiagnostics` plugin, drops the `kneecap-spike` URL scheme and excludes `App/Fixtures`; and `assembleRelease` skips the plugin registration, the deep link and the `src/debug/assets/spike` clips. Every install path below therefore uses the debug web bundle (`bun run build:debug`) and a debug native build. The native apps package whatever `www/` was last `cap sync`ed, so a local Release/Archive needs `bun run build && bunx cap sync` first; the release CI scripts already do this.
 
 ---
 
@@ -13,7 +13,8 @@ The harness itself is **throwaway** (plan M1: "Build a throwaway harness — not
 ```bash
 cd apps/mobile
 bun run ios:build:sim
-# builds ios/App/App.xcodeproj, Debug, iphonesimulator, CODE_SIGNING_ALLOWED=NO
+# bun run build:debug + cap sync ios, then builds ios/App/App.xcodeproj,
+# Debug, iphonesimulator, CODE_SIGNING_ALLOWED=NO
 ```
 
 The built app is under Xcode's DerivedData, e.g.:
@@ -26,13 +27,14 @@ xcrun simctl install booted path/to/App.app
 xcrun simctl launch booted dev.kneecap.app
 ```
 
-For a **real iPhone**, open `ios/App/App.xcodeproj` in Xcode, select your device, and Run — this project's engineering rule is Simulator-only for *agent* sessions; the founder should run M1's actual numbers on real hardware, per plan M1's whole premise (a mid-tier real device, not a Mac's GPU via Simulator translation).
+For a **real iPhone**, first run `bun run build:debug && bunx cap sync ios` (from `apps/mobile`; a plain `bun run build` leaves `spike.html` out), then open `ios/App/App.xcodeproj` in Xcode, select your device, and Run with the default Debug configuration — this project's engineering rule is Simulator-only for *agent* sessions; the founder should run M1's actual numbers on real hardware, per plan M1's whole premise (a mid-tier real device, not a Mac's GPU via Simulator translation).
 
 ### Android (debug APK)
 
 ```bash
 cd apps/mobile
 bun run android:build:debug
+# bun run build:debug + cap sync android + gradlew assembleDebug
 # APK at android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -45,7 +47,7 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 
 ## 2. Reach the hidden diagnostics screen
 
-The spike screen is **not linked from the app's visible UI** (plan task: "hidden diagnostics screen"). Reach it with the `kneecap-spike://open` deep link, registered on both platforms:
+The spike screen is **not linked from the app's visible UI** (plan task: "hidden diagnostics screen"). Reach it with the `kneecap-spike://open` deep link, registered on both platforms in debug builds only (iOS Debug's preprocessed `Info.plist`; Android's `src/debug/AndroidManifest.xml`):
 
 1. Launch the app once and complete the one-time first-run screen (photos/camera/mic explainer — tap through it; nothing is actually requested yet at this stage).
 2. Trigger the deep link:
@@ -55,7 +57,7 @@ The spike screen is **not linked from the app's visible UI** (plan task: "hidden
 3. iOS will show a one-time **"Open in kneecap?"** system confirmation — tap **Open**. This is standard iOS behavior for any custom URL scheme opened from outside the app itself (Safari, Notes, `simctl openurl`); it is not specific to this harness and does not recur once dismissed for that launch.
 4. The webview navigates in place to the diagnostics screen — no new app, no address bar.
 
-If nothing happens: confirm you completed first-run in step 1 (the deep-link handler only fires once the Capacitor bridge/webview exists — see `SceneDelegate.swift`'s `navigateToSpikeHarness()` / `MainActivity.java`'s `onNewIntent()`).
+If nothing happens: confirm you completed first-run in step 1 (the deep-link handler only fires once the Capacitor bridge/webview exists — see `SceneDelegate.swift`'s `navigateToSpikeHarness()` / `MainActivity.java`'s `onNewIntent()`), and that the install is a debug build synced from `bun run build:debug` — a release build has no handler, and a debug native build synced from a plain `bun run build` has no `spike.html` to navigate to.
 
 ---
 
@@ -133,8 +135,8 @@ This section exists because a prior project shipped green tests hiding dead feat
 
 - `apps/mobile/spike.html`, `apps/mobile/src/spike/**` — the harness UI and all 6 test implementations (TypeScript, shared by both platforms).
 - `apps/mobile/scripts/generate-spike-assets.sh` — regenerates the bundled test-fixture videos (ffmpeg; not run at build time).
-- `apps/mobile/public/spike-assets/{proxy,full}.mp4` — test 2's fixtures, served as plain static web assets.
-- `apps/mobile/android/app/src/main/assets/spike/{clip-a,clip-b}.mp4` — test 3's Android fixtures.
+- `apps/mobile/public/spike-assets/{proxy,full}.mp4` — test 2's fixtures, served as plain static web assets (removed from release `www/` by `vite.config.ts`'s `dropSpikeAssetsFromRelease`).
+- `apps/mobile/android/app/src/debug/assets/spike/{clip-a,clip-b}.mp4` — test 3's Android fixtures (debug source set only).
 - `packages/native-bridge/src/spike-diagnostics.ts` — the TS-side wrapper for the throwaway `SpikeDiagnostics` native plugin (deliberately separate from the production `NativeBridge` — see that file's header).
 - `apps/mobile/ios/App/App/SpikeDiagnosticsPlugin.swift`, `apps/mobile/android/.../SpikeDiagnosticsPlugin.java` — the native halves.
 - `apps/mobile/src/spike/thresholds.ts` — the kill-threshold table as data (§4 above is generated from the plan the same way this file is).

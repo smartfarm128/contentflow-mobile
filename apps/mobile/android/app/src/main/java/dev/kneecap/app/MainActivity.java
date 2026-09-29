@@ -1,6 +1,7 @@
 package dev.kneecap.app;
 
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.net.Uri;
 import android.os.Bundle;
 
@@ -15,8 +16,19 @@ public class MainActivity extends BridgeActivity {
         // for free via CAPBridgedPlugin's Objective-C runtime reflection).
         registerPlugin(NativeBridgePlugin.class);
         // kneecap M1 spike ONLY — see SpikeDiagnosticsPlugin.java's header.
-        registerPlugin(SpikeDiagnosticsPlugin.class);
+        // Debug APKs only, so a release APK exposes no SpikeDiagnostics
+        // bridge surface (iOS compiles the plugin out of Release instead).
+        if (isDebuggable()) {
+            registerPlugin(SpikeDiagnosticsPlugin.class);
+        }
         super.onCreate(savedInstanceState);
+    }
+
+    /** `android:debuggable`, which AGP sets for the debug build type only.
+     *  Used instead of BuildConfig.DEBUG because this module doesn't enable
+     *  `buildFeatures.buildConfig` (off by default since AGP 8). */
+    private boolean isDebuggable() {
+        return (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
     @Override
@@ -29,6 +41,13 @@ public class MainActivity extends BridgeActivity {
         // pre-existing M3 setting) is what makes onNewIntent fire on the
         // already-running Activity instead of recreating it. Mirrors
         // SceneDelegate.swift's `navigateToSpikeHarness()` on iOS.
+        //
+        // Debug APKs only: the scheme's intent-filter lives in
+        // src/debug/AndroidManifest.xml and release bundles no spike.html,
+        // but check here too so no explicit intent can reach it in release.
+        if (!isDebuggable()) {
+            return;
+        }
         Uri data = intent.getData();
         if (data != null && "kneecap-spike".equals(data.getScheme()) && getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().post(() ->

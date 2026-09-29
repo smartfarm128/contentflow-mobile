@@ -6,13 +6,30 @@
  *   #/diagnostics    -> ./legacy-harness.ts — the M3/M4 NativeBridge shell
  *                       harness, kept reachable for QA (see its header).
  *
+ *   #/autotest       -> ./autotest.tsx      — headless end-to-end QA.
+ *
  * Both are dynamic imports so the diagnostics path stays out of the
  * editor's startup graph and vice versa. A hash flip between modes does a
  * full reload rather than trying to unmount one world and boot the other —
  * this is a hidden debug switch, not user-facing navigation.
+ *
+ * The two debug routes exist only when `DEBUG_ROUTES` is on (the Vite dev
+ * server, or `bun run build:debug`). A release bundle (`bun run build`)
+ * ignores both hashes and the autotest flag file, so neither a deep link nor
+ * a planted file can open an internal test surface in a shipped app.
  */
 const DIAGNOSTICS_HASH = "#/diagnostics";
 const AUTOTEST_HASH = "#/autotest";
+
+/** `MODE` is "development" under the dev server, "debug" for
+ *  `vite build --mode debug`, and "production" for a plain `vite build`.
+ *  Statically replaced by Vite, so a release build drops both debug routes
+ *  (and their dynamic-import chunks) from the bundle entirely. */
+const DEBUG_ROUTES = import.meta.env.MODE !== "production";
+
+function wantsDiagnostics(): boolean {
+	return DEBUG_ROUTES && window.location.hash.startsWith(DIAGNOSTICS_HASH);
+}
 
 /**
  * Headless trigger for the `#/autotest` route: a Capacitor app launch has
@@ -39,12 +56,12 @@ async function autotestFlagPresent(): Promise<boolean> {
 }
 
 async function boot() {
-	if (window.location.hash.startsWith(DIAGNOSTICS_HASH)) {
+	if (wantsDiagnostics()) {
 		const { mountLegacyHarness } = await import("./legacy-harness");
 		await mountLegacyHarness();
 	} else if (
-		window.location.hash.startsWith(AUTOTEST_HASH) ||
-		(await autotestFlagPresent())
+		DEBUG_ROUTES &&
+		(window.location.hash.startsWith(AUTOTEST_HASH) || (await autotestFlagPresent()))
 	) {
 		// End-to-end playback QA (import → persist → reopen → frames) — see
 		// autotest.tsx. Hidden debug route, same policy as #/diagnostics.
@@ -89,13 +106,11 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 window.addEventListener("hashchange", () => {
-	const inDiagnostics = window.location.hash.startsWith(DIAGNOSTICS_HASH);
+	const inDiagnostics = wantsDiagnostics();
 	const bootedDiagnostics = document.body.dataset.kneecapMode === "diagnostics";
 	if (inDiagnostics !== bootedDiagnostics) window.location.reload();
 });
 
-document.body.dataset.kneecapMode = window.location.hash.startsWith(DIAGNOSTICS_HASH)
-	? "diagnostics"
-	: "app";
+document.body.dataset.kneecapMode = wantsDiagnostics() ? "diagnostics" : "app";
 
 boot().catch(showBootError);

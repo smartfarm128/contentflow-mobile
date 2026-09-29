@@ -7,7 +7,8 @@ Ordered by how much downstream work each unblocks. Status context: `docs/STATUS.
 The whole architecture bet (web engine in a webview + native codec bridges) has **pre-committed kill thresholds** that only real hardware can test. Everything after this is polish if it passes and a pivot if it fails — run it first.
 
 - Guide: `docs/SPIKE-GUIDE.md` — install steps, the 6 tests, the kill-thresholds table from the plan.
-- iOS: open `apps/mobile/ios/App/App.xcodeproj` in Xcode, run on your iPhone (free Apple ID is fine), navigate to `#/diagnostics` → spike screen → "Run all 6 tests" → share the JSON export.
+- First, from `apps/mobile`: `bun run build:debug && bunx cap sync` — the spike screen and `#/diagnostics` exist only in the debug web bundle; a plain `bun run build` (what release ships) leaves them out.
+- iOS: open `apps/mobile/ios/App/App.xcodeproj` in Xcode, run on your iPhone with the default Debug configuration (free Apple ID is fine), navigate to `#/diagnostics` → spike screen → "Run all 6 tests" → share the JSON export.
 - Android: `cd apps/mobile/android && ./gradlew installDebug` with the phone plugged in, same flow.
 - Keep the app **foregrounded** during the run — tests 1 and 6 are frame-clock-gated and will stall in the background (known, documented).
 - Read the numbers against the thresholds table. Scrub latency > 400ms with proxies, or peak memory past the documented watermark, are kill-signals, not annoyances.

@@ -54,8 +54,11 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Build the M3 shell harness (apps/mobile/www)
-        run: bun run build
+      - name: Build the debug web bundle (apps/mobile/www)
+        # build:debug keeps the debug-only routes (#/diagnostics, #/autotest,
+        # spike.html) that the Debug native build below pairs with; the
+        # release bundle is release.yml's plain `bun run build`.
+        run: bun run build:debug
         working-directory: apps/mobile
 
       - name: cap sync ios
@@ -113,8 +116,11 @@ jobs:
         with:
           packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
 
-      - name: Build the M3 shell harness (apps/mobile/www)
-        run: bun run build
+      - name: Build the debug web bundle (apps/mobile/www)
+        # build:debug keeps the debug-only routes (#/diagnostics, #/autotest,
+        # spike.html) that the Debug native build below pairs with; the
+        # release bundle is release.yml's plain `bun run build`.
+        run: bun run build:debug
         working-directory: apps/mobile
 
       - name: cap sync android

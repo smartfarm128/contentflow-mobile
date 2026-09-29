@@ -4,6 +4,12 @@ import AVFoundation
 import CoreImage
 import UIKit
 
+// Debug builds only: the whole plugin is compiled out of Release so no
+// store/sideload binary carries the spike's fixture exporter or its
+// `SpikeDiagnostics` bridge surface (SceneDelegate.swift gates the
+// registration the same way).
+#if DEBUG
+
 /// kneecap M1 spike — a SEPARATE, throwaway native plugin from
 /// `NativeBridgePlugin.swift`. See `packages/native-bridge/src/
 /// spike-diagnostics.ts`'s header for why this is not folded into the
@@ -331,3 +337,5 @@ enum SpikeExportError: LocalizedError {
         }
     }
 }
+
+#endif

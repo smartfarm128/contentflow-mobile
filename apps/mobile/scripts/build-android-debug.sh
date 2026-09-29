@@ -9,8 +9,10 @@ set -euo pipefail
 MOBILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$MOBILE_DIR"
 
-echo "==> bun run build (Vite -> www/)"
-bun run build
+# build:debug (not build): a debug APK pairs with the debug web bundle,
+# which keeps #/diagnostics, #/autotest and spike.html (see main.ts).
+echo "==> bun run build:debug (Vite -> www/)"
+bun run build:debug
 
 echo "==> cap sync android"
 bunx cap sync android
