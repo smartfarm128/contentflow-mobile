@@ -384,6 +384,36 @@ export const AI_TOOLS: ClaudeTool[] = [
 		},
 	},
 	{
+		name: "apply_mask",
+		description:
+			"Apply a shape mask to a video/image/text clip — one of: split, cinematic-bars, rectangle, " +
+			"ellipse, heart, diamond, star, text. Replaces any existing mask on the clip (one mask per clip). " +
+			"Optional feather (0-100, softens the edge) and inverted (shows OUTSIDE the shape instead). " +
+			"cinematic-bars gives an instant letterbox film look; ellipse+feather makes a soft vignette focus.",
+		input_schema: {
+			type: "object",
+			properties: {
+				clip_id: { type: "string" },
+				mask_type: {
+					type: "string",
+					enum: ["split", "cinematic-bars", "rectangle", "ellipse", "heart", "diamond", "star", "text"],
+				},
+				feather: { type: "number", description: "0-100 edge softness. Default 0." },
+				inverted: { type: "boolean", description: "Show outside the shape. Default false." },
+			},
+			required: ["clip_id", "mask_type"],
+		},
+	},
+	{
+		name: "remove_mask",
+		description: "Remove the mask from a clip, restoring the full frame.",
+		input_schema: {
+			type: "object",
+			properties: { clip_id: { type: "string" } },
+			required: ["clip_id"],
+		},
+	},
+	{
 		name: "set_aspect_ratio",
 		description:
 			"Set the project canvas aspect ratio. Use 9:16 for TikTok/Reels/Shorts, 16:9 for YouTube, 1:1 for feed posts.",

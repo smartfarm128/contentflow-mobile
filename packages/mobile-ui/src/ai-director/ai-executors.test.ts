@@ -208,6 +208,35 @@ describe("AI Director executors against a real editor", () => {
 		expect(out.text).toContain("No transcript yet");
 	});
 
+	it("apply_mask lands a real mask on the element, and remove_mask clears it", async () => {
+		const { editor, ctx } = await loadFixture();
+		const out = await executeTool(
+			"apply_mask",
+			{ clip_id: "clip-a", mask_type: "ellipse", feather: 40 },
+			ctx,
+		);
+		expect(out.text).toContain("Applied ellipse mask to clip-a");
+		const { getElementMask } = await import("../editor/actions");
+		const ref = { trackId: "track-main", elementId: "clip-a" };
+		const mask = getElementMask({ editor, ref });
+		expect(mask?.type).toBe("ellipse");
+		expect(mask?.params.feather).toBe(40);
+
+		const removed = await executeTool("remove_mask", { clip_id: "clip-a" }, ctx);
+		expect(removed.text).toContain("Removed the mask");
+		expect(getElementMask({ editor, ref })).toBeNull();
+	});
+
+	it("apply_mask refuses a clip that cannot carry a mask instead of pretending", async () => {
+		const { ctx } = await loadFixture();
+		const out = await executeTool(
+			"apply_mask",
+			{ clip_id: "clip-music", mask_type: "ellipse" },
+			ctx,
+		);
+		expect(out.text).toStartWith("Error");
+	});
+
 	it("generate_captions fails honestly instead of laying the sample transcript down", async () => {
 		const { editor, ctx } = await loadFixture();
 		const { getAllCaptions } = await import("../editor/captions-actions");

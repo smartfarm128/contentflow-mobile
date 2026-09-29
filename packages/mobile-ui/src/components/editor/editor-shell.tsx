@@ -17,6 +17,7 @@ import { TextPanel } from "../panels/text-panel";
 import { StickersPanel } from "../panels/stickers-panel";
 import { OverlayPanel } from "../panels/overlay-panel";
 import { EffectsPanel } from "../panels/effects-panel";
+import { MasksPanel } from "../panels/masks-panel";
 import { FiltersPanel } from "../panels/filters-panel";
 import { AdjustPanel } from "../panels/adjust-panel";
 import { CaptionsPanel } from "../panels/captions-panel";
@@ -154,7 +155,7 @@ function formatKeyframeTime(time: MediaTime): string {
 	return `${mediaTimeToSeconds({ time }).toFixed(2)}s`;
 }
 
-const VISUAL_ONLY_SHEETS = new Set<SheetId>(["effects", "filters", "adjust"]);
+const VISUAL_ONLY_SHEETS = new Set<SheetId>(["effects", "filters", "adjust", "masks"]);
 
 function formatTimecode(seconds: number): string {
 	const clamped = Math.max(0, seconds);
@@ -706,6 +707,10 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 
 			{activeSheet === "filters" && selectedRef && visualElement && (
 				<FiltersPanel editor={editor} elementRef={selectedRef} element={visualElement} onClose={closeSheet} />
+			)}
+
+			{activeSheet === "masks" && selectedRef && visualElement && (
+				<MasksPanel editor={editor} elementRef={selectedRef} element={visualElement} onClose={closeSheet} />
 			)}
 
 			{activeSheet === "adjust" && selectedRef && visualElement && (

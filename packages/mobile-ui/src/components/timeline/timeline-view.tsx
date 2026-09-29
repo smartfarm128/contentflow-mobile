@@ -476,7 +476,12 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 					return nextTarget;
 				});
 			}
-			const track = project.tracks.find((t) => t.id === params.trackId);
+			// Find the VM lane BY CLIP, not by the reported trackId: clips carry
+			// their real ENGINE track id, and the consolidated graphic lane (and
+			// any future merged lane) renders clips whose engine id is not the
+			// lane's VM id — a lookup by id there returned nothing and silently
+			// killed the whole drag for those clips.
+			const track = project.tracks.find((t) => t.clips.some((c) => c.id === params.clipId));
 			const clipIndex = track?.clips.findIndex((c) => c.id === params.clipId) ?? -1;
 			const clip = clipIndex >= 0 ? track?.clips[clipIndex] : undefined;
 			if (!track || !clip) return;
@@ -915,7 +920,13 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 										selectedClipId={selectedClipId}
 										onSelectClip={({ clipId }) => {
 											setSelectedClipId(clipId);
-											onSelectClip?.({ clipId, trackId: track.id });
+											// The clip's OWN engine track id, not the VM lane's: the
+											// consolidated graphic lane renders clips from several
+											// engine tracks under one VM row id, and a selection
+											// sent with the lane id fails to resolve in the engine
+											// for every clip not on the first of them.
+											const clip = track.clips.find((c) => c.id === clipId);
+											onSelectClip?.({ clipId, trackId: clip?.trackId ?? track.id });
 										}}
 										trimPreview={trimPreview}
 										onTrimPreview={handleTrimPreview}
@@ -924,10 +935,21 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 										isDropTarget={dropTargetTrackId === track.id}
 										onMovePreview={onMoveClip ? handleMovePreview : undefined}
 										onMoveEnd={onMoveClip ? handleMoveEnd : undefined}
-										onLongPress={undefined}
+										onLongPress={
+											onReorderMainTrack && track.kind === "main" ? handleLongPress : undefined
+										}
 										onPanBy={handlePanBy}
 										onDoubleTap={onDoubleTapClip}
-										reorder={null}
+										reorder={
+											reorderSession && reorderSession.trackId === track.id
+												? ({
+														draggedClipId: reorderSession.clipId,
+														insertionIndex: reorderInsertionIndex(reorderSession),
+														dragXPx: reorderSession.dragXPx,
+														baseXPx: reorderSession.baseXPx,
+													} satisfies ReorderState)
+												: null
+										}
 										snapTargets={snapTargets}
 										snapThresholdSec={snapThresholdSec}
 										onKeyframeTap={

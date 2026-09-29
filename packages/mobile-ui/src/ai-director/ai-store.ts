@@ -60,7 +60,7 @@ interface AIDirectorState {
 }
 
 export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
-  selectedModel: "claude-sonnet-5",
+  selectedModel: "claude-sonnet-5-5",
   // Starts empty: every message in the feed is either the user's or the
   // model's. A scripted greeting would be sent to the API as something the
   // model "said".

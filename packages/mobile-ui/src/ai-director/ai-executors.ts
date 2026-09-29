@@ -26,7 +26,12 @@ import {
 	updateEffectParam,
 	insertHtmlTemplateElement,
 	getElement,
+	setElementMask,
+	removeElementMask,
+	getElementMask,
+	updateElementMaskParam,
 } from "../editor/actions";
+import { parseMaskType } from "../editor/actions";
 import {
 	generateCaptionsForClip,
 	getAllCaptions,
@@ -601,6 +606,39 @@ export async function executeTool(
 			return { text: applied.length
 				? `Applied colour adjust to ${ref.elementId} (${applied.join(", ")}).`
 				: "No adjustment values supplied — nothing changed." };
+		}
+
+		case "apply_mask": {
+			const ref = findRef(ctx, String(input.clip_id));
+			if (!ref) return { text: `Error: no clip with id "${input.clip_id}". Call get_timeline for valid ids.` };
+			const maskType = parseMaskType(String(input.mask_type));
+			if (!maskType) {
+				return { text: `Error: unknown mask_type "${input.mask_type}". Valid: split, cinematic-bars, rectangle, ellipse, heart, diamond, star, text.` };
+			}
+			if (!setElementMask({ editor, ref, maskType })) {
+				return { text: `Error: clip ${ref.elementId} can't carry a mask (audio/caption clips can't).` };
+			}
+			if (input.feather !== undefined) {
+				updateElementMaskParam({ editor, ref, key: "feather", value: Math.min(100, Math.max(0, Number(input.feather))) });
+			}
+			if (input.inverted === true) {
+				updateElementMaskParam({ editor, ref, key: "inverted", value: true });
+			}
+			const applied = getElementMask({ editor, ref });
+			if (!applied) return { text: `Error: mask "${maskType}" did not apply to ${ref.elementId}.` };
+			return {
+				text: `Applied ${applied.type} mask to ${ref.elementId}${input.feather ? ` (feather ${input.feather})` : ""}${input.inverted ? ", inverted" : ""}. Call render_frame to see it.`,
+			};
+		}
+
+		case "remove_mask": {
+			const ref = findRef(ctx, String(input.clip_id));
+			if (!ref) return { text: `Error: no clip with id "${input.clip_id}".` };
+			if (!getElementMask({ editor, ref })) {
+				return { text: `Clip ${ref.elementId} has no mask; nothing to remove.` };
+			}
+			removeElementMask({ editor, ref });
+			return { text: `Removed the mask from ${ref.elementId}.` };
 		}
 
 		case "set_aspect_ratio": {

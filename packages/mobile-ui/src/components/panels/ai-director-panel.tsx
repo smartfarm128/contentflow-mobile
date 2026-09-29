@@ -150,7 +150,7 @@ export function AIDirectorPanel({
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="cc-select"
               >
-                <option value="claude-sonnet-5">Claude Sonnet 5 (Recommended)</option>
+                <option value="claude-sonnet-5-5">Claude Sonnet 5 (Recommended)</option>
                 <option value="claude-opus-5-5">Claude Opus 5.5 (Deep Creative Direction)</option>
                 <option value="claude-fable-5-1">Claude Fable 5.1 (Highest Intelligence)</option>
               </select>

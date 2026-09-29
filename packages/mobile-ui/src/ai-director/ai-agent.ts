@@ -135,7 +135,7 @@ async function driveAgentLoop({
 					"anthropic-dangerous-direct-browser-access": "true",
 				},
 				body: JSON.stringify({
-					model: useAIDirectorStore.getState().selectedModel || "claude-sonnet-5",
+					model: useAIDirectorStore.getState().selectedModel || "claude-sonnet-5-5",
 					max_tokens: MAX_TOKENS,
 					system: buildSystemPrompt(),
 					tools: AI_TOOLS,

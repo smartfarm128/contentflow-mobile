@@ -28,6 +28,7 @@ import {
 	TransitionsSnapshotCommand,
 	TracksSnapshotCommand,
 	MoveElementCommand,
+	AddTrackCommand,
 } from "@kneecap/editor-core/commands";
 import {
 	buildTextElement,
@@ -42,6 +43,9 @@ import {
 	type GroupResizeMember,
 } from "@kneecap/editor-core/timeline";
 import { canElementGoOnTrack } from "@kneecap/editor-core/timeline/placement";
+import { isMaskableElement } from "@kneecap/editor-core/timeline";
+import { buildDefaultMaskInstance, getMaskDefinitionsForMenu } from "@kneecap/editor-core/masks";
+import type { Mask, MaskType } from "@kneecap/editor-core/masks/types";
 import {
 	addMediaTime,
 	subMediaTime,
@@ -513,8 +517,31 @@ export function commitElementMove({
 	// instead of surfacing an exception. `MoveElementCommand` throws on an
 	// incompatible pair by design (it is the engine's invariant), so the UI
 	// has to filter before calling it.
-	if (targetTrackId && targetTrackId !== trackId) {
-		const targetTrack = findTrackInSceneTracks({ tracks, trackId: targetTrackId });
+	//
+	// PLACEHOLDER lanes: the VM renders an empty audio/subtitle/graphic lane
+	// even when no engine track exists (the VN 4-tier hierarchy), with a
+	// synthetic "placeholder-*" id. A drop there used to silently no-op —
+	// the lookup below found no track and fell through to a same-track
+	// move. Now it creates the real engine track first (undoable), then
+	// moves onto it, matching what the drop visibly promised.
+	let resolvedTargetTrackId = targetTrackId;
+	if (resolvedTargetTrackId?.startsWith("placeholder-")) {
+		const wantedType =
+			resolvedTargetTrackId === "placeholder-audio"
+				? ("audio" as const)
+				: resolvedTargetTrackId === "placeholder-caption"
+					? ("caption" as const)
+					: ("graphic" as const);
+		if (canElementGoOnTrack({ elementType: element.type, trackType: wantedType })) {
+			const addTrack = new AddTrackCommand({ type: wantedType });
+			editor.command.execute({ command: addTrack });
+			resolvedTargetTrackId = addTrack.getTrackId();
+		} else {
+			resolvedTargetTrackId = undefined;
+		}
+	}
+	if (resolvedTargetTrackId && resolvedTargetTrackId !== trackId) {
+		const targetTrack = findTrackInSceneTracks({ tracks: editor.scenes.getActiveScene().tracks, trackId: resolvedTargetTrackId });
 		const compatible =
 			targetTrack &&
 			canElementGoOnTrack({
@@ -527,7 +554,7 @@ export function commitElementMove({
 					moves: [
 						{
 							sourceTrackId: trackId,
-							targetTrackId,
+							targetTrackId: resolvedTargetTrackId,
 							elementId,
 							newStartTime: candidate,
 						},
@@ -1715,3 +1742,148 @@ export function setVisualParamKeyframeAware({
 }
 
 export { hasClipKeyframes };
+
+// ------------------------------- Masks ---------------------------------------
+
+/**
+ * Mask editing for the mobile Masks panel and the AI Director's mask tools.
+ * Same engine surface the web masks-tab drives: `element.masks` patched
+ * through one undoable `UpdateElementsCommand` per change, composited by the
+ * renderer's scene-builder (which already forwards `element.masks` on every
+ * visual node — no new render path needed).
+ *
+ * v1 mirrors the web panel's "one mask per element" rule; `setElementMask`
+ * REPLACES any existing mask rather than stacking.
+ */
+export function setElementMask({
+	editor,
+	ref,
+	maskType,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+	maskType: MaskType;
+}): boolean {
+	const element = getElement({ editor, ref });
+	if (!element || !isMaskableElement(element)) return false;
+	const mask = buildDefaultMaskInstance({ maskType });
+	editor.command.execute({
+		command: new UpdateElementsCommand({
+			updates: [
+				{
+					trackId: ref.trackId,
+					elementId: ref.elementId,
+					// The engine's own MaskableElement patch shape.
+					patch: { masks: [mask] } as Partial<TimelineElement>,
+				},
+			],
+		}),
+	});
+	return true;
+}
+
+export function removeElementMask({
+	editor,
+	ref,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+}): void {
+	const element = getElement({ editor, ref });
+	if (!element || !isMaskableElement(element)) return;
+	editor.command.execute({
+		command: new UpdateElementsCommand({
+			updates: [
+				{
+					trackId: ref.trackId,
+					elementId: ref.elementId,
+					patch: { masks: [] } as Partial<TimelineElement>,
+				},
+			],
+		}),
+	});
+}
+
+function withMaskParam({
+	mask,
+	key,
+	value,
+}: {
+	mask: Mask;
+	key: string;
+	value: number | string | boolean;
+}): Mask {
+	switch (mask.type) {
+		case "split":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+		case "cinematic-bars":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+		case "rectangle":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+		case "ellipse":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+		case "heart":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+		case "diamond":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+		case "star":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+		case "text":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+		case "freeform":
+			return { ...mask, params: { ...mask.params, [key]: value } };
+	}
+}
+
+/** Registry-backed parse of a model/user-supplied mask-type string —
+ *  returns the typed MaskType or null, no assertion. */
+export function parseMaskType(raw: string): MaskType | null {
+	const definition = getMaskDefinitionsForMenu().find((def) => def.type === raw);
+	return definition ? definition.type : null;
+}
+
+export function getElementMask({
+	editor,
+	ref,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+}): Mask | null {
+	const element = getElement({ editor, ref });
+	if (!element || !isMaskableElement(element)) return null;
+	return element.masks?.[0] ?? null;
+}
+
+/** Patch one param on the element's active mask (feather, inverted,
+ *  centerX/centerY, size params — whatever the mask type defines). */
+export function updateElementMaskParam({
+	editor,
+	ref,
+	key,
+	value,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+	key: string;
+	value: number | string | boolean;
+}): void {
+	const element = getElement({ editor, ref });
+	if (!element || !isMaskableElement(element)) return;
+	const current = element.masks?.[0];
+	if (!current) return;
+	// Per-variant spread (same shape as the web masks-tab's
+	// `withPreviewedMaskParam`): a plain spread over the union collapses
+	// `params` to a union TS won't re-narrow, so switch on the variant.
+	const updated = withMaskParam({ mask: current, key, value });
+	editor.command.execute({
+		command: new UpdateElementsCommand({
+			updates: [
+				{
+					trackId: ref.trackId,
+					elementId: ref.elementId,
+					patch: { masks: [updated] } as Partial<TimelineElement>,
+				},
+			],
+		}),
+	});
+}

@@ -18,6 +18,8 @@
 		"./services/renderer/nodes/root-node": "./src/services/renderer/nodes/root-node.ts",
 		"./commands": "./src/commands/index.ts",
 		"./timeline": "./src/timeline/index.ts",
+		"./masks": "./src/masks/index.ts",
+		"./masks/types": "./src/masks/types.ts",
 		"./timeline/audio-constants": "./src/timeline/audio-constants.ts",
 		"./params": "./src/params/index.ts",
 		"./params/registry": "./src/params/registry.ts",
