@@ -605,6 +605,24 @@ function ClipFilmstrip({
 	);
 	const fallbackCover = clip.thumbnailUrl ?? clip.thumbnails?.[0];
 
+	/** Maps a clip-relative slot time to the asset's strip frame for the
+	 *  SOURCE moment actually playing there: through the trim offset and the
+	 *  retime rate, then into the evenly-spaced strip (frame i covers source
+	 *  cell [i/n,(i+1)/n)). Without this every slot showed the same cover,
+	 *  so the strip read as one long smeared frame (founder's screenshot,
+	 *  2026-09-29: "the scenes are not appearing on the time frame"). */
+	const stripFrameForSlot = (slotSec: number): string | undefined => {
+		const strip = clip.filmstripUris;
+		if (!strip || strip.length === 0 || clip.sourceDurationSec == null) return undefined;
+		const rate = clip.retimeRate ?? 1;
+		const sourceSec = (clip.trimStartSec ?? 0) + slotSec * rate;
+		const index = Math.min(
+			strip.length - 1,
+			Math.max(0, Math.floor((sourceSec / clip.sourceDurationSec) * strip.length)),
+		);
+		return strip[index];
+	};
+
 	return (
 		<div
 			className="cc-timeline__clip-thumbnails"
@@ -628,7 +646,7 @@ function ClipFilmstrip({
 				>
 					<FilmstripThumbnail
 						widthPx={slotWidthPx}
-						realUri={clip.thumbnails?.[slotSec] ?? fallbackCover}
+						realUri={clip.thumbnails?.[slotSec] ?? stripFrameForSlot(slotSec) ?? fallbackCover}
 						colorHue={clip.colorHue}
 						slotSec={slotSec}
 					/>

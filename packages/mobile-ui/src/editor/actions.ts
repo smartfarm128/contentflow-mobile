@@ -45,6 +45,7 @@ import {
 import { canElementGoOnTrack } from "@kneecap/editor-core/timeline/placement";
 import { isMaskableElement } from "@kneecap/editor-core/timeline";
 import { buildDefaultMaskInstance, getMaskDefinitionsForMenu } from "@kneecap/editor-core/masks";
+import { getVisibleElementsWithBounds } from "@kneecap/editor-core/preview/element-bounds";
 import type { Mask, MaskType } from "@kneecap/editor-core/masks/types";
 import {
 	addMediaTime,
@@ -1766,7 +1767,30 @@ export function setElementMask({
 }): boolean {
 	const element = getElement({ editor, ref });
 	if (!element || !isMaskableElement(element)) return false;
-	const mask = buildDefaultMaskInstance({ maskType });
+	// Element size feeds the default geometry (same as the web masks-tab):
+	// without it a "square" default is 60% of BOTH axes — a stretched oval
+	// on any non-square video. The element's live canvas bounds give the
+	// real aspect. Fall back to sizeless (web-parity) when not resolvable.
+	let elementSize: { width: number; height: number } | undefined;
+	const project = editor.project.getActiveOrNull();
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	if (project && tracks) {
+		// Clamp the sample time INTO the element's own window (web-parity):
+		// the playhead can legitimately sit outside the clip, where the
+		// element is invisible and yields no bounds.
+		const clampedTime = Math.min(
+			Math.max(editor.playback.getCurrentTime(), element.startTime),
+			element.startTime + element.duration - 1,
+		);
+		const bounds = getVisibleElementsWithBounds({
+			tracks,
+			currentTime: clampedTime,
+			canvasSize: project.settings.canvasSize,
+			mediaAssets: editor.media.getAssets(),
+		}).find((item) => item.elementId === ref.elementId)?.bounds;
+		if (bounds) elementSize = { width: bounds.width, height: bounds.height };
+	}
+	const mask = buildDefaultMaskInstance({ maskType, elementSize });
 	editor.command.execute({
 		command: new UpdateElementsCommand({
 			updates: [

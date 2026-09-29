@@ -193,6 +193,23 @@ function keyframeVMs({ element }: { element: TimelineElement }): TimelineClipVM[
 	}));
 }
 
+/** Derives the asset's full on-disk thumbnail strip from its cover URL.
+ *  Native import writes `Thumbnails/<assetId>/thumb-000.jpg` … `thumb-009.jpg`
+ *  and persists only frame 000 as `thumbnailUrl` (native-import.ts documents
+ *  the single-slot limit) — but the other nine frames are already there,
+ *  same directory, deterministic names. Non-native covers (blob/object URLs)
+ *  don't match and return undefined. */
+const NATIVE_STRIP_COUNT = 10;
+export function filmstripUrisFromCover(coverUrl: string | undefined): string[] | undefined {
+	if (!coverUrl) return undefined;
+	const match = /^(.*\/)thumb-000\.jpg$/.exec(coverUrl);
+	if (!match) return undefined;
+	return Array.from(
+		{ length: NATIVE_STRIP_COUNT },
+		(_, i) => `${match[1]}thumb-${String(i).padStart(3, "0")}.jpg`,
+	);
+}
+
 function mapTrack({
 	track,
 	isMain,
@@ -221,6 +238,7 @@ function mapTrack({
 			colorHue: colorHueForId(element.id),
 			thumbnailUrl: coverThumbUrl,
 			thumbnails: coverThumbUrl ? { 0: coverThumbUrl } : undefined,
+			filmstripUris: filmstripUrisFromCover(asset?.thumbnailUrl),
 			// Trim/source state for the handle-extension bounds (see the VM
 			// type's own doc comment). sourceDuration is only meaningful on
 			// media-backed elements; text/sticker/image leave it undefined and

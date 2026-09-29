@@ -86,6 +86,15 @@ export interface TimelineClipVM {
 	 * consumer of this package has real entries to put here today.
 	 */
 	thumbnails?: Record<number, string>;
+	/**
+	 * The asset's evenly-spaced SOURCE-duration thumbnail strip (native
+	 * import writes thumb-000..thumb-009 next to the cover frame; see
+	 * ThumbnailStripGenerator.swift). Frame i samples the midpoint of
+	 * source cell [i/n, (i+1)/n). The filmstrip maps each visible slot
+	 * through trim/retime to the nearest strip frame — real scene content
+	 * at every position instead of one cover stretched across the clip.
+	 */
+	filmstripUris?: string[];
 	/** Cover thumbnail URL for this clip or its underlying asset. */
 	thumbnailUrl?: string;
 	/** Audio-only: amplitude samples 0..1 across the clip's SOURCE duration. */

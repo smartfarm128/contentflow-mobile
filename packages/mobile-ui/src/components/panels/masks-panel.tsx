@@ -74,25 +74,39 @@ export function MasksPanel({ editor, elementRef, element, onClose }: MasksPanelP
 							})
 						}
 					/>
-					{activeDefinition.params.map((param) =>
-						param.type === "number" ? (
+					{activeDefinition.params.map((param) => {
+						if (param.type !== "number") return null;
+						// `displayMultiplier` params (mask width/height/center) store
+						// e.g. 0.6 but define min/max/step in DISPLAY space (60 on a
+						// 1-100 slider). Convert BOTH directions, or the first slider
+						// touch writes a display number back as a stored value and
+						// the shape explodes to ~100x (founder's device, 2026-09-29:
+						// "try adjusting the shape... everything is now spot").
+						const factor = param.displayMultiplier ?? 1;
+						const storedValue = readNumberParam({
+							// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- generic param read: the registry's own ParamDefinition keys index the union's variant-specific params.
+							raw: (activeMask.params as unknown as Record<string, unknown>)[param.key],
+							fallback: param.default,
+						});
+						return (
 							<ParamRow
 								key={param.key}
 								label={param.label}
-								value={readNumberParam({
-									// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- generic param read: the registry's own ParamDefinition keys index the union's variant-specific params.
-									raw: (activeMask.params as unknown as Record<string, unknown>)[param.key],
-									fallback: param.default,
-								})}
+								value={storedValue * factor}
 								min={param.min}
 								max={param.max ?? 100}
 								step={param.step}
 								onChange={(value) =>
-									updateElementMaskParam({ editor, ref: elementRef, key: param.key, value })
+									updateElementMaskParam({
+										editor,
+										ref: elementRef,
+										key: param.key,
+										value: value / factor,
+									})
 								}
 							/>
-						) : null,
-					)}
+						);
+					})}
 				</>
 			)}
 		</PanelSheet>
