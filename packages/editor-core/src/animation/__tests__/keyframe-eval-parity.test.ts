@@ -13,7 +13,8 @@ import { buildParityChannels, parityChannelToScalarChannel, paritySampleTicks } 
 describe("keyframe evaluation parity fixture", () => {
 	test("checked-in fixture matches the engine's channels and sample grid", () => {
 		const channels = buildParityChannels();
-		expect(fixture.channels).toEqual(channels);
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- JSON import narrows some unions (componentKey) and widens others (extrapolation) versus EdlAnimationChannel; the generator wrote engine values, and toEqual compares structurally anyway.
+		expect(fixture.channels as ReturnType<typeof buildParityChannels>).toEqual(channels);
 		const expectedSamples = channels.flatMap((channel, channelIndex) =>
 			paritySampleTicks({ channel }).map((timeTicks) => ({ channel: channelIndex, timeTicks })),
 		);

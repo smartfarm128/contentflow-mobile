@@ -56,7 +56,7 @@ export class CommandManager {
 	 * the per-step entries are still below it and the next undo re-applies an
 	 * intermediate state of the operation.
 	 */
-	squashSince(mark: number, command: Command): void {
+	squashSince({ mark, command }: { mark: number; command: Command }): void {
 		const squashed = this.history.splice(mark);
 		this.history.push({
 			command,

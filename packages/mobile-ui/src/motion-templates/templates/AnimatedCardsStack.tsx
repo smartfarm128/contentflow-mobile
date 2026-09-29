@@ -57,7 +57,7 @@ export function AnimatedCardsStackTemplate({
       const end = (idx + 1) * segment;
 
       let cardOpacity = 1;
-      let cardX = 0;
+      const cardX = 0;
       let cardY = 0;
       let cardScale = 1;
       let cardRotate = 0;

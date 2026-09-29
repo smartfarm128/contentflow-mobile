@@ -100,16 +100,16 @@ export function SplineSceneTemplate({ time, width, height, values }: HtmlTemplat
 
     const projected = vertices.map((v) => {
       // Rotate Y
-      let x1 = v.x * cosY - v.z * sinY;
-      let z1 = v.x * sinY + v.z * cosY;
+      const x1 = v.x * cosY - v.z * sinY;
+      const z1 = v.x * sinY + v.z * cosY;
 
       // Rotate X
-      let y2 = v.y * cosX - z1 * sinX;
-      let z2 = v.y * sinX + z1 * cosX;
+      const y2 = v.y * cosX - z1 * sinX;
+      const z2 = v.y * sinX + z1 * cosX;
 
       // Rotate Z
-      let x3 = x1 * cosZ - y2 * sinZ;
-      let y3 = x1 * sinZ + y2 * cosZ;
+      const x3 = x1 * cosZ - y2 * sinZ;
+      const y3 = x1 * sinZ + y2 * cosZ;
 
       // Perspective Projection
       const dist = 500 * scaleFactor;

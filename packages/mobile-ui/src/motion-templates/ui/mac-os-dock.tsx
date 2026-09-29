@@ -31,7 +31,7 @@ export const MacOSDock: React.FC<MacOSDockProps> = ({
   const [currentPositions, setCurrentPositions] = useState<number[]>([]);
   const dockRef = useRef<HTMLDivElement>(null);
   const iconRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const lastMouseMoveTime = useRef<number>(0);
+  const lastPointerMoveTime = useRef<number>(0);
 
   // Responsive size calculations based on viewport
   const getResponsiveConfig = useCallback(() => {
@@ -178,16 +178,17 @@ export const MacOSDock: React.FC<MacOSDockProps> = ({
     return () => cancelAnimationFrame(frameId);
   }, [updateMagnificationAndPositions, mouseXOverride]);
 
-  // Throttled mouse movement handler
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  // Throttled pointer movement handler (Pointer Events per the M5
+  // mouse-event gate — fires identically for mouse, and for touch too).
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (mouseXOverride !== undefined) return;
     const now = performance.now();
     
-    if (now - lastMouseMoveTime.current < 16) {
+    if (now - lastPointerMoveTime.current < 16) {
       return;
     }
     
-    lastMouseMoveTime.current = now;
+    lastPointerMoveTime.current = now;
     
     if (dockRef.current) {
       const rect = dockRef.current.getBoundingClientRect();
@@ -196,7 +197,7 @@ export const MacOSDock: React.FC<MacOSDockProps> = ({
     }
   }, [baseIconSize, mouseXOverride]);
 
-  const handleMouseLeave = useCallback(() => {
+  const handlePointerLeave = useCallback(() => {
     if (mouseXOverride !== undefined) return;
     setMouseXState(null);
   }, [mouseXOverride]);
@@ -244,8 +245,8 @@ export const MacOSDock: React.FC<MacOSDockProps> = ({
         `,
         padding: `${padding}px`
       }}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
     >
       <div 
         className="relative"

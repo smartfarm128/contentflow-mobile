@@ -11,6 +11,7 @@ const tracksWith = (ids: string[]): SceneTracks => ({
 		type: "video",
 		muted: false,
 		hidden: false,
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- test fixture: raw numbers stand in for branded MediaTime ticks.
 		elements: ids.map((id, i) => ({
 			id,
 			name: id,
@@ -30,7 +31,7 @@ const tracksWith = (ids: string[]): SceneTracks => ({
 let editor: EditorCore;
 const ids = () =>
 	editor.scenes.getActiveScene().tracks.main.elements.map((e) => e.id).join(",");
-const step = (from: string[], to: string[]) =>
+const step = ({ from, to }: { from: string[]; to: string[] }) =>
 	editor.command.execute({
 		command: new TracksSnapshotCommand({ before: tracksWith(from), after: tracksWith(to) }),
 	});
@@ -44,18 +45,18 @@ beforeEach(() => {
 });
 
 test("squashSince makes a multi-step operation exactly one undo", () => {
-	step(["a"], ["a", "x"]); // user edit before the operation
+	step({ from: ["a"], to: ["a", "x"] }); // user edit before the operation
 	const before = structuredClone(editor.scenes.getActiveScene().tracks);
 	const mark = editor.command.mark();
-	step(["a", "x"], ["a", "x", "b"]);
-	step(["a", "x", "b"], ["a", "x", "b", "c"]);
-	editor.command.squashSince(
+	step({ from: ["a", "x"], to: ["a", "x", "b"] });
+	step({ from: ["a", "x", "b"], to: ["a", "x", "b", "c"] });
+	editor.command.squashSince({
 		mark,
-		new TracksSnapshotCommand({
+		command: new TracksSnapshotCommand({
 			before,
 			after: structuredClone(editor.scenes.getActiveScene().tracks),
 		}),
-	);
+	});
 
 	expect(ids()).toBe("a,x,b,c");
 	editor.command.undo();
@@ -71,14 +72,14 @@ test("squashSince makes a multi-step operation exactly one undo", () => {
 });
 
 test("squashSince clears redo", () => {
-	step(["a"], ["a", "x"]);
+	step({ from: ["a"], to: ["a", "x"] });
 	editor.command.undo();
 	expect(editor.command.canRedo()).toBe(true);
 	const mark = editor.command.mark();
-	step(["a"], ["a", "b"]);
-	editor.command.squashSince(
+	step({ from: ["a"], to: ["a", "b"] });
+	editor.command.squashSince({
 		mark,
-		new TracksSnapshotCommand({ before: tracksWith(["a"]), after: tracksWith(["a", "b"]) }),
-	);
+		command: new TracksSnapshotCommand({ before: tracksWith(["a"]), after: tracksWith(["a", "b"]) }),
+	});
 	expect(editor.command.canRedo()).toBe(false);
 });

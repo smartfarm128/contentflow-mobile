@@ -22,6 +22,12 @@
 			"@/*": ["./src/*", "../editor-core/src/*"]
 		}
 	},
-	"include": ["src/**/*.ts"],
+	"include": [
+		"src/**/*.ts",
+		// editor-core's ambient module declarations (soundtouchjs has no
+		// published types) — needed because the transitive type-check of
+		// editor-core sources described above otherwise sees the bare import.
+		"../editor-core/src/types/*.d.ts"
+	],
 	"exclude": ["node_modules"]
 }

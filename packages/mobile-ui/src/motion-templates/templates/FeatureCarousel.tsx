@@ -121,7 +121,7 @@ export function FeatureCarouselTemplate({ progress, width, height, values }: Htm
             let opacity = 0;
             let scale = 0.7;
             let blur = 4;
-            let rotateY = offset * -15;
+            const rotateY = offset * -15;
             let visibility: "visible" | "hidden" = "hidden";
 
             if (dist <= 1.0) {

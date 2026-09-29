@@ -85,12 +85,12 @@ describe("DraftEngine in-memory sandbox and proposal lifecycle", () => {
 		expect(liveTracks.overlay.length).toBe(0);
 
 		// Compute diff and proposal
-		const proposal = draft.createProposal("Add Intro Title", "Adds dynamic title on overlay track");
+		const proposal = draft.createProposal({ title: "Add Intro Title", summary: "Adds dynamic title on overlay track" });
 		expect(proposal.diff.addedElementIds).toEqual(["clip-title-ai"]);
 		expect(proposal.diff.removedElementIds).toEqual([]);
 
 		// User approves proposal -> applyToEditor commits atomically
-		draft.applyToEditor(editor, proposal);
+		draft.applyToEditor({ editor, proposal });
 
 		const committed = editor.scenes.getActiveScene().tracks;
 		expect(committed.overlay.length).toBe(1);

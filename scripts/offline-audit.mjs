@@ -108,6 +108,10 @@ const ALLOWED_HOSTS = new Set([
 	// search. Contacted ONLY when the user searches Pexels with their API key.
 	"api.pexels.com",
 	"images.pexels.com",
+	// Same feature: Pexels serves the actual stock video files from this
+	// separate host (thumbnails/photos come from images.pexels.com). Only
+	// contacted when the user downloads a search result they chose.
+	"videos.pexels.com",
 	// ContentFlow premium voiceover: OPTIONAL ElevenLabs TTS. The free path is
 	// on-device (AVSpeechSynthesizer / TextToSpeech) and never leaves the phone;
 	// this host is contacted only when the user has supplied their own key AND
@@ -283,6 +287,30 @@ function isKnownVendorMlRuntimeChunk(content) {
 	return KNOWN_VENDOR_ML_RUNTIME_SIGNATURES.some((sig) => content.includes(sig));
 }
 
+// ---------------------------------------------------------------------------
+// Second known gap, same policy as the ML runtime above: the Remotion player
+// runtime (packages/mobile-ui's motion-template host renders the imported
+// OpenChatCut template catalog with @remotion/player) is bundled into
+// apps/web's /dev/mobile-* preview pages. The chunk trips the static scan
+// three ways, none of which is an actual network call the app makes:
+//   - "https://www.remotion.dev/docs/..." doc links inside Remotion's own
+//     error/warning message strings;
+//   - "http://foo.com" — a placeholder base URL inside a vendored URL parser,
+//     used only to normalize relative paths, never fetched;
+//   - "XMLHttpRequest" — our template-host's OWN sandbox shadow-list/forbidden
+//     regex (template-host.tsx deliberately names the API it blocks, and the
+//     bundler constant-folds the split-string spelling back together).
+// Fixing this properly means not shipping the Remotion runtime to the web
+// preview pages at all (dev-only pages, plan has them slated for deletion) —
+// a separate piece of work, so it is reported as a non-blocking WARNING, not
+// silently allow-listed. Identified by Remotion's stable studio container id.
+// ---------------------------------------------------------------------------
+const KNOWN_VENDOR_VIDEO_RUNTIME_SIGNATURES = ["__remotion-studio-container"];
+
+function isKnownVendorVideoRuntimeChunk(content) {
+	return KNOWN_VENDOR_VIDEO_RUNTIME_SIGNATURES.some((sig) => content.includes(sig));
+}
+
 function scanFile(filePath, rootLabel, violations, warnings) {
 	if (!SCAN_EXTENSIONS.has(extname(filePath))) return;
 	if (SELF_EXCLUDE_BASENAMES.has(filePath.split("/").pop())) return;
@@ -294,10 +322,13 @@ function scanFile(filePath, rootLabel, violations, warnings) {
 	}
 	const relPath = relative(REPO_ROOT, filePath);
 	const isVendorMlRuntime = isKnownVendorMlRuntimeChunk(content);
-	const sink = isVendorMlRuntime ? warnings : violations;
+	const isVendorVideoRuntime = !isVendorMlRuntime && isKnownVendorVideoRuntimeChunk(content);
+	const sink = isVendorMlRuntime || isVendorVideoRuntime ? warnings : violations;
 	const reasonSuffix = isVendorMlRuntime
 		? " (known gap: onnxruntime-web/transformers.js — see KNOWN_VENDOR_ML_RUNTIME_SIGNATURES)"
-		: "";
+		: isVendorVideoRuntime
+			? " (known gap: Remotion player runtime on the dev preview pages — see KNOWN_VENDOR_VIDEO_RUNTIME_SIGNATURES)"
+			: "";
 	const lines = content.split("\n");
 
 	for (let i = 0; i < lines.length; i++) {

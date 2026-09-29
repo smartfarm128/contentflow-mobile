@@ -14,35 +14,35 @@ const FPS_30 = { numerator: 30, denominator: 1 };
 
 describe("source-limits conversions", () => {
 	test("converts timeline frames to source frames factoring speed", () => {
-		expect(timelineFramesToSourceFrames({ playbackRate: 1 }, 30)).toBe(30);
-		expect(timelineFramesToSourceFrames({ playbackRate: 2 }, 30)).toBe(60);
-		expect(timelineFramesToSourceFrames({ playbackRate: 0.5 }, 30)).toBe(15);
+		expect(timelineFramesToSourceFrames({ item: { playbackRate: 1 }, frames: 30 })).toBe(30);
+		expect(timelineFramesToSourceFrames({ item: { playbackRate: 2 }, frames: 30 })).toBe(60);
+		expect(timelineFramesToSourceFrames({ item: { playbackRate: 0.5 }, frames: 30 })).toBe(15);
 	});
 
 	test("converts source frames to timeline frames factoring speed", () => {
-		expect(sourceFramesToTimelineFrames({ playbackRate: 1 }, 30)).toBe(30);
-		expect(sourceFramesToTimelineFrames({ playbackRate: 2 }, 60)).toBe(30);
-		expect(sourceFramesToTimelineFrames({ playbackRate: 0.5 }, 15)).toBe(30);
+		expect(sourceFramesToTimelineFrames({ item: { playbackRate: 1 }, frames: 30 })).toBe(30);
+		expect(sourceFramesToTimelineFrames({ item: { playbackRate: 2 }, frames: 60 })).toBe(30);
+		expect(sourceFramesToTimelineFrames({ item: { playbackRate: 0.5 }, frames: 15 })).toBe(30);
 	});
 
 	test("calculates sourceFrameAt including in-point offset", () => {
-		expect(sourceFrameAt({ srcInFrame: 10, playbackRate: 1 }, 20)).toBe(30);
-		expect(sourceFrameAt({ srcInFrame: 10, playbackRate: 2 }, 20)).toBe(50);
+		expect(sourceFrameAt({ item: { srcInFrame: 10, playbackRate: 1 }, localFrame: 20 })).toBe(30);
+		expect(sourceFrameAt({ item: { srcInFrame: 10, playbackRate: 2 }, localFrame: 20 })).toBe(50);
 	});
 
 	test("sourceWindowForTimelineRange maps local timeline bounds to source frames", () => {
-		const window = sourceWindowForTimelineRange({ srcInFrame: 30, playbackRate: 1 }, 0, 60);
+		const window = sourceWindowForTimelineRange({ item: { srcInFrame: 30, playbackRate: 1 }, localStartFrame: 0, durationInFrames: 60 });
 		expect(window.startFrame).toBe(30);
 		expect(window.endFrame).toBe(90);
 	});
 
 	test("remainingSourceFrames calculates remaining headroom", () => {
 		// Total 300 frames, srcInFrame at 100 -> 200 source frames left -> 200 timeline frames at 1x
-		expect(remainingSourceFrames({ playbackRate: 1 }, 100, 300)).toBe(200);
+		expect(remainingSourceFrames({ item: { playbackRate: 1 }, srcInFrame: 100, sourceTotalFrames: 300 })).toBe(200);
 		// At 2x speed -> 200 source frames left -> 100 timeline frames
-		expect(remainingSourceFrames({ playbackRate: 2 }, 100, 300)).toBe(100);
+		expect(remainingSourceFrames({ item: { playbackRate: 2 }, srcInFrame: 100, sourceTotalFrames: 300 })).toBe(100);
 		// At 0.5x speed -> 200 source frames left -> 400 timeline frames
-		expect(remainingSourceFrames({ playbackRate: 0.5 }, 100, 300)).toBe(400);
+		expect(remainingSourceFrames({ item: { playbackRate: 0.5 }, srcInFrame: 100, sourceTotalFrames: 300 })).toBe(400);
 	});
 });
 

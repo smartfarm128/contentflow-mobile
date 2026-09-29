@@ -223,6 +223,7 @@ export function transpileTemplate(code: string): string {
  */
 export function compileTemplate(code: string): MgComponent {
 	const body = transpileTemplate(code);
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- new Function returns an untyped Function; SandboxFactory is exactly the (params) => component shape the body above was built to produce.
 	const factory = new Function(...SANDBOX_PARAM_NAMES, `"use strict";\n${body}`) as SandboxFactory;
 	return instantiateSandboxed(factory);
 }

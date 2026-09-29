@@ -119,7 +119,7 @@ export class DraftEngine {
 		};
 	}
 
-	createProposal(title: string, summary: string): DraftProposal {
+	createProposal({ title, summary }: { title: string; summary: string }): DraftProposal {
 		const diff = this.computeDiff();
 		const commitCommand = new TracksSnapshotCommand({
 			before: cloneTracks(this.baseTracks),
@@ -142,7 +142,7 @@ export class DraftEngine {
 		};
 	}
 
-	applyToEditor(editor: EditorCore, proposal?: DraftProposal): void {
+	applyToEditor({ editor, proposal }: { editor: EditorCore; proposal?: DraftProposal }): void {
 		const cmd =
 			proposal?.commitCommand ??
 			new TracksSnapshotCommand({

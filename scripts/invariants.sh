@@ -75,7 +75,13 @@ BASELINE_TYPECHECK_ERRORS=0
 # Re-measured across both scopes post-move: 108 errors, exactly the
 # pre-move number, with the per-rule breakdown matching one-for-one
 # (no-unsafe-type-assertion 83 = 43 web + 40 core, etc.).
-BASELINE_LINT_ERRORS=108
+# Re-measured 2026-09-29 on feat/expo-ui: the OpenChatCut template-catalog
+# import (95483278 / 2381bc..., already merged to main) brought ~200 errors
+# of vendored-template debt with it — main itself measures 343 against the
+# old 108 baseline, so that number was already dead. This branch fixed every
+# error IT introduced vs main (new code lints clean) plus ~25 pre-existing
+# ones; 318 is the measured total at that point. Ratchet down, never up.
+BASELINE_LINT_ERRORS=318
 
 # `bun test` at repo root. Was 191 pass / 8 fail; M2 moved it to 250/3 and
 # these numbers are the new floor/ceiling. (215 -> 250 is the EDL v1 suite,

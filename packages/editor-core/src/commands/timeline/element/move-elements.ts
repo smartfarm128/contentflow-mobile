@@ -4,8 +4,8 @@ import {
 	type CommandResult,
 } from "@/commands/base-command";
 import { EditorCore } from "@/core";
-import type { SceneTracks, TimelineElement, TimelineTrack, VideoElement, ImageElement } from "@/timeline";
-import { addMediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import type { SceneTracks, TimelineElement, TimelineTrack } from "@/timeline";
+import { addMediaTime, ZERO_MEDIA_TIME, type MediaTime } from "@/wasm";
 import {
 	buildEmptyTrack,
 	validateElementTrackCompatibility,
@@ -118,7 +118,7 @@ export class MoveElementCommand extends Command {
 				if (touchesMain && track.id === tracksToUpdate.main.id) {
 					return {
 						...track,
-						elements: rebuttMainElements(merged as (VideoElement | ImageElement)[]),
+						elements: rebuttMainElements(merged),
 					};
 				}
 				return {
@@ -197,9 +197,9 @@ function insertTrackAtDisplayIndex({
 	};
 }
 
-function rebuttMainElements(
-	elements: (VideoElement | ImageElement)[],
-): (VideoElement | ImageElement)[] {
+function rebuttMainElements<T extends { startTime: MediaTime; duration: MediaTime }>(
+	elements: T[],
+): T[] {
 	const sorted = [...elements].sort((a, b) => a.startTime - b.startTime);
 	let cursor = ZERO_MEDIA_TIME;
 	return sorted.map((el) => {

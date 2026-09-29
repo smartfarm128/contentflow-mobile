@@ -110,7 +110,7 @@ export function AnimatedCounterTemplate({ time, width, values }: HtmlTemplatePro
                 }}
               >
                 {[...Array(10)].map((_, num) => {
-                  let offset = (10 + num - placeValue) % 10;
+                  const offset = (10 + num - placeValue) % 10;
                   let yOffset = offset * digitHeight;
 
                   if (offset > 5) {

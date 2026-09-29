@@ -10,7 +10,7 @@
  */
 import type { SceneTracks } from "./types";
 import { findTrackInSceneTracks } from "./track-element-update";
-import { frameIndexForTicks, type MediaTime } from "../wasm/media-time";
+import { addMediaTime, frameIndexForTicks } from "../wasm/media-time";
 import type { FrameRate } from "opencut-wasm";
 
 export interface SourceTimingItem {
@@ -24,28 +24,32 @@ export interface SourceFrameWindow {
 }
 
 /** Convert a timeline-frame delta to its source-media-frame delta. */
-export function timelineFramesToSourceFrames(item: SourceTimingItem, frames: number): number {
+export function timelineFramesToSourceFrames({ item, frames }: { item: SourceTimingItem; frames: number }): number {
 	return frames * Math.max(0.01, item.playbackRate ?? 1);
 }
 
 /** Convert a source-media-frame delta to its timeline-frame delta. */
-export function sourceFramesToTimelineFrames(item: SourceTimingItem, frames: number): number {
+export function sourceFramesToTimelineFrames({ item, frames }: { item: SourceTimingItem; frames: number }): number {
 	return frames / Math.max(0.01, item.playbackRate ?? 1);
 }
 
 /** Source-media frame at an item-local timeline frame. */
-export function sourceFrameAt(item: SourceTimingItem, localFrame: number): number {
-	return Math.max(0, (item.srcInFrame ?? 0) + timelineFramesToSourceFrames(item, localFrame));
+export function sourceFrameAt({ item, localFrame }: { item: SourceTimingItem; localFrame: number }): number {
+	return Math.max(0, (item.srcInFrame ?? 0) + timelineFramesToSourceFrames({ item, frames: localFrame }));
 }
 
 /** Clamped source-media window corresponding to an item-local timeline range. */
-export function sourceWindowForTimelineRange(
-	item: SourceTimingItem,
-	localStartFrame: number,
-	durationInFrames: number,
-): SourceFrameWindow {
-	const startFrame = sourceFrameAt(item, localStartFrame);
-	const endFrame = sourceFrameAt(item, localStartFrame + Math.max(0, durationInFrames));
+export function sourceWindowForTimelineRange({
+	item,
+	localStartFrame,
+	durationInFrames,
+}: {
+	item: SourceTimingItem;
+	localStartFrame: number;
+	durationInFrames: number;
+}): SourceFrameWindow {
+	const startFrame = sourceFrameAt({ item, localFrame: localStartFrame });
+	const endFrame = sourceFrameAt({ item, localFrame: localStartFrame + Math.max(0, durationInFrames) });
 	return { startFrame, endFrame: Math.max(startFrame, endFrame) };
 }
 
@@ -53,14 +57,18 @@ export function sourceWindowForTimelineRange(
  * How many timeline frames can be played starting from `srcInFrame`.
  * Returns null if duration cannot be bounded (e.g. text/graphics with no file media).
  */
-export function remainingSourceFrames(
-	item: SourceTimingItem,
-	srcInFrame: number,
-	sourceTotalFrames?: number,
-): number | null {
+export function remainingSourceFrames({
+	item,
+	srcInFrame,
+	sourceTotalFrames,
+}: {
+	item: SourceTimingItem;
+	srcInFrame: number;
+	sourceTotalFrames?: number;
+}): number | null {
 	if (!sourceTotalFrames || sourceTotalFrames <= 0) return null;
 	const remaining = sourceTotalFrames - Math.max(0, srcInFrame);
-	return Math.max(1, Math.floor(sourceFramesToTimelineFrames(item, remaining)));
+	return Math.max(1, Math.floor(sourceFramesToTimelineFrames({ item, frames: remaining })));
 }
 
 /**
@@ -90,7 +98,7 @@ export function predecessorRightEdge({
 	for (const element of track.elements) {
 		if (element.id === elementId) continue;
 		const elEndFrame = frameIndexForTicks({
-			ticks: (element.startTime + element.duration) as MediaTime,
+			ticks: addMediaTime({ a: element.startTime, b: element.duration }),
 			fps,
 		});
 		if (elEndFrame <= baseStartFrame && elEndFrame > rightEdge) {
