@@ -924,21 +924,10 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 										isDropTarget={dropTargetTrackId === track.id}
 										onMovePreview={onMoveClip ? handleMovePreview : undefined}
 										onMoveEnd={onMoveClip ? handleMoveEnd : undefined}
-										onLongPress={
-											onReorderMainTrack && track.kind === "main" ? handleLongPress : undefined
-										}
+										onLongPress={undefined}
 										onPanBy={handlePanBy}
 										onDoubleTap={onDoubleTapClip}
-										reorder={
-											reorderSession && reorderSession.trackId === track.id
-												? ({
-														draggedClipId: reorderSession.clipId,
-														insertionIndex: reorderInsertionIndex(reorderSession),
-														dragXPx: reorderSession.dragXPx,
-														baseXPx: reorderSession.baseXPx,
-													} satisfies ReorderState)
-												: null
-										}
+										reorder={null}
 										snapTargets={snapTargets}
 										snapThresholdSec={snapThresholdSec}
 										onKeyframeTap={

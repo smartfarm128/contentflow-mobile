@@ -40,25 +40,20 @@ const STYLES = CAPTION_STYLE_PRESETS.map((preset) => ({ id: preset.id, label: pr
 type GenerateState = "idle" | "generating" | "done" | "error";
 
 /**
- * M8 Captions panel — fixer pass. This IS now wired to the real M10
- * captions engine (`@kneecap/editor-core/captions` +
- * `commands/captions/*`), not the placeholder from before: "Generate"
- * calls `generateCaptionsFromSampleClip`, which runs the real
- * `getNativeBridge()` -> `transcribe()` -> `buildCaptionElementsFromTranscript`
- * -> `insertGeneratedCaptions` pipeline against `@kneecap/native-bridge`'s
- * own disclosed dev-fixture sample clip (the exact mechanism plan M10's
- * exit criterion names: "verify the full generate -> edit -> preview flow
- * in the dev harness using the web fallback + a pre-transcribed fixture").
+ * M8 Captions panel, wired to the real M10 captions engine
+ * (`@kneecap/editor-core/captions` + `commands/captions/*`). "Generate"
+ * calls `generateCaptions`, which transcribes every audible clip on the
+ * timeline through `getNativeBridge().transcribe()` (Apple Speech on iOS,
+ * whisper.cpp on Android) with the picked language as a hint, then lands
+ * the words via `insertGeneratedCaptions`. Only in the web dev harness,
+ * where no clip has an on-device file, does it fall back to the bridge's
+ * pre-transcribed sample fixture; on a device the real error is shown.
  * The style chips call the real `ApplyCaptionStyleCommand` ("apply to
  * all"), not local-only UI state.
  *
- * Still genuinely NOT built: transcribing a REAL user-picked clip (only
- * the bundled sample fixture is reachable from this panel — the
- * web-fallback bridge itself still throws honest `UNSUPPORTED` for any
- * other file, and no native whisper.cpp call is wired from this panel
- * either), and per-word caption editing UI (`UpdateCaptionWordCommand`
- * exists in editor-core but has no UI control here yet). Both are
- * disclosed below, not hidden.
+ * Not built: per-word timing edits (`UpdateCaptionWordCommand` exists in
+ * editor-core but has no control here; the text field rewrites a whole
+ * caption's words).
  */
 export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: CaptionsPanelProps) {
 	const [language, setLanguage] = useState("auto");
@@ -78,7 +73,11 @@ export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: 
 	const handleGenerate = () => {
 		setState("generating");
 		setErrorMessage(null);
-		generateCaptions({ editor, stylePresetId: stylePreset })
+		generateCaptions({
+			editor,
+			stylePresetId: stylePreset,
+			languageHint: language === "auto" ? undefined : language,
+		})
 			.then((result) => {
 				setState("done");
 				if (result && result.elementIds[0]) {

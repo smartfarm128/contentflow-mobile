@@ -89,7 +89,7 @@ function colorHueForId(id: string): number {
 	return hash % 360;
 }
 
-function generateFallbackPeaks(id: string, durationSec: number): number[] {
+function generateFallbackPeaks({ id, durationSec }: { id: string; durationSec: number }): number[] {
 	const count = Math.min(120, Math.max(16, Math.round(durationSec * 20)));
 	let hash = 0;
 	for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
@@ -104,7 +104,7 @@ function generateFallbackPeaks(id: string, durationSec: number): number[] {
 	return peaks;
 }
 
-function clipKindForElement(element: TimelineElement, isMain = true): TimelineClipKind {
+function clipKindForElement({ element, isMain = true }: { element: TimelineElement; isMain?: boolean }): TimelineClipKind {
 	switch (element.type) {
 		case "video":
 			return isMain ? "video" : "overlay";
@@ -202,35 +202,47 @@ function mapTrack({
 	isMain: boolean;
 	assetById: Map<string, MediaAsset>;
 }): TimelineTrackVM {
-	const clips: TimelineClipVM[] = track.elements.map((element) => ({
-		id: element.id,
-		trackId: track.id,
-		kind: clipKindForElement(element, isMain),
-		name: element.name,
-		startSec: mediaTimeToSeconds({ time: element.startTime }),
-		durationSec: mediaTimeToSeconds({ time: element.duration }),
-		colorHue: colorHueForId(element.id),
-		// Trim/source state for the handle-extension bounds (see the VM
-		// type's own doc comment). sourceDuration is only meaningful on
-		// media-backed elements; text/sticker/image leave it undefined and
-		// extend freely.
-		trimStartSec: mediaTimeToSeconds({ time: element.trimStart }),
-		trimEndSec: mediaTimeToSeconds({ time: element.trimEnd }),
-		sourceDurationSec:
-			element.sourceDuration != null && (element.type === "video" || element.type === "audio")
-				? mediaTimeToSeconds({ time: element.sourceDuration })
-				: undefined,
-		retimeRate:
-			"retime" in element && element.retime ? element.retime.rate : undefined,
-		waveformPeaks:
-			(element.type === "audio" || (element.type === "video" && (assetById.get(element.mediaId)?.hasAudio ?? true))) && "mediaId" in element
-				? (audioClipPeaks({ element, asset: assetById.get(element.mediaId) }) ?? generateFallbackPeaks(element.id, mediaTimeToSeconds({ time: element.duration })))
-				: undefined,
-		// Round 47: one diamond per clip-keyframe TIME (the group model in
-		// keyframes.ts), drawn on the clip by TimelineClip. Ticks ride along
-		// so a diamond tap seeks exactly.
-		keyframes: keyframeVMs({ element }),
-	}));
+	const clips: TimelineClipVM[] = track.elements.map((element) => {
+		const asset = "mediaId" in element ? assetById.get(element.mediaId) : undefined;
+		const coverThumbUrl =
+			asset?.thumbnailUrl ??
+			(asset?.type === "image" ? asset.url : undefined) ??
+			(asset?.url?.includes("spike-assets") || asset?.name?.includes("sample")
+				? "/spike-assets/thumb.jpg"
+				: undefined);
+
+		return {
+			id: element.id,
+			trackId: track.id,
+			kind: clipKindForElement({ element, isMain }),
+			name: element.name,
+			startSec: mediaTimeToSeconds({ time: element.startTime }),
+			durationSec: mediaTimeToSeconds({ time: element.duration }),
+			colorHue: colorHueForId(element.id),
+			thumbnailUrl: coverThumbUrl,
+			thumbnails: coverThumbUrl ? { 0: coverThumbUrl } : undefined,
+			// Trim/source state for the handle-extension bounds (see the VM
+			// type's own doc comment). sourceDuration is only meaningful on
+			// media-backed elements; text/sticker/image leave it undefined and
+			// extend freely.
+			trimStartSec: mediaTimeToSeconds({ time: element.trimStart }),
+			trimEndSec: mediaTimeToSeconds({ time: element.trimEnd }),
+			sourceDurationSec:
+				element.sourceDuration != null && (element.type === "video" || element.type === "audio")
+					? mediaTimeToSeconds({ time: element.sourceDuration })
+					: undefined,
+			retimeRate:
+				"retime" in element && element.retime ? element.retime.rate : undefined,
+			waveformPeaks:
+				(element.type === "audio" || (element.type === "video" && (assetById.get(element.mediaId)?.hasAudio ?? true))) && "mediaId" in element
+					? (audioClipPeaks({ element, asset: assetById.get(element.mediaId) }) ?? generateFallbackPeaks({ id: element.id, durationSec: mediaTimeToSeconds({ time: element.duration }) }))
+					: undefined,
+			// Round 47: one diamond per clip-keyframe TIME (the group model in
+			// keyframes.ts), drawn on the clip by TimelineClip. Ticks ride along
+			// so a diamond tap seeks exactly.
+			keyframes: keyframeVMs({ element }),
+		};
+	});
 	return {
 		id: track.id,
 		kind: trackKindFor({ track, isMain }),

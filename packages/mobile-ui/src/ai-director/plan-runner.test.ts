@@ -105,7 +105,7 @@ describe("runApprovedPlan undo", () => {
 		EditorCore.reset();
 		const editor = EditorCore.getInstance();
 		// Loaded the way the app loads a project: the scene lives in the
-		// project too, which is where the executors look clips up.
+		// project too, and is the active scene the executors look clips up in.
 		const scene = buildFixtureScene();
 		editor.project.setActiveProject({ project: { ...buildFixtureProject(), scenes: [scene] } });
 		editor.scenes.initializeScenes({ scenes: [scene], currentSceneId: scene.id });
@@ -127,7 +127,7 @@ describe("runApprovedPlan undo", () => {
 			],
 			status: "running",
 		});
-		const summary = await runApprovedPlan({ ctx: { editor, currentTimeSeconds: 0 } });
+		const summary = await runApprovedPlan({ ctx: { editor } });
 		expect(summary.lines.join("\n")).not.toContain("Error");
 		expect(summary.ran).toBe(2);
 		const afterPlan = ids();

@@ -10,7 +10,7 @@ const templates = loadCatalogTemplates();
 const defaults = (t: (typeof templates)[number]) =>
 	Object.fromEntries(t.controls.map((c) => [c.id, c.defaultValue]));
 
-const render = (t: (typeof templates)[number], progress: number) =>
+const render = ({ t, progress }: { t: (typeof templates)[number]; progress: number }) =>
 	renderToStaticMarkup(
 		createElement(t.Component, {
 			progress,
@@ -32,9 +32,9 @@ describe("OpenChatCut catalog adapter", () => {
 		const failures: string[] = [];
 		for (const t of templates) {
 			try {
-				for (const p of [0, 0.5, 1]) render(t, p);
+				for (const p of [0, 0.5, 1]) render({ t, progress: p });
 			} catch (e) {
-				failures.push(`${t.name}: ${(e as Error).message}`);
+				failures.push(`${t.name}: ${e instanceof Error ? e.message : String(e)}`);
 			}
 		}
 		expect(failures).toEqual([]);
@@ -43,7 +43,7 @@ describe("OpenChatCut catalog adapter", () => {
 	test("animation advances with progress", () => {
 		const bar = templates.find((t) => t.name === "Bar Chart - Annual Sales");
 		expect(bar).toBeDefined();
-		expect(render(bar!, 0)).not.toBe(render(bar!, 0.8));
+		expect(render({ t: bar!, progress: 0 })).not.toBe(render({ t: bar!, progress: 0.8 }));
 	});
 
 	test("no default control points at a remote URL (offline-first)", () => {

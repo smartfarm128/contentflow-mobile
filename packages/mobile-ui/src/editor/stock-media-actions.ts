@@ -115,6 +115,14 @@ export async function searchPexelsPhotos({
 	}));
 }
 
+function hostOf(url: string): string {
+	try {
+		return new URL(url).host;
+	} catch {
+		return "the media host";
+	}
+}
+
 export async function importPexelsMediaToTimeline({
 	editor,
 	downloadUrl,
@@ -130,8 +138,17 @@ export async function importPexelsMediaToTimeline({
 	durationSec?: number;
 	startSeconds?: number;
 }): Promise<ElementRef | null> {
-	// Fetch media bytes into blob
-	const res = await fetch(downloadUrl);
+	// Fetch media bytes into blob. A network-level failure (offline, or a host
+	// the app's CSP `connect-src` doesn't allow) rejects with a bare TypeError
+	// ("Load failed" in WKWebView) — name the host instead of surfacing that.
+	let res: Response;
+	try {
+		res = await fetch(downloadUrl);
+	} catch {
+		throw new Error(
+			`Couldn't download from ${hostOf(downloadUrl)}. Check your connection and try again.`,
+		);
+	}
 	if (!res.ok) throw new Error(`Failed to download media: ${res.status}`);
 	const blob = await res.blob();
 	const mime = type === "video" ? "video/mp4" : "image/jpeg";

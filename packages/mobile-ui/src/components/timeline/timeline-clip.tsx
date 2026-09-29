@@ -501,6 +501,7 @@ export function TimelineClip({
 					{clip.kind === "text" && <span className="cc-timeline__clip-badge">T</span>}
 					{clip.kind === "caption" && <span className="cc-timeline__clip-badge">CC</span>}
 					{clip.kind === "audio" && <span className="cc-timeline__clip-badge">♪</span>}
+					{clip.kind === "video" && <span className="cc-timeline__clip-badge">🎬</span>}
 					{clip.name}
 				</span>
 			)}
@@ -602,20 +603,32 @@ function ClipFilmstrip({
 		1,
 		timeToPixels({ timeSec: slotIntervalSec, pixelsPerSecond }),
 	);
+	const fallbackCover = clip.thumbnailUrl ?? clip.thumbnails?.[0];
 
 	return (
-		<div className="cc-timeline__clip-thumbnails" style={{ width: widthPx }}>
+		<div
+			className="cc-timeline__clip-thumbnails"
+			style={{
+				width: widthPx,
+				backgroundImage: fallbackCover ? `url("${fallbackCover}")` : undefined,
+				backgroundSize: "cover",
+				backgroundPosition: "center",
+			}}
+		>
 			{slots.map((slotSec) => (
 				<div
 					key={slotSec}
 					style={{
 						position: "absolute",
 						left: timeToPixels({ timeSec: slotSec, pixelsPerSecond }),
+						top: 0,
+						bottom: 0,
+						height: "100%",
 					}}
 				>
 					<FilmstripThumbnail
 						widthPx={slotWidthPx}
-						realUri={clip.thumbnails?.[slotSec]}
+						realUri={clip.thumbnails?.[slotSec] ?? fallbackCover}
 						colorHue={clip.colorHue}
 						slotSec={slotSec}
 					/>

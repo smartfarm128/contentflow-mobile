@@ -50,7 +50,12 @@ export type {
 
 // ======================== Panels/toolbars/export (M8) ========================
 export { EditorShell, type EditorShellProps, type SheetId } from "./components/editor/editor-shell";
-export { toEdlMediaAssets, buildNativeEdlAssetResolver, insertHtmlTemplateElement } from "./editor/actions";
+export {
+	toEdlMediaAssets,
+	buildNativeEdlAssetResolver,
+	insertHtmlTemplateElement,
+	importAndPlaceMedia,
+} from "./editor/actions";
 export { generateCaptions, getAllCaptions } from "./editor/captions-actions";
 export { PreviewRenderer, ensurePreviewGpu } from "./components/editor/preview-renderer";
 export { TopBar } from "./components/editor/top-bar";
@@ -66,4 +71,5 @@ export {
 	getHtmlTemplateDefaultValues,
 	HTML_TEMPLATES,
 } from "./motion-templates/registry";
+export { TemplateThumbnail } from "./motion-templates/ui/template-thumbnail";
 export type { HtmlTemplate } from "./motion-templates/types";

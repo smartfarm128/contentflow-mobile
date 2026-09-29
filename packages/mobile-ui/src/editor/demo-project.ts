@@ -139,6 +139,7 @@ async function runBootstrap(): Promise<DemoProjectRefs> {
 				fps: 30,
 				hasAudio: true,
 				url: "/spike-assets/full.mp4",
+				thumbnailUrl: "/spike-assets/thumb.jpg",
 				file: new File([], "sample-video.mp4", { type: "video/mp4" }),
 			},
 		});

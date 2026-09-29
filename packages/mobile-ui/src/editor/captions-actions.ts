@@ -28,13 +28,10 @@
  *   4. `insertGeneratedCaptions` (editor-core's real M10 command helper)
  *      lands them on a brand-new caption track as one undoable action.
  *
- * There is still no real on-device whisper.cpp call reachable from THIS
- * panel — only the disclosed dev-fixture path above. A real file's audio
- * still cannot be transcribed from the web-fallback bridge (native shells
- * only, plan M10) or from this panel at all (no "pick a clip to
- * transcribe" affordance was added — out of scope for this fixer pass, see
- * the caller's own flags). That gap is real and left open, not papered
- * over: the panel's copy says exactly this.
+ * That sample path is now the web-harness fallback only: since round 20,
+ * `generateCaptionsForClip` transcribes the timeline's real clips on
+ * device, and `generateCaptions` falls back to the fixture only when the
+ * bridge platform is "web" (see its doc comment).
  */
 import type { EditorCore, MediaAsset, MediaTime } from "@kneecap/editor-core";
 import {
@@ -180,9 +177,12 @@ export function collectTranscriptionJobs({
 export async function generateCaptionsForClip({
 	editor,
 	stylePresetId,
+	languageHint,
 }: {
 	editor: EditorCore;
 	stylePresetId: string;
+	/** BCP-47 tag ("en", "es-MX"). Omit to let the recogniser auto-detect. */
+	languageHint?: string;
 }): Promise<GenerateCaptionsResult | null> {
 	const tracks = editor.scenes.getActiveScene().tracks;
 	const hasAnyVideo = tracks.main.elements.some(
@@ -232,7 +232,7 @@ export async function generateCaptionsForClip({
 						codec: "",
 						frameRate: null,
 					} satisfies MediaHandle,
-					opts: { modelSize: "tiny" },
+					opts: { modelSize: "tiny", languageHint },
 				})) {
 					segments.push(segment);
 				}
@@ -282,25 +282,30 @@ export async function generateCaptionsForClip({
 /**
  * The panel's one entry point: try the real clip first; when the failure
  * is the KNOWN "nothing transcribable here" class (no clip / no native
- * file — i.e. the web dev harness), fall back to the bundled sample so
- * the dev flow keeps demonstrating the pipeline. Real native errors
- * (permission denied, unsupported locale, IO) propagate untouched.
+ * file) AND this is the web dev harness, fall back to the bundled sample so
+ * the dev flow keeps demonstrating the pipeline. On a device the fixture
+ * path doesn't exist, so the fallback only swapped "add a clip first" for
+ * an unrelated IO error — there the honest message propagates instead, as
+ * do real native errors (permission denied, unsupported locale, IO).
  */
 export async function generateCaptions({
 	editor,
 	stylePresetId,
+	languageHint,
 }: {
 	editor: EditorCore;
 	stylePresetId: string;
+	languageHint?: string;
 }): Promise<GenerateCaptionsResult | null> {
 	try {
-		return await generateCaptionsForClip({ editor, stylePresetId });
+		return await generateCaptionsForClip({ editor, stylePresetId, languageHint });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		const noTranscribableClip =
 			message.includes("Add a video clip first") ||
 			message.includes("no on-device media file");
 		if (!noTranscribableClip) throw error;
+		if ((await getNativeBridge()).platform !== "web") throw error;
 		return generateCaptionsFromSampleClip({ editor, stylePresetId });
 	}
 }

@@ -837,6 +837,14 @@
 .cc-timeline__clip--overlay {
 	background: #1976d2;
 }
+.cc-timeline__clip--video {
+	background: #1c1d27;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.cc-timeline__clip--video .cc-timeline__clip-label {
+	top: 4px;
+	bottom: auto;
+}
 .cc-timeline__clip-graphic-content {
 	display: flex;
 	align-items: center;

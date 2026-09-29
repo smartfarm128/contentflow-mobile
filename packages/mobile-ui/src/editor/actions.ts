@@ -153,6 +153,14 @@ export function selectElement({ editor, ref }: { editor: EditorCore; ref: Elemen
 
 // ----------------------------- Edit panel (clip) ----------------------------
 
+/**
+ * Splits the clip under the playhead. Returns null — without touching the
+ * timeline or the undo stack — when there is nothing to split: no clip under
+ * the playhead, or an explicit `ref` the playhead sits outside of or exactly
+ * on the edge of. `SplitElementsCommand` returns an edge-split element
+ * unchanged, so executing it there would push a no-op undo step while the
+ * caller reports a split that never happened.
+ */
 export function splitAtPlayhead({
 	editor,
 	ref,
@@ -161,23 +169,23 @@ export function splitAtPlayhead({
 	ref?: ElementRef | null;
 }): ElementRef | null {
 	const splitTime = editor.playback.getCurrentTime();
+	const strictlyInside = (el: TimelineElement) =>
+		splitTime > el.startTime && splitTime < addMediaTime({ a: el.startTime, b: el.duration });
 	let targetRef = ref;
 
 	// Mobile ergonomic auto-selection: if no clip is explicitly selected,
 	// resolve the active clip under the playhead on the main track.
 	if (!targetRef) {
 		const tracks = editor.scenes.getActiveScene().tracks;
-		const mainEl = tracks.main.elements.find(
-			(el) =>
-				splitTime > el.startTime &&
-				splitTime < addMediaTime({ a: el.startTime, b: el.duration }),
-		);
+		const mainEl = tracks.main.elements.find(strictlyInside);
 		if (mainEl) {
 			targetRef = { trackId: tracks.main.id, elementId: mainEl.id };
 		}
 	}
 
 	if (!targetRef) return null;
+	const target = getElement({ editor, ref: targetRef });
+	if (!target || !strictlyInside(target)) return null;
 
 	const cmd = new SplitElementsCommand({
 		elements: [targetRef],
@@ -1499,6 +1507,33 @@ export async function cutDeadSpace({
 		pieces: pieces.length,
 		removedSec: analysis.removedSec,
 	};
+}
+
+/** Human-readable outcome of `cutDeadSpace`. Shared by the chrome strip and
+ *  the AI Director so both tell the user the same thing. Every refusal names
+ *  the reason: a button that silently does nothing reads as broken. */
+export function describeDeadSpaceCut({ outcome }: { outcome: DeadSpaceCutOutcome }): string {
+	switch (outcome.status) {
+		case "cut":
+			return `Cut ${outcome.pieces} clip${outcome.pieces === 1 ? "" : "s"} — ${outcome.removedSec.toFixed(1)}s of dead space removed`;
+		case "no-source":
+			return "This clip has no audio to measure.";
+		case "decode-failed":
+			return "Couldn't read this clip's audio.";
+		case "refused":
+			switch (outcome.reason) {
+				case "no-audio":
+					return "This clip's audio is silent all the way through.";
+				case "no-dynamic-range":
+					return "No clear quiet parts here — the audio never drops far enough below the rest to call it dead space.";
+				case "nothing-to-cut":
+					return "Nothing to cut — every gap here is shorter than a pause worth removing.";
+				case "too-fragmented":
+					return "That would make hundreds of tiny clips. Nothing changed.";
+				case "would-remove-everything":
+					return "That would remove almost the whole clip. Nothing changed.";
+			}
+	}
 }
 
 // -------------------------------- keyframes ---------------------------------

@@ -29,13 +29,13 @@ export function FilmstripThumbnail({
 		);
 	}
 
-	const hue = (colorHue + slotSec * 11) % 360;
 	return (
 		<div
 			className="cc-timeline__clip-thumbnail"
 			style={{
 				width: widthPx,
-				background: `linear-gradient(180deg, hsl(${hue} 35% 32%) 0%, hsl(${hue} 30% 20%) 100%)`,
+				background: "linear-gradient(180deg, #2b2c3a 0%, #171822 100%)",
+				borderRight: "1px solid rgba(255, 255, 255, 0.08)",
 			}}
 			aria-hidden="true"
 		/>

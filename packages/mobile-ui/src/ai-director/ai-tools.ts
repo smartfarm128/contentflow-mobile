@@ -2,12 +2,14 @@
  * Claude tool schemas for the mobile AI Director.
  *
  * Every tool here maps to a REAL function in `../editor/actions.ts`,
- * `../editor/captions-actions.ts`, `../editor/voiceover-actions.ts`, or the
- * motion-template store — there are no decorative entries. If a capability
- * does not exist on mobile yet (stock b-roll, generative video), it is
- * deliberately ABSENT rather than declared-and-stubbed: a tool Claude can call
- * but that cannot act is worse than no tool, because the model reports success
- * for an edit that never landed on the timeline.
+ * `../editor/captions-actions.ts`, `../editor/voiceover-actions.ts`,
+ * `../editor/stock-media-actions.ts`, or the motion-template store — there are
+ * no decorative entries. If a capability does not exist on mobile yet
+ * (generative video, reverse playback — the `reversed` param is stored but the
+ * renderer never reads it), it is deliberately ABSENT rather than
+ * declared-and-stubbed: a tool Claude can call but that cannot act is worse
+ * than no tool, because the model reports success for an edit that never
+ * landed on the timeline.
  */
 
 export interface ClaudeTool {
@@ -250,17 +252,6 @@ export const AI_TOOLS: ClaudeTool[] = [
 				volume_db: { type: "number", description: "Volume in dB. 0 = unchanged, -60 = silent." },
 			},
 			required: ["clip_id", "volume_db"],
-		},
-	},
-	{
-		name: "reverse_clip",
-		description:
-			"Toggle reverse playback on a clip so it plays backwards. " +
-			"Use for a rewind beat, a loop-back effect, or when the user asks to reverse or play a shot backwards.",
-		input_schema: {
-			type: "object",
-			properties: { clip_id: { type: "string" } },
-			required: ["clip_id"],
 		},
 	},
 

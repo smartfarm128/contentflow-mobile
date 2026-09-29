@@ -138,36 +138,6 @@ export function TimelineTrackRow({
 
 	const visibleClips = endIndex >= startIndex ? track.clips.slice(startIndex, endIndex + 1) : [];
 
-	if (reorder) {
-		const ordered = [...track.clips].sort((a, b) => a.startSec - b.startSec);
-		const dragged = ordered.find((c) => c.id === reorder.draggedClipId);
-		const others = ordered.filter((c) => c.id !== reorder.draggedClipId);
-		return (
-			<div
-				className={`cc-timeline__track-row cc-timeline__track-row--${track.kind} cc-timeline__track-row--reorder`}
-			>
-				{others.map((clip, index) => {
-					const slot = index >= reorder.insertionIndex ? index + 1 : index;
-					return (
-						<ReorderTile
-							key={clip.id}
-							clip={clip}
-							leftPx={reorder.baseXPx + slot * REORDER_STEP_PX}
-						/>
-					);
-				})}
-				{dragged && (
-					<ReorderTile
-						key={dragged.id}
-						clip={dragged}
-						leftPx={reorder.dragXPx - REORDER_TILE_PX / 2}
-						lifted
-					/>
-				)}
-			</div>
-		);
-	}
-
 	return (
 		<div
 			className={`cc-timeline__track-row cc-timeline__track-row--${track.kind}${isDropTarget ? " cc-timeline__track-row--drop-target" : ""}`}
@@ -177,6 +147,14 @@ export function TimelineTrackRow({
 					className="cc-timeline__placeholder-lane"
 					onPointerDown={(e) => e.stopPropagation()}
 					onClick={() => {
+						if (track.kind === "audio") onAddAudio?.();
+						else if (track.kind === "caption" || track.kind === "text") onAddSubtitle?.();
+						else if (track.kind === "graphic" || track.kind === "sticker" || track.kind === "overlay") onAddGraphic?.();
+						else if (track.kind === "main") onAddClip?.();
+					}}
+					onKeyDown={(e) => {
+						if (e.key !== "Enter" && e.key !== " ") return;
+						e.preventDefault();
 						if (track.kind === "audio") onAddAudio?.();
 						else if (track.kind === "caption" || track.kind === "text") onAddSubtitle?.();
 						else if (track.kind === "graphic" || track.kind === "sticker" || track.kind === "overlay") onAddGraphic?.();
@@ -307,32 +285,3 @@ export function TimelineTrackRow({
 	);
 }
 
-/** One uniform clip tile in hold-to-reorder mode: the clip's first real
- *  thumbnail (or its placeholder swatch) in a fixed square. Non-lifted
- *  tiles CSS-transition between slots as the insertion index moves; the
- *  lifted one rides the pointer with no transition (it must track the
- *  finger exactly). */
-function ReorderTile({
-	clip,
-	leftPx,
-	lifted = false,
-}: {
-	clip: TimelineClipVM;
-	leftPx: number;
-	lifted?: boolean;
-}) {
-	return (
-		<div
-			className={`cc-timeline__reorder-tile${lifted ? " cc-timeline__reorder-tile--lifted" : ""}`}
-			style={{ left: leftPx, width: REORDER_TILE_PX }}
-			aria-hidden="true"
-		>
-			<FilmstripThumbnail
-				widthPx={REORDER_TILE_PX}
-				realUri={clip.thumbnails?.[0]}
-				colorHue={clip.colorHue}
-				slotSec={0}
-			/>
-		</div>
-	);
-}

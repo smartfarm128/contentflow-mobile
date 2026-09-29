@@ -21,7 +21,6 @@ import { useVaultStore } from "../../vault/vault-store";
 
 interface AIDirectorPanelProps {
   editor: EditorCore;
-  currentTimeSeconds: number;
   onClose: () => void;
   /** Opens the encrypted Key Vault — the ONLY place an API key is entered. */
   onOpenVault?: () => void;
@@ -29,7 +28,6 @@ interface AIDirectorPanelProps {
 
 export function AIDirectorPanel({
   editor,
-  currentTimeSeconds,
   onClose,
   onOpenVault,
 }: AIDirectorPanelProps) {
@@ -61,10 +59,9 @@ export function AIDirectorPanel({
     if (!text || isStreaming) return;
     setInputPrompt("");
 
-    await askAIDirector(text, {
-      editor,
-      currentTimeSeconds,
-    });
+    // No playhead snapshot: the executors read the live playhead, so a
+    // `seek` mid-turn is honoured by every later step.
+    await askAIDirector(text, { editor });
   };
 
   const quickChips = [
@@ -208,7 +205,7 @@ export function AIDirectorPanel({
           {/* Plan Approval Card */}
           <PlanCard
             onApprove={() => {
-              void executeApprovedPlan({ editor, currentTimeSeconds });
+              void executeApprovedPlan({ editor });
             }}
           />
 

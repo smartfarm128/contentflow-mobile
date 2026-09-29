@@ -8,7 +8,8 @@
  * and decide the next step.
  */
 import type { EditorCore } from "@kneecap/editor-core";
-import type { ElementRef } from "@kneecap/editor-core/timeline";
+import { DEFAULT_CAPTION_STYLE_PRESET_ID, getVisibleCaptionWords } from "@kneecap/editor-core/captions";
+import type { ElementRef, TimelineElement } from "@kneecap/editor-core/timeline";
 import { mediaTimeToSeconds } from "@kneecap/editor-core/wasm";
 import {
 	splitAtPlayhead,
@@ -16,17 +17,18 @@ import {
 	duplicateSelected,
 	setRetime,
 	setElementParam,
-	toggleReversed,
 	insertTextElement,
 	setProjectResolution,
 	seekToSeconds,
 	cutDeadSpace,
+	describeDeadSpaceCut,
 	ensureSingleEffect,
 	updateEffectParam,
 	insertHtmlTemplateElement,
+	getElement,
 } from "../editor/actions";
 import {
-	generateCaptions,
+	generateCaptionsForClip,
 	getAllCaptions,
 	setCaptionHighlightEnabled,
 	setCaptionBorderEnabled,
@@ -40,9 +42,14 @@ import { findHtmlTemplateRef } from "../motion-templates/engine-bridge";
 import { AI_TOOL_NAMES } from "./ai-tools";
 import { useAIDirectorStore, type PlanStep } from "./ai-store";
 
+/**
+ * Deliberately carries no playhead snapshot: a value captured when the turn
+ * started goes stale the moment the model calls `seek`, and every later
+ * "at the playhead" edit would land at the old time. Executors read the live
+ * playhead via `playheadSeconds` instead.
+ */
 export interface ToolContext {
 	editor: EditorCore;
-	currentTimeSeconds: number;
 }
 
 type ClipRow = {
@@ -61,32 +68,35 @@ const ASPECT_PRESETS: Record<string, { width: number; height: number }> = {
 	"4:5": { width: 1080, height: 1350 },
 };
 
+/** The live playhead, read at call time — see `ToolContext`. */
+function playheadSeconds(editor: EditorCore): number {
+	return mediaTimeToSeconds({ time: editor.playback.getCurrentTime() });
+}
+
 /** Flattens the active scene into a simple row list the model can reason over. */
 function listClips({ editor }: ToolContext): ClipRow[] {
-	const project = editor.project.getActive();
-	const scene = project.scenes[0];
+	// The ACTIVE scene, not `project.scenes[0]`: the executors must see the
+	// same timeline the user is looking at and the edit commands mutate.
+	const scene = editor.scenes.getActiveSceneOrNull();
 	if (!scene) return [];
 	const rows: ClipRow[] = [];
-	const push = (trackId: string, kind: string, elements: readonly any[]) => {
-		for (const el of elements ?? []) {
-			const start = el.timeRange?.start;
-			const end = el.timeRange?.end;
-			const s = start !== undefined ? mediaTimeToSeconds(start) : 0;
-			const e = end !== undefined ? mediaTimeToSeconds(end) : 0;
+	const push = (trackId: string, elements: readonly TimelineElement[]) => {
+		for (const el of elements) {
+			const content = el.params?.content;
 			rows.push({
 				id: el.id,
 				trackId,
-				kind: el.type ?? kind,
-				startSeconds: Number(s.toFixed(3)),
-				durationSeconds: Number(Math.max(0, e - s).toFixed(3)),
-				name: el.params?.content ?? el.name,
+				kind: el.type,
+				startSeconds: Number(mediaTimeToSeconds({ time: el.startTime }).toFixed(3)),
+				durationSeconds: Number(Math.max(0, mediaTimeToSeconds({ time: el.duration })).toFixed(3)),
+				name: typeof content === "string" ? content : el.name,
 			});
 		}
 	};
-	const main = scene.tracks?.main;
-	if (main) push(main.id, "video", main.elements);
-	for (const t of scene.tracks?.overlay ?? []) push(t.id, "overlay", t.elements);
-	for (const t of scene.tracks?.audio ?? []) push(t.id, "audio", t.elements);
+	const { main, overlay, audio } = scene.tracks;
+	push(main.id, main.elements);
+	for (const t of overlay) push(t.id, t.elements);
+	for (const t of audio) push(t.id, t.elements);
 	return rows;
 }
 
@@ -97,9 +107,8 @@ function findRef(ctx: ToolContext, clipId: string): ElementRef | null {
 
 /** First main-track clip — the sensible default target when the model omits an id. */
 function firstMainRef(ctx: ToolContext): ElementRef | null {
-	const scene = ctx.editor.project.getActive().scenes[0];
-	const main = scene?.tracks?.main;
-	const el = main?.elements?.[0];
+	const main = ctx.editor.scenes.getActiveSceneOrNull()?.tracks.main;
+	const el = main?.elements[0];
 	return main && el ? { trackId: main.id, elementId: el.id } : null;
 }
 
@@ -136,7 +145,7 @@ export async function executeTool(
 				(c) =>
 					`- ${c.id} | ${c.kind} | ${c.startSeconds}s → ${(c.startSeconds + c.durationSeconds).toFixed(3)}s${c.name ? ` | "${String(c.name).slice(0, 40)}"` : ""}`,
 			);
-			return { text: `Project "${project.metadata.name}" — canvas ${width}x${height}, playhead ${ctx.currentTimeSeconds.toFixed(2)}s.\n${clips.length} clip(s):\n${lines.join("\n")}` };
+			return { text: `Project "${project.metadata.name}" — canvas ${width}x${height}, playhead ${playheadSeconds(editor).toFixed(2)}s.\n${clips.length} clip(s):\n${lines.join("\n")}` };
 		}
 
 		case "get_transcript": {
@@ -144,11 +153,21 @@ export async function executeTool(
 			if (captions.length === 0) {
 				return { text: "No transcript yet — no captions exist on this timeline. Call generate_captions first to transcribe the video on-device." };
 			}
-			const lines = captions.slice(0, 400).map(({ element }: any) => {
-				const s = element.timeRange?.start ? mediaTimeToSeconds(element.timeRange.start) : 0;
-				return { text: `[${s.toFixed(2)}s] ${element.params?.content ?? ""}` };
-			});
-			return { text: `Transcript (${captions.length} caption segments):\n${lines.join("\n")}` };
+			const MAX_SEGMENTS = 400;
+			// A caption's text lives in its words, windowed to its trim — not in
+			// `params` — so read exactly what the viewer sees on screen.
+			const lines = [...captions]
+				.sort((a, b) => a.element.startTime - b.element.startTime)
+				.slice(0, MAX_SEGMENTS)
+				.map(({ element }) => {
+					const s = mediaTimeToSeconds({ time: element.startTime });
+					const text = getVisibleCaptionWords({ element })
+						.map(({ word }) => word.text)
+						.join(" ");
+					return `[${s.toFixed(2)}s] ${text}`;
+				});
+			const shown = captions.length > MAX_SEGMENTS ? `, first ${MAX_SEGMENTS} shown` : "";
+			return { text: `Transcript (${captions.length} caption segments${shown}):\n${lines.join("\n")}` };
 		}
 
 		case "list_motion_templates": {
@@ -287,7 +306,7 @@ export async function executeTool(
 
 		// ── Vision ───────────────────────────────────────────────────────────
 		case "render_frame": {
-			const at = input.at_seconds !== undefined ? Number(input.at_seconds) : ctx.currentTimeSeconds;
+			const at = input.at_seconds !== undefined ? Number(input.at_seconds) : playheadSeconds(editor);
 			const frame = await captureFrameAt({ editor, timeSeconds: at });
 			if (!frame) {
 				return {
@@ -319,9 +338,10 @@ export async function executeTool(
 
 		// ── Timeline surgery ─────────────────────────────────────────────────
 		case "seek": {
-			const s = Number(input.seconds ?? 0);
-			seekToSeconds({ editor, seconds: Math.max(0, s) });
-			return { text: `Playhead moved to ${s.toFixed(2)}s.` };
+			seekToSeconds({ editor, seconds: Number(input.seconds ?? 0) });
+			// Report where the playhead actually landed — the engine clamps a
+			// seek past the end to the timeline's duration.
+			return { text: `Playhead moved to ${playheadSeconds(editor).toFixed(2)}s.` };
 		}
 
 		case "split_clip": {
@@ -330,8 +350,13 @@ export async function executeTool(
 			if (input.at_seconds !== undefined) {
 				seekToSeconds({ editor, seconds: Number(input.at_seconds) });
 			}
-			splitAtPlayhead({ editor, ref });
-			return { text: `Split clip ${ref.elementId} at ${(input.at_seconds ?? ctx.currentTimeSeconds).toFixed?.(2) ?? input.at_seconds}s.` };
+			const at = playheadSeconds(editor);
+			if (!splitAtPlayhead({ editor, ref })) {
+				return {
+					text: `Declined: the playhead (${at.toFixed(2)}s) isn't strictly inside clip ${ref.elementId}, so nothing was split. Pass an at_seconds strictly between the clip's start and end (see get_timeline).`,
+				};
+			}
+			return { text: `Split clip ${ref.elementId} at ${at.toFixed(2)}s. Call get_timeline for the new piece's id.` };
 		}
 
 		case "delete_clip": {
@@ -350,14 +375,27 @@ export async function executeTool(
 
 		case "cut_silence": {
 			const ref = input.clip_id ? findRef(ctx, String(input.clip_id)) : firstMainRef(ctx);
-			if (!ref) return { text: "Error: no clip available to de-silence. Import footage first." };
+			if (!ref) {
+				return {
+					text: input.clip_id
+						? `Error: no clip with id "${input.clip_id}". Call get_timeline for valid ids.`
+						: "Error: no clip available to de-silence. Import footage first.",
+				};
+			}
 			const outcome = await cutDeadSpace({ editor, ref });
-			const status = (outcome as any)?.status;
-			if (status === "no-source") return { text: "Could not analyse that clip — it has no decodable audio source." };
-			if (status === "no-speech")
-				return { text: "Declined: no speech detected in that clip, so cutting 'silence' would have shredded it. Left untouched." };
-			const removed = (outcome as any)?.removedSeconds;
-			return { text: `Cut dead space from ${ref.elementId}${typeof removed === "number" ? ` — removed ~${removed.toFixed(1)}s` : ""}.` };
+			// Same wording the touch UI shows, so the model and the user hear the
+			// same story. Prefixes matter: plan-runner counts "Could not" and
+			// "Declined" as failed steps rather than wins.
+			const detail = describeDeadSpaceCut({ outcome });
+			switch (outcome.status) {
+				case "cut":
+					return { text: `${detail} from ${ref.elementId}. Call get_timeline for the new clip ids.` };
+				case "no-source":
+				case "decode-failed":
+					return { text: `Could not analyse ${ref.elementId}: ${detail}` };
+				case "refused":
+					return { text: `Declined (${ref.elementId} left untouched): ${detail}` };
+			}
 		}
 
 		case "set_clip_speed": {
@@ -376,21 +414,29 @@ export async function executeTool(
 			return { text: `Set clip ${ref.elementId} volume to ${db} dB.` };
 		}
 
-		case "reverse_clip": {
-			const ref = findRef(ctx, String(input.clip_id));
-			if (!ref) return { text: `Error: no clip with id "${input.clip_id}".` };
-			toggleReversed({ editor, ref });
-			return { text: `Toggled reverse on clip ${ref.elementId}.` };
-		}
-
 		// ── Captions ─────────────────────────────────────────────────────────
 		case "generate_captions": {
-			const result = await generateCaptions({ editor, stylePresetId: "default" });
-			if (!result) {
-				return { text: "Caption generation failed — on-device transcription is unavailable here (it requires the real iOS/Android app, not the browser preview)." };
+			const language =
+				typeof input.language === "string" && input.language.trim() ? input.language.trim() : undefined;
+			// `generateCaptionsForClip`, not the panel's `generateCaptions`: the
+			// panel falls back to the bundled dev-fixture transcript when there
+			// is nothing transcribable, and the Director must never lay sample
+			// captions on the user's timeline and call that a success.
+			let result;
+			try {
+				result = await generateCaptionsForClip({
+					editor,
+					stylePresetId: DEFAULT_CAPTION_STYLE_PRESET_ID,
+					languageHint: language,
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return { text: `Could not generate captions: ${msg}` };
 			}
-			const count = (result as any)?.captions?.length ?? getAllCaptions({ editor }).length;
-			return { text: `Generated ${count} caption segments on-device and added them to the timeline.` };
+			if (!result) return { text: "Could not generate captions — transcription produced no usable speech." };
+			return {
+				text: `Generated ${result.elementIds.length} caption segments on-device${language ? ` (language: ${language})` : ""} and added them to the timeline.`,
+			};
 		}
 
 		case "style_captions": {
@@ -413,10 +459,18 @@ export async function executeTool(
 		case "add_text": {
 			const content = String(input.content ?? "").trim();
 			if (!content) return { text: "Error: content is required for add_text." };
+			const playhead = playheadSeconds(editor);
 			const ref = insertTextElement({ editor, content });
-			return { text: ref
-				? `Added text overlay "${content}" at ${ctx.currentTimeSeconds.toFixed(2)}s.`
-				: `Added text overlay "${content}".` };
+			if (!ref) return { text: `Could not add text overlay "${content}".` };
+			// insertTextElement moves the title later when every text lane is
+			// busy at the playhead, so report where it really landed.
+			const placed = getElement({ editor, ref });
+			const at = placed ? mediaTimeToSeconds({ time: placed.startTime }) : playhead;
+			const moved =
+				Math.abs(at - playhead) > 0.01
+					? ` — after the existing text, because every text lane was busy at the playhead (${playhead.toFixed(2)}s)`
+					: "";
+			return { text: `Added text overlay "${content}" at ${at.toFixed(2)}s${moved} (clip id ${ref.elementId}).` };
 		}
 
 		case "apply_motion_template": {
@@ -427,7 +481,7 @@ export async function executeTool(
 			const defaults: Record<string, string | number | boolean> = {};
 			for (const c of tmpl.controls) defaults[c.id] = c.defaultValue;
 			const values = { ...defaults, ...(input.values ?? {}) };
-			const start = input.start_seconds !== undefined ? Number(input.start_seconds) : ctx.currentTimeSeconds;
+			const start = input.start_seconds !== undefined ? Number(input.start_seconds) : playheadSeconds(editor);
 			const duration =
 				input.duration_seconds !== undefined ? Number(input.duration_seconds) : tmpl.defaultDuration || 4;
 			const ref = insertHtmlTemplateElement({
@@ -458,7 +512,7 @@ export async function executeTool(
 				if (videos.length === 0) return { text: `No stock B-roll found on Pexels for "${query}".` };
 				const topVideo = videos[0];
 				const dur = input.duration_seconds !== undefined ? Number(input.duration_seconds) : 4;
-				const start = input.start_seconds !== undefined ? Number(input.start_seconds) : ctx.currentTimeSeconds;
+				const start = input.start_seconds !== undefined ? Number(input.start_seconds) : playheadSeconds(editor);
 				const ref = await importPexelsMediaToTimeline({
 					editor,
 					downloadUrl: topVideo.downloadUrl,
@@ -533,11 +587,16 @@ export async function executeTool(
 			if (!effectId) return { text: "Error: could not attach an adjustment to that clip (it may not be a visual element)." };
 			const applied: string[] = [];
 			for (const key of ["brightness", "contrast", "saturation", "temperature"]) {
-				if (input[key] !== undefined) {
-					const v = Math.max(-1, Math.min(1, Number(input[key])));
-					updateEffectParam({ editor, ref, effectId, key, value: v });
-					applied.push(`${key}=${v}`);
-				}
+				if (input[key] === undefined) continue;
+				const raw = Number(input[key]);
+				if (!Number.isFinite(raw)) continue;
+				// The model speaks -1..1 (see the tool schema); the adjust effect's
+				// params are -100..100 and the shader divides by 100. Writing the
+				// raw value applied ~1% of the requested grade.
+				const v = Math.max(-1, Math.min(1, raw));
+				const value = Math.round(v * 100);
+				updateEffectParam({ editor, ref, effectId, key, value });
+				applied.push(`${key}=${v} (${value} on the -100..100 slider)`);
 			}
 			return { text: applied.length
 				? `Applied colour adjust to ${ref.elementId} (${applied.join(", ")}).`

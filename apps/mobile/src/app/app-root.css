@@ -523,7 +523,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
-	padding: 16px 20px;
+	padding: calc(max(env(safe-area-inset-top, 0px), 16px) + 8px) 20px 16px;
 }
 
 .cf-templates-header {
@@ -686,7 +686,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
-	padding: 16px 20px;
+	padding: calc(max(env(safe-area-inset-top, 0px), 16px) + 8px) 20px 16px;
 }
 
 .cf-view-header-row {
@@ -702,7 +702,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
-	padding: 16px 20px;
+	padding: calc(max(env(safe-area-inset-top, 0px), 16px) + 8px) 20px 16px;
 }
 
 .cf-card {

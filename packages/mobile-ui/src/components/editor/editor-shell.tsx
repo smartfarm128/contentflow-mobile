@@ -60,12 +60,12 @@ import {
 	commitElementMove,
 	commitMainTrackReorder,
 	cutDeadSpace,
+	describeDeadSpaceCut,
 	readClipKeyframeState,
 	toggleClipKeyframeAtPlayhead,
 	seekToClipKeyframe,
 	seekToClipKeyframeTime,
 	setClipKeyframeEasing,
-	type DeadSpaceCutOutcome,
 } from "../../editor/actions";
 import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type, Volume2, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
@@ -119,31 +119,9 @@ const CUT_GAPS_ITEM: ToolbarItemDef = { id: "cut-gaps", label: "Cut gaps", icon:
 
 const AUDIBLE_ELEMENT_TYPES = new Set(["video", "audio"]);
 
-/** Human-readable outcome for the chrome strip. Every refusal names the
- *  reason: a button that silently does nothing reads as broken. */
-function describeDeadSpaceCut({ outcome }: { outcome: DeadSpaceCutOutcome }): string {
-	switch (outcome.status) {
-		case "cut":
-			return `Cut ${outcome.pieces} clip${outcome.pieces === 1 ? "" : "s"} — ${outcome.removedSec.toFixed(1)}s of dead space removed`;
-		case "no-source":
-			return "This clip has no audio to measure.";
-		case "decode-failed":
-			return "Couldn't read this clip's audio.";
-		case "refused":
-			switch (outcome.reason) {
-				case "no-audio":
-					return "This clip's audio is silent all the way through.";
-				case "no-dynamic-range":
-					return "No clear quiet parts here — the audio never drops far enough below the rest to call it dead space.";
-				case "nothing-to-cut":
-					return "Nothing to cut — every gap here is shorter than a pause worth removing.";
-				case "too-fragmented":
-					return "That would make hundreds of tiny clips. Nothing changed.";
-				case "would-remove-everything":
-					return "That would remove almost the whole clip. Nothing changed.";
-			}
-	}
-}
+/** Shown when Split was tapped but the playhead isn't strictly inside the
+ *  clip — on its edge or outside it — so there is nothing to cut. */
+const SPLIT_NOOP_NOTICE = "Move the playhead inside the clip to split it.";
 
 /** Round 22 (founder: "there should be an edit text button in the menu
  *  when i select it"): text and caption clips get a direct Edit-text verb
@@ -290,6 +268,10 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 	const [deadSpaceProgress, setDeadSpaceProgress] = useState<{
 		percent: number;
 	} | null>(null);
+
+	const runSplit = ({ ref }: { ref: ElementRef }) => {
+		setChromeNotice(splitAtPlayhead({ editor, ref }) ? null : SPLIT_NOOP_NOTICE);
+	};
 
 	const runCutDeadSpace = ({ ref }: { ref: ElementRef }) => {
 		if (deadSpaceProgress) return; // one analysis at a time
@@ -632,7 +614,7 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 						}
 						// Direct verbs act immediately; only "edit" opens a sheet.
 						if (id === "split") {
-							splitAtPlayhead({ editor, ref: selectedRef });
+							runSplit({ ref: selectedRef });
 							return;
 						}
 						if (id === "delete") {
@@ -659,7 +641,7 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 					elementRef={selectedRef}
 					element={selectedElement}
 					onClose={closeSheet}
-					onSplit={() => splitAtPlayhead({ editor, ref: selectedRef })}
+					onSplit={() => runSplit({ ref: selectedRef })}
 					onDelete={() => {
 						deleteSelected({ editor, refs: [selectedRef] });
 						closeSheet();
@@ -836,7 +818,6 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 			{activeSheet === "ai" && (
 				<AIDirectorPanel
 					editor={editor}
-					currentTimeSeconds={currentTimeSeconds}
 					onClose={closeSheet}
 					onOpenVault={() => setActiveSheet("vault")}
 				/>

@@ -122,7 +122,8 @@ function usePointerState<T>(initial: T) {
 		(next: SetStateAction<T>, publish = true) => {
 			const resolved =
 				typeof next === "function"
-					? (next as (current: T) => T)(ref.current)
+					? // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- standard SetStateAction narrowing: T itself is never a function here.
+						(next as (current: T) => T)(ref.current)
 					: next;
 			ref.current = resolved;
 			if (publish) publishValue(resolved);

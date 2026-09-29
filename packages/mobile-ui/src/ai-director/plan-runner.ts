@@ -96,10 +96,10 @@ export async function runApprovedPlan({
 		// Collapse the steps' own history entries into one snapshot so a single
 		// Undo reverts the whole AI edit and the next Undo goes to whatever the
 		// user did before it, never to a half-applied plan.
-		ctx.editor.command.squashSince(
-			historyMark,
-			new TracksSnapshotCommand({ before: beforeTracks, after: afterTracks }),
-		);
+		ctx.editor.command.squashSince({
+			mark: historyMark,
+			command: new TracksSnapshotCommand({ before: beforeTracks, after: afterTracks }),
+		});
 	}
 
 	useAIDirectorStore.getState().setPlanStatus("complete");

@@ -30,6 +30,9 @@ export function StockMediaPanel({ editor, currentTimeSeconds, onClose, onOpenVau
 	const [loading, setLoading] = useState(false);
 	const [addingId, setAddingId] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// Result ids whose thumbnail failed to load (offline, blocked host, 404).
+	// They render a placeholder tile instead of the WebView's broken-image glyph.
+	const [brokenThumbs, setBrokenThumbs] = useState<ReadonlySet<string>>(() => new Set());
 	const vaultConfigured = useVaultStore((s) => s.isConfigured);
 	const vaultUnlocked = useVaultStore((s) => s.isUnlocked);
 	const vaultPexelsKey = useVaultStore((s) => s.keys.pexels);
@@ -42,6 +45,7 @@ export function StockMediaPanel({ editor, currentTimeSeconds, onClose, onOpenVau
 		setLoading(true);
 		setError(null);
 		setResults([]);
+		setBrokenThumbs(new Set());
 
 		try {
 			const items =
@@ -150,11 +154,34 @@ export function StockMediaPanel({ editor, currentTimeSeconds, onClose, onOpenVau
 							style={{ minHeight: "auto", padding: 0, overflow: "hidden" }}
 						>
 							<div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9" }}>
-								<img
-									src={item.thumbnailUrl}
-									alt={item.title}
-									style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-								/>
+								{item.thumbnailUrl && !brokenThumbs.has(item.id) ? (
+									<img
+										src={item.thumbnailUrl}
+										alt={item.title}
+										onError={() => setBrokenThumbs((prev) => new Set(prev).add(item.id))}
+										style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+									/>
+								) : (
+									<div
+										role="img"
+										aria-label={`${item.title} (preview unavailable)`}
+										style={{
+											width: "100%",
+											height: "100%",
+											display: "flex",
+											alignItems: "center",
+											justifyContent: "center",
+											background: "rgba(255, 255, 255, 0.06)",
+											color: "var(--cc-text-secondary)",
+										}}
+									>
+										{item.type === "video" ? (
+											<Film size={20} strokeWidth={CC_ICON_STROKE} />
+										) : (
+											<ImageIcon size={20} strokeWidth={CC_ICON_STROKE} />
+										)}
+									</div>
+								)}
 								{item.durationSec && (
 									<span
 										style={{

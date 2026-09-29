@@ -62,12 +62,8 @@ import {
 	Type,
 	Music,
 	Cloud,
-	ChevronRight,
-	CheckCircle2,
-	AlertCircle,
 	X,
 	Cpu,
-	Sliders,
 } from "lucide-react";
 
 const NOOP_BOOTSTRAP = async () => {};
@@ -116,18 +112,45 @@ class CrashBoundary extends Component<
 type Screen = { name: "home" } | { name: "editor"; initialSheet?: SheetId };
 type TabId = "home" | "templates" | "projects" | "me";
 
+/** The demo project (`bootstrapDemoProject`, "M8 panel harness") is a
+ *  dev-server fixture only: under `vite` (DEV), `#editor` opens straight into
+ *  it. Every packaged build (`vite build`) boots Home and only ever edits a
+ *  project the user created or opened — it must never swap in the demo,
+ *  which it used to do for any project whose main track was still empty
+ *  (i.e. every brand-new project, and every "use template" project). */
+const DEV_DEMO = import.meta.env.DEV;
+
+async function bootstrapDevDemo() {
+	if (!EditorCore.getInstance().project.getActiveOrNull()) {
+		await bootstrapDemoProject();
+	}
+}
+
+/** Outside the dev server nothing bootstraps a project for the editor, so it
+ *  needs one already active. A cold launch or WebView reload that lands on
+ *  `#editor` has none and goes Home instead. */
+function canShowEditor(): boolean {
+	return DEV_DEMO || EditorCore.getInstance().project.getActiveOrNull() !== null;
+}
+
 function App() {
 	const [screen, setScreen] = useState<Screen>(() => {
-		if (typeof window !== "undefined" && window.location.hash === "#home") {
-			return { name: "home" };
+		if (
+			typeof window !== "undefined" &&
+			window.location.hash.includes("editor") &&
+			canShowEditor()
+		) {
+			return { name: "editor" };
 		}
-		return { name: "editor" };
+		return { name: "home" };
 	});
 
 	useEffect(() => {
 		const handleHash = () => {
 			if (window.location.hash.includes("editor")) {
-				setScreen({ name: "editor" });
+				if (canShowEditor()) {
+					setScreen((s) => (s.name === "editor" ? s : { name: "editor" }));
+				}
 			} else if (
 				window.location.hash === "" ||
 				window.location.hash === "#" ||
@@ -143,13 +166,7 @@ function App() {
 	if (screen.name === "editor") {
 		return (
 			<EditorShell
-				bootstrap={async () => {
-					const active = EditorCore.getInstance().project.getActiveOrNull();
-					const mainTrack = active ? EditorCore.getInstance().scenes.getActiveSceneOrNull()?.tracks.main : null;
-					if (!active || !mainTrack || mainTrack.elements.length === 0) {
-						await bootstrapDemoProject();
-					}
-				}}
+				bootstrap={DEV_DEMO ? bootstrapDevDemo : NOOP_BOOTSTRAP}
 				initialSheet={screen.initialSheet}
 				onBack={() => {
 					void EditorCore.getInstance().project.saveCurrentProject();
@@ -224,7 +241,7 @@ function HomeScreen({
 	const useTemplateInNewProject = async (tmpl: HtmlTemplate) => {
 		await run(
 			async () => {
-				const project = await editor.project.createNewProject({
+				await editor.project.createNewProject({
 					name: `${tmpl.name} Edit`,
 				});
 				insertHtmlTemplateElement({
@@ -279,6 +296,7 @@ function HomeScreen({
 	return (
 		<div className="cf-home-layout">
 			{/* Top Bar / Header */}
+				{activeTab === "home" && (
 			<header className="cf-tab-header">
 				<div className="cf-tab-header__left">
 					<h1 className="cf-tab-header__title">ContentFlow</h1>
@@ -306,6 +324,7 @@ function HomeScreen({
 					</button>
 				</div>
 			</header>
+				)}
 
 			{error && <div className="cf-home-error">{error}</div>}
 

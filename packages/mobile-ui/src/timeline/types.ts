@@ -86,6 +86,8 @@ export interface TimelineClipVM {
 	 * consumer of this package has real entries to put here today.
 	 */
 	thumbnails?: Record<number, string>;
+	/** Cover thumbnail URL for this clip or its underlying asset. */
+	thumbnailUrl?: string;
 	/** Audio-only: amplitude samples 0..1 across the clip's SOURCE duration. */
 	waveformPeaks?: number[];
 	keyframes?: TimelineKeyframeVM[];
