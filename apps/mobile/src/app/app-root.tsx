@@ -44,6 +44,7 @@ import {
 	TemplateThumbnail,
 	insertHtmlTemplateElement,
 	getActiveAnthropicKey,
+	installVaultSessionLock,
 	useVaultStore,
 	createProjectFromPickedMedia,
 	type SheetId,
@@ -135,6 +136,7 @@ function App() {
 	});
 
 	useEffect(() => {
+		installVaultSessionLock();
 		const handleHash = () => {
 			if (window.location.hash.includes("editor")) {
 				if (canShowEditor()) {

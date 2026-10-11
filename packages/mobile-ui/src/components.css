@@ -1801,6 +1801,34 @@
 	cursor: default;
 }
 
+/* What the native exporter will skip. Shown before Export so a template,
+   a blob B-roll clip, or a filter is a listed omission, not a surprise
+   failure or a silent hole in the file. */
+.cc-export-omissions {
+	margin-top: var(--cc-space-3);
+	padding: var(--cc-space-2) var(--cc-space-3);
+	border-radius: 12px;
+	background: rgba(255, 77, 46, 0.14);
+}
+.cc-export-omissions__title {
+	margin: 0 0 var(--cc-space-2);
+	font-size: var(--cc-text-label);
+	font-weight: 700;
+	color: var(--cc-text-primary);
+}
+.cc-export-omissions__list {
+	margin: 0;
+	padding-left: 1.1em;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.cc-export-omissions__list li {
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-primary);
+	line-height: 1.35;
+}
+
 /* Fullscreen preview (2026-08-27, founder: "fullscreen button doesnt
  * actually fullscreen the preview lol").
  *
