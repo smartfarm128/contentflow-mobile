@@ -26,6 +26,13 @@
  *      `[autotest] VERDICT phase=<import|reopen> <PASS|FAIL> …`, greppable
  *      from `simctl launch --console-pty`.
  *
+ *   5. EXPORT-HONESTY phase (`#/autotest/export-honesty`, or a planted
+ *      `<mediaRoot>/autotest-export-honesty.flag` next to `autotest.flag`):
+ *      a project with the planted video PLUS a motion template, a blob-only
+ *      asset and a filter. The verdict requires the export to succeed and
+ *      the omission list to name all three. It does not run the playback
+ *      phases.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -49,9 +56,16 @@ import {
 	type NativeMediaSource,
 } from "@kneecap/editor-core";
 import { buildElementFromMedia, buildTextElement } from "@kneecap/editor-core/timeline";
-import { InsertElementCommand, UpdateElementsCommand } from "@kneecap/editor-core/commands";
+import { AddClipEffectCommand, AddMediaAssetCommand, InsertElementCommand, UpdateElementsCommand } from "@kneecap/editor-core/commands";
+import { buildEdl, listNativeExportOmissions } from "@kneecap/editor-core/edl";
 import { loadFontAtlas } from "@kneecap/editor-core/fonts/local-fonts";
-import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
+import {
+	EditorShell,
+	buildNativeEdlAssetResolver,
+	ensurePreviewGpu,
+	insertHtmlTemplateElement,
+	toEdlMediaAssets,
+} from "@kneecap/mobile-ui";
 import { getNativeBridge } from "@kneecap/native-bridge";
 
 const PROJECT_NAME = "Autotest";
@@ -712,6 +726,178 @@ async function driveAndSample({
 	);
 }
 
+const HONESTY_PROJECT = "Autotest Export Honesty";
+
+/**
+ * Exports a project that contains one real planted clip plus the three
+ * things the native exporters still cannot render: a motion template, a
+ * blob-only asset, and a filter. PASS means the file encodes AND the
+ * omission list names each of those three.
+ */
+async function runExportHonesty({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const fail = (detail: string) => {
+		log(`VERDICT phase=export-honesty FAIL ${detail}`);
+	};
+	try {
+		await editor.project.createNewProject({ name: HONESTY_PROJECT });
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+
+		const scene = editor.scenes.getActiveScene();
+		const main = scene.tracks.main;
+		const mainEl = main.elements[0];
+		if (!mainEl) {
+			fail("planted video did not land on the main track");
+			return;
+		}
+		editor.command.execute({
+			command: new AddClipEffectCommand({
+				trackId: main.id,
+				elementId: mainEl.id,
+				effectType: "filter",
+			}),
+		});
+
+		const templateRef = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-text-scramble",
+			durationSec: 3,
+			startSeconds: 0,
+		});
+		if (!templateRef) {
+			fail("html-text-scramble did not insert");
+			return;
+		}
+
+		const blobFile = new File([new Uint8Array(32)], "pexels-broll.mp4", { type: "video/mp4" });
+		const blobCommand = new AddMediaAssetCommand({
+			projectId: editor.project.getActive().metadata.id,
+			asset: {
+				name: "Pexels b-roll",
+				type: "video",
+				file: blobFile,
+				url: URL.createObjectURL(blobFile),
+				duration: 2,
+				width: 1280,
+				height: 720,
+				hasAudio: false,
+			},
+		});
+		editor.command.execute({ command: blobCommand });
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: blobCommand.getAssetId(),
+					mediaType: "video",
+					name: "Pexels b-roll",
+					duration: mediaTimeFromSeconds({ seconds: 2 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 4_000_000,
+				includeAudio: true,
+			},
+		});
+		const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+		const omissions = listNativeExportOmissions({ edl, platform });
+		const messages = omissions.map((item) => item.message);
+		for (const message of messages) log("omission:", message);
+		const reportedTemplate = messages.some((message) => /motion template/i.test(message));
+		const reportedBlob = messages.some(
+			(message) => message.includes("Pexels b-roll") && /sandbox|in-memory/i.test(message),
+		);
+		const reportedFilter = messages.some((message) => message.startsWith("Filter on"));
+		if (!reportedTemplate || !reportedBlob || !reportedFilter) {
+			fail(
+				`omissions incomplete template=${reportedTemplate} blob=${reportedBlob} filter=${reportedFilter} count=${messages.length}`,
+			);
+			return;
+		}
+
+		let outputUri: string | null = null;
+		for await (const event of bridge.exportProject({ edl, overlayFrames: [] })) {
+			if (event.stage === "error") throw new Error(event.error ?? "export error");
+			if (event.stage === "done") outputUri = event.outputUri ?? null;
+		}
+		if (!outputUri) throw new Error("export finished without an outputUri");
+		let bytes: ArrayBuffer | null = null;
+		for (let attempt = 0; attempt < 4; attempt++) {
+			try {
+				bytes = await fetch(outputUri).then((response) => response.arrayBuffer());
+				break;
+			} catch {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+		if (!bytes || bytes.byteLength < 10_000) {
+			throw new Error(`suspiciously small output (${bytes?.byteLength ?? 0}B)`);
+		}
+		const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
+		const probe = new Input({
+			source: new BlobSource(new Blob([bytes])),
+			formats: ALL_FORMATS,
+		});
+		const track = await probe.getPrimaryVideoTrack();
+		if (!track) throw new Error("output has no video track");
+		log(
+			`VERDICT phase=export-honesty PASS export=${Math.round(bytes.byteLength / 1024)}KB omitted=${messages.length} template=yes blob=yes filter=yes`,
+		);
+	} catch (error) {
+		fail(error instanceof Error ? error.message : String(error));
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -739,6 +925,26 @@ export async function mountAutotest(): Promise<void> {
 		},
 	});
 	log("media root", root);
+
+	let exportHonesty = window.location.hash.includes("export-honesty");
+	try {
+		const honestyFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-export-honesty.flag`));
+		if (honestyFlag.ok || honestyFlag.status === 0) exportHonesty = true;
+	} catch {
+		// No flag — the playback phases run.
+	}
+	if (exportHonesty) {
+		log("phase: export-honesty");
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runExportHonesty({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
 
 	// Opt-in device-profile mode: a runner-planted `<root>/autotest-fallback.flag`
 	// deletes WebCodecs AudioDecoder so the WebAudio remux fallback (the path

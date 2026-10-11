@@ -153,9 +153,9 @@ export interface EdlEffect {
 /**
  * Masks are explicitly POST-v1 for native export (plan §2.3 rule 4). They are
  * carried in the document so the preview renderer and the export path read the
- * same graph, but `validateEdl` emits a warning for every non-empty `masks`
- * array and a v1 native mapper is expected to refuse the export rather than
- * silently drop them.
+ * same graph. `validateEdl` warns, `listNativeExportOmissions` names them for
+ * the export sheet, and a v1 native mapper leaves the mask out and still
+ * exports the clip.
  */
 export interface EdlMask {
 	maskId: string;

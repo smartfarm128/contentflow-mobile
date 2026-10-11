@@ -276,6 +276,22 @@ function buildClip({ element }: { element: TimelineElement }): EdlClip {
 			? element.mediaId
 			: null;
 
+	// Graphic definition ids and sticker ids live on the element, not in the
+	// param bag the panels edit. The EDL's contract is that both ride in
+	// `params` (see EdlClip.params), which is how the export sheet tells a
+	// motion template (`html:…`) from a shape.
+	const params: EdlClip["params"] = { ...element.params };
+	if (
+		"definitionId" in element &&
+		typeof element.definitionId === "string" &&
+		params.definitionId === undefined
+	) {
+		params.definitionId = element.definitionId;
+	}
+	if ("stickerId" in element && typeof element.stickerId === "string" && params.stickerId === undefined) {
+		params.stickerId = element.stickerId;
+	}
+
 	return {
 		clipId: element.id,
 		kind,
@@ -313,7 +329,7 @@ function buildClip({ element }: { element: TimelineElement }): EdlClip {
 				: [],
 		animations: buildAnimations({ animations: element.animations }),
 		captionWords: buildCaptionWords({ element }),
-		params: { ...element.params },
+		params,
 	};
 }
 

@@ -39,6 +39,7 @@ import {
 	useSceneTransitions,
 } from "../../editor/use-live-editor";
 import { bootstrapDemoProject } from "../../editor/demo-project";
+import { installVaultSessionLock } from "../../vault/vault-store";
 import { useTimelineProjectVM } from "../../editor/use-timeline-project-vm";
 import {
 	splitAtPlayhead,
@@ -277,6 +278,7 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet, prepar
 	};
 
 	useEffect(() => {
+		installVaultSessionLock();
 		(bootstrap ?? bootstrapDemoProject)()
 			.catch((err) => {
 				console.error("Bootstrap error, proceeding to editor:", err);

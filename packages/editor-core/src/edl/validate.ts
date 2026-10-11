@@ -231,8 +231,8 @@ function validateClip({
 		issues.warn({
 			path: `${path}.masks`,
 			message:
-				`${clip.masks.length} mask(s) present. Masks are explicitly post-v1 for native export ` +
-				"(plan §2.3 rule 4); a v1 mapper should refuse rather than silently drop them.",
+				`${clip.masks.length} mask(s) present. Masks are post-v1 for native export ` +
+				"(plan §2.3 rule 4); the exporter leaves them out and the export sheet lists them.",
 		});
 	}
 

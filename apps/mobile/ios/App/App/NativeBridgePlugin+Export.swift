@@ -102,10 +102,14 @@ extension NativeBridgePlugin {
                         // path ... NEVER a blob: URL"). A `kneecap-media://`
                         // placeholder scheme (as used by hand-authored test
                         // EDLs, never by the real producer) has no real
-                        // file behind it and resolves to `nil`, which
-                        // `CompositionBuilder` surfaces as a clear
-                        // `assetNotResolvable` error rather than crashing.
-                        guard let uri = asset.sourceUri, !uri.hasPrefix("kneecap-media://") else { return nil }
+                        // file behind it and resolves to `nil`. A `blob:` or `data:`
+                        // URL (Pexels / ElevenLabs before a sandbox copy) does
+                        // too. `CompositionBuilder` skips that clip instead of
+                        // failing the export.
+                        guard let uri = asset.sourceUri,
+                              !uri.hasPrefix("kneecap-media://"),
+                              !uri.hasPrefix("blob:"),
+                              !uri.hasPrefix("data:") else { return nil }
                         return URL(fileURLWithPath: uri)
                     },
                     outputURL: outputURL,

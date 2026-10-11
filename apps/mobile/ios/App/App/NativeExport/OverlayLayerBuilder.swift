@@ -83,7 +83,12 @@ public enum OverlayLayerBuilder {
 		ticksPerSecond: Int64,
 		zIndex: Int
 	) -> OverlayBillboard? {
-		guard let content = clip.params["content"]?.asString, !content.isEmpty else { return nil }
+		guard let content = clip.params["content"]?.asString, !content.isEmpty else {
+			// Templates, stickers and shapes reach this builder with no text
+			// content. Leave them out — the export sheet already listed them.
+			print("[kneecap-export] overlay clip \(clip.clipId) (\(clip.kind)) has no text content — left out")
+			return nil
+		}
 		let authoredFontSize = CGFloat(clip.params["fontSize"]?.asDouble ?? 48)
 		// RASTERIZE AT FINAL SIZE (round 36): the preview applies the clip's
 		// transform with `ctx.scale(...)` BEFORE drawing, so glyphs are

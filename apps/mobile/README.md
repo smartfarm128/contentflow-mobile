@@ -32,9 +32,12 @@ interface defined and stubbed."
   directly.
 - **Deployment floors are patched onto the Capacitor-generated defaults**,
   not the CLI's out-of-the-box numbers (plan §2.5): iOS
-  `IPHONEOS_DEPLOYMENT_TARGET` bumped 15.0 → 17.0 in
-  `ios/App/App.xcodeproj/project.pbxproj`; Android `minSdkVersion` bumped
-  24 → 29 in `android/variables.gradle`. `bunx cap add ios|android` again
+  `IPHONEOS_DEPLOYMENT_TARGET` is **17.0 at both the project level and the
+  App target** in `ios/App/App.xcodeproj/project.pbxproj` (Xcode rewrites only
+  the App target to the current SDK — 26.6 was that mistake; put it back to
+  17.0). iOS 26 APIs such as `SpeechAnalyzer` stay inside `#available` /
+  `@available`. Android `minSdkVersion` is bumped 24 → 29 in
+  `android/variables.gradle`. `bunx cap add ios|android` again
   (e.g. after deleting a platform to regenerate it) will reset both — reapply.
 - **The bridge-import gate is real here.** `src/main.ts` never imports
   `@capacitor/*` directly — platform info comes from

@@ -166,15 +166,22 @@ async function driveAgentLoop({
 
 	let finalText = "";
 
+	// One key for the whole run. Reading the vault again on each turn dropped
+	// the key to "" once the old 60s lock fired mid-loop, so later turns went
+	// out unauthenticated. Backgrounding or the idle lock can still clear the
+	// vault while this function is awaiting the network; this snapshot is what
+	// those later turns send.
+	const provider: AIProvider = store.selectedProvider || "anthropic";
+	const apiKey = directorKey(provider);
+
 	try {
 		for (let turn = 0; turn < MAX_TURNS; turn++) {
-			const provider: AIProvider = store.selectedProvider || "anthropic";
 			const res = provider === "anthropic"
 				? await fetch("https://api.anthropic.com/v1/messages", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
-						"x-api-key": directorKey("anthropic"),
+						"x-api-key": apiKey,
 						"anthropic-version": "2023-06-01",
 						"anthropic-dangerous-direct-browser-access": "true",
 					},
@@ -190,7 +197,7 @@ async function driveAgentLoop({
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
-						"Authorization": `Bearer ${directorKey("anselabs")}`,
+						"Authorization": `Bearer ${apiKey}`,
 					},
 					body: JSON.stringify({
 						model: store.selectedModel || "hst-coding-beta",

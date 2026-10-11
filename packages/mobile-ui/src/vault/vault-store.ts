@@ -1,8 +1,11 @@
 /**
  * ContentFlow Mobile — In-Memory Key Vault Store & Consumer Bridge.
  *
- * Keeps decrypted keys in memory only while unlocked.
- * Automatically clears decrypted keys after 60s idle timeout or on lock().
+ * Keeps decrypted keys in memory only while the working session is unlocked.
+ * The session ends when the app goes to the background, or after
+ * `VAULT_IDLE_LOCK_MS` with no pointer or keyboard activity (20 minutes).
+ * A Director run snapshots its key at the start (`ai-agent.ts`) so a lock
+ * mid-run does not blank later turns.
  * Handles seamless one-way migration of legacy plaintext localStorage keys.
  */
 import { create } from "zustand";
@@ -19,7 +22,13 @@ export const LEGACY_KEY_ELEVENLABS = "cf_elevenlabs_api_key";
 export const LEGACY_KEY_PEXELS = "cf_pexels_api_key";
 export const LEGACY_KEY_ANSSELABS = "cf_anselabs_api_key";
 
-const DEFAULT_AUTO_LOCK_MS = 60_000;
+/**
+ * Idle lock for an unlocked vault. Long enough for a working session
+ * (including a multi-turn Director run) and short enough that a phone left
+ * open does not keep API keys in memory all afternoon. Backgrounding locks
+ * immediately; see `noteVaultAppVisibility`.
+ */
+export const VAULT_IDLE_LOCK_MS = 20 * 60 * 1000;
 
 interface VaultStoreState {
 	isConfigured: boolean;
@@ -102,6 +111,7 @@ export const useVaultStore = create<VaultStoreState>()((set, get) => ({
 				error: null,
 			});
 			get().touchActivity();
+			installVaultSessionLock();
 			return true;
 		} catch (err) {
 			set({ error: err instanceof Error ? err.message : String(err) });
@@ -119,6 +129,7 @@ export const useVaultStore = create<VaultStoreState>()((set, get) => ({
 				error: null,
 			});
 			get().touchActivity();
+			installVaultSessionLock();
 			return true;
 		} catch (err) {
 			set({ error: err instanceof Error ? err.message : String(err) });
@@ -172,12 +183,13 @@ export const useVaultStore = create<VaultStoreState>()((set, get) => ({
 	},
 
 	touchActivity: () => {
+		if (!get().isUnlocked) return;
 		const oldTimer = get().autoLockTimer;
 		if (oldTimer) clearTimeout(oldTimer);
 
 		const timer = setTimeout(() => {
 			get().lock();
-		}, DEFAULT_AUTO_LOCK_MS);
+		}, VAULT_IDLE_LOCK_MS);
 
 		set({ autoLockTimer: timer });
 	},
@@ -187,6 +199,36 @@ export const useVaultStore = create<VaultStoreState>()((set, get) => ({
 
 // ──────────────── Consumer Bridges ────────────────
 // External subsystems call these helpers to read the active key seamlessly:
+
+/**
+ * Lock as soon as the WebView is no longer visible (home screen, app
+ * switcher, another app). A visible document does not unlock — the PIN
+ * does. Installed once from unlock and from the app shell.
+ */
+export function noteVaultAppVisibility({ state }: { state: "visible" | "hidden" }): void {
+	if (state === "hidden") useVaultStore.getState().lock();
+}
+
+let sessionLockInstalled = false;
+
+export function installVaultSessionLock(): void {
+	if (sessionLockInstalled) return;
+	if (typeof document === "undefined") return;
+	sessionLockInstalled = true;
+	document.addEventListener("visibilitychange", () => {
+		noteVaultAppVisibility({
+			state: document.visibilityState === "hidden" ? "hidden" : "visible",
+		});
+	});
+	window.addEventListener("pagehide", () => {
+		noteVaultAppVisibility({ state: "hidden" });
+	});
+	const onActivity = () => {
+		if (useVaultStore.getState().isUnlocked) useVaultStore.getState().touchActivity();
+	};
+	document.addEventListener("pointerdown", onActivity, true);
+	document.addEventListener("keydown", onActivity, true);
+}
 
 export function getActiveAnthropicKey(): string {
 	const vault = useVaultStore.getState();

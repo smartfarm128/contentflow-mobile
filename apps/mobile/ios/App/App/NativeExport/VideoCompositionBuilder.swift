@@ -120,6 +120,7 @@ public enum VideoCompositionBuilder {
 		var pipLayers: [OverlayVideoLayer] = []
 		for track in edl.tracks where track.kind == "overlay" && track.trackType == "video" {
 			for clip in track.clips where !clip.hidden {
+				Self.logLeftOut(clip)
 				guard let assetId = clip.assetId else { continue }
 				let rotation = assetById[assetId]?.rotationDegrees ?? 0
 				let placement = SourcePlacement(
@@ -237,15 +238,20 @@ public enum VideoCompositionBuilder {
 		for placement in built.mainPlacements {
 			let solo = placement.soloRange
 			guard solo.end > solo.start else { continue }
+			if let clip = clipById[placement.clipId] { Self.logLeftOut(clip) }
 			let trackID = built.mainTrackIDs[placement.clipId]
 			let still = trackID == nil ? mainStill(placement.clipId) : nil
 			let range = EdlTime.cmTimeRange(startTicks: solo.start, durationTicks: solo.end - solo.start, ticksPerSecond: tps)
+			// No composition lane (a still, or a clip whose file was left
+			// out) is only scheduled while a required track has samples.
+			// The pacer lane is that clock; without it the segment is skipped
+			// and a later gap can fail the whole composition (-11841).
 			let instruction = EdlVideoCompositionInstruction(
 				timeRange: range,
 				primaryTrackID: trackID ?? kCMPersistentTrackID_Invalid,
 				primaryStill: still,
 				pacerTrackID:
-					still != nil
+					trackID == nil
 						? (built.stillPacerTrackID ?? kCMPersistentTrackID_Invalid)
 						: kCMPersistentTrackID_Invalid,
 				primaryBrightness: enabledBrightness(placement.clipId),
@@ -272,6 +278,7 @@ public enum VideoCompositionBuilder {
 			let primaryStill = primaryTrackID == nil ? mainStill(outgoingId) : nil
 			let secondaryStill = secondaryTrackID == nil ? mainStill(incomingId) : nil
 			let range = EdlTime.cmTimeRange(startTicks: window.startTicks, durationTicks: window.durationTicks, ticksPerSecond: tps)
+			let needsPacer = primaryTrackID == nil || secondaryTrackID == nil
 			let instruction = EdlVideoCompositionInstruction(
 				timeRange: range,
 				primaryTrackID: primaryTrackID ?? kCMPersistentTrackID_Invalid,
@@ -279,7 +286,7 @@ public enum VideoCompositionBuilder {
 				primaryStill: primaryStill,
 				secondaryStill: secondaryStill,
 				pacerTrackID:
-					primaryStill != nil || secondaryStill != nil
+					needsPacer
 						? (built.stillPacerTrackID ?? kCMPersistentTrackID_Invalid)
 						: kCMPersistentTrackID_Invalid,
 				transitionWindowStart: range.start,
@@ -335,6 +342,23 @@ public enum VideoCompositionBuilder {
 		// Overlays ride the instructions as `overlayBillboards` instead.
 
 		return composition
+	}
+
+	/// Effects other than adjust/brightness, masks, and reverse are preview-only.
+	/// Logging them keeps a device export honest; the export sheet is what the
+	/// user actually reads. The clip itself still exports.
+	private static func logLeftOut(_ clip: EdlClip) {
+		let skipped = clip.effects.filter { $0.enabled && $0.type != "adjust" && $0.type != "brightness" }
+		if !skipped.isEmpty {
+			let names = skipped.map(\.type).joined(separator: ", ")
+			print("[kneecap-export] clip \(clip.clipId): leaving out effects \(names)")
+		}
+		if !clip.masks.isEmpty {
+			print("[kneecap-export] clip \(clip.clipId): leaving out \(clip.masks.count) mask(s)")
+		}
+		if clip.params["reversed"]?.asBool == true {
+			print("[kneecap-export] clip \(clip.clipId): reverse plays forward")
+		}
 	}
 
 	/// Decode an image asset once, at build time, for a `.still` PiP layer.

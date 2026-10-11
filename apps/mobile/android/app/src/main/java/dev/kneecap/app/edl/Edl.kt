@@ -16,9 +16,8 @@ package dev.kneecap.app.edl
  * exit criteria for M9 is filters/transform/opacity/crossfade+wipe-slide
  * transitions/text+sticker overlays/speed (plan §2.3 rule 4), so fields the
  * mapper does not yet consume (masks) are parsed only far enough to detect
- * their presence (`EdlClip.hasMasks`) so `EdlToComposition` can refuse an
- * export that needs them rather than silently dropping them — same posture
- * `validateEdl()` takes on the TS side. Keyframe animations ARE consumed
+ * their presence (`EdlClip.hasMasks`) so `EdlToComposition` can leave them
+ * out (and say so) rather than fail the export. Keyframe animations ARE consumed
  * since round 47 (`EdlClip.animations`, `KeyframeEvaluator`).
  */
 
@@ -52,9 +51,9 @@ data class EdlAsset(
     val assetId: String,
     val kind: EdlAssetKind,
     val name: String,
-    /** Native file handle. `null` until M4 wires media custody for this
-     * asset — an export referencing a null `sourceUri` is a hard error,
-     * not a skip (see `EdlToComposition`). */
+    /** Native file handle. `null` (or a `blob:` URL) means this asset is
+     * preview-only — `EdlToComposition` skips the clip instead of failing
+     * the export. */
     val sourceUri: String?,
     val codec: String?,
     val width: Int?,

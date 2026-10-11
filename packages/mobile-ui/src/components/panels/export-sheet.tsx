@@ -1,10 +1,16 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { SegmentedControl } from "../segmented-control";
 import { ProgressOverlay } from "../progress-overlay";
 import type { EditorCore } from "@kneecap/editor-core";
-import { buildEdl, type Edl } from "@kneecap/editor-core/edl";
+import {
+	buildEdl,
+	listNativeExportOmissions,
+	type Edl,
+	type NativeExportOmission,
+	type NativeExportPlatform,
+} from "@kneecap/editor-core/edl";
 import type { ExportFormat, ExportQuality } from "@kneecap/editor-core/export";
 import { getNativeBridge, type ExportProgress } from "@kneecap/native-bridge";
 import {
@@ -123,6 +129,8 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const [progress, setProgress] = useState<{ stage: ExportProgress["stage"]; fraction: number } | null>(null);
 	const [exportError, setExportError] = useState<string | null>(null);
 	const [outputUri, setOutputUri] = useState<string | null>(null);
+	const [omissions, setOmissions] = useState<NativeExportOmission[] | null>(null);
+	const [omissionError, setOmissionError] = useState<string | null>(null);
 	// Holds the in-flight generator ONLY so Cancel can `.return()` it — never
 	// read for anything else. A ref, not state: swapping it must not trigger
 	// a re-render.
@@ -158,14 +166,15 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		if (preset) setProjectFps({ editor, fps: preset.fps });
 	};
 
-	/** Shared by both "Preview EDL output" and "Export video" — the real
-	 *  export must build the EDL the exact same way the preview claims to,
-	 *  or the preview would be lying about what gets exported. */
-	const buildCurrentEdl = (): Edl => {
+	/** Shared by the omission list, "Preview EDL output" and "Export video" —
+	 *  the real export must build the EDL the exact same way the sheet
+	 *  describes, or the list of what gets left out would be lying. */
+	const buildCurrentEdl = useCallback((): Edl => {
+		const live = editor.project.getActive();
 		const scene = editor.scenes.getActiveScene();
 		const fpsPreset = FPS_OPTIONS.find((f) => f.id === fpsId)?.fps;
 		return buildEdl({
-			project,
+			project: live,
 			scene,
 			// Real live media assets, not a hardcoded `[]` — genuinely empty
 			// today only because no panel in this app can insert a video/image
@@ -186,7 +195,31 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 				fps: fpsPreset,
 			},
 		});
-	};
+	}, [editor, fpsId, format, quality]);
+
+	useEffect(() => {
+		let cancelled = false;
+		void (async () => {
+			try {
+				const bridge = await getNativeBridge();
+				const platform: NativeExportPlatform =
+					bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+				const next = listNativeExportOmissions({ edl: buildCurrentEdl(), platform });
+				if (!cancelled) {
+					setOmissions(next);
+					setOmissionError(null);
+				}
+			} catch (error) {
+				if (!cancelled) {
+					setOmissions(null);
+					setOmissionError(error instanceof Error ? error.message : String(error));
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [buildCurrentEdl]);
 
 	const previewEdl = () => {
 		setPreviewError(null);
@@ -312,6 +345,20 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						}}
 					/>
 				</div>
+				{omissions && omissions.length > 0 && (
+					<div className="cc-export-omissions" role="status">
+						<p className="cc-export-omissions__title">Left out of this export</p>
+						<ul className="cc-export-omissions__list">
+							{omissions.map((item) => (
+								<li key={`${item.path}:${item.message}`}>{item.message}</li>
+							))}
+						</ul>
+					</div>
+				)}
+				{omissions && omissions.length === 0 && (
+					<p className="cc-panel-note">Everything on this timeline can be included in the export.</p>
+				)}
+				{omissionError && <p className="cc-panel-note">Could not check the export: {omissionError}</p>}
 				<button type="button" className="cc-export-sheet__action" onClick={previewEdl}>
 					Preview EDL output
 				</button>
