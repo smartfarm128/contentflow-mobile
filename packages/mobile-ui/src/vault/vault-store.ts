@@ -30,6 +30,22 @@ export const LEGACY_KEY_ANSSELABS = "cf_anselabs_api_key";
  */
 export const VAULT_IDLE_LOCK_MS = 20 * 60 * 1000;
 
+type VaultTimer = ReturnType<typeof setTimeout>;
+
+/**
+ * The idle lock's clock. Tests replace `set` / `clear` so a Director run
+ * can be proven to keep its key past 60s without waiting 20 minutes.
+ */
+export const vaultTimers: {
+	set: (args: { callback: () => void; delayMs: number }) => VaultTimer;
+	clear: (timer: VaultTimer) => void;
+} = {
+	set: ({ callback, delayMs }) => setTimeout(callback, delayMs),
+	clear: (timer) => {
+		clearTimeout(timer);
+	},
+};
+
 interface VaultStoreState {
 	isConfigured: boolean;
 	isUnlocked: boolean;
@@ -139,7 +155,7 @@ export const useVaultStore = create<VaultStoreState>()((set, get) => ({
 
 	lock: () => {
 		const timer = get().autoLockTimer;
-		if (timer) clearTimeout(timer);
+		if (timer) vaultTimers.clear(timer);
 		set({
 			isUnlocked: false,
 			keys: {},
@@ -185,11 +201,14 @@ export const useVaultStore = create<VaultStoreState>()((set, get) => ({
 	touchActivity: () => {
 		if (!get().isUnlocked) return;
 		const oldTimer = get().autoLockTimer;
-		if (oldTimer) clearTimeout(oldTimer);
+		if (oldTimer) vaultTimers.clear(oldTimer);
 
-		const timer = setTimeout(() => {
-			get().lock();
-		}, VAULT_IDLE_LOCK_MS);
+		const timer = vaultTimers.set({
+			callback: () => {
+				get().lock();
+			},
+			delayMs: VAULT_IDLE_LOCK_MS,
+		});
 
 		set({ autoLockTimer: timer });
 	},

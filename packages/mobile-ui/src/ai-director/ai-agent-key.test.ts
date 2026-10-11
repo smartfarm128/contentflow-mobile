@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { askAIDirector } from "./ai-agent";
 import { useAIDirectorStore } from "./ai-store";
 import type { ToolContext } from "./ai-executors";
@@ -9,6 +9,7 @@ import {
 	noteVaultAppVisibility,
 	useVaultStore,
 	VAULT_IDLE_LOCK_MS,
+	vaultTimers,
 } from "../vault/vault-store";
 
 /**
@@ -51,6 +52,61 @@ function disarmIdleTimer(): void {
 	useVaultStore.setState({ autoLockTimer: null });
 }
 
+/**
+ * Bun 1.2's `jest.useFakeTimers` does not implement `advanceTimersByTime`,
+ * so these cases record the timeout the vault schedules and run it when the
+ * test says that much idle time has passed. A 61s idle must not lock; the
+ * full `VAULT_IDLE_LOCK_MS` must.
+ */
+function installIdleClock(): {
+	delays: () => number[];
+	runDue: (args: { elapsedMs: number }) => void;
+	restore: () => void;
+} {
+	const originalSet = vaultTimers.set;
+	const originalClear = vaultTimers.clear;
+	const pending: Array<{ id: ReturnType<typeof setTimeout>; delay: number; run: () => void }> = [];
+
+	vaultTimers.set = ({ callback, delayMs }) => {
+		const id = originalSet({ callback: () => {}, delayMs: 86_400_000 });
+		pending.push({ id, delay: delayMs, run: callback });
+		return id;
+	};
+	vaultTimers.clear = (timer) => {
+		const index = pending.findIndex((item) => item.id === timer);
+		if (index >= 0) pending.splice(index, 1);
+		originalClear(timer);
+	};
+
+	return {
+		delays: () => pending.map((item) => item.delay),
+		runDue: ({ elapsedMs }) => {
+			const due = pending.filter((item) => item.delay <= elapsedMs);
+			for (const item of due) {
+				const index = pending.indexOf(item);
+				if (index >= 0) pending.splice(index, 1);
+				originalClear(item.id);
+				item.run();
+			}
+		},
+		restore: () => {
+			for (const item of pending) originalClear(item.id);
+			pending.length = 0;
+			vaultTimers.set = originalSet;
+			vaultTimers.clear = originalClear;
+		},
+	};
+}
+
+let restoreIdleClock = (): void => {};
+
+function armIdleClock(): ReturnType<typeof installIdleClock> {
+	restoreIdleClock();
+	const clock = installIdleClock();
+	restoreIdleClock = clock.restore;
+	return clock;
+}
+
 beforeEach(() => {
 	resetVaultStorage();
 	eraseLegacyPlaintextKeys();
@@ -64,7 +120,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	jest.useRealTimers();
+	restoreIdleClock();
+	restoreIdleClock = () => {};
 	globalThis.fetch = ORIGINAL_FETCH;
 	disarmIdleTimer();
 	useVaultStore.getState().lock();
@@ -75,14 +132,15 @@ describe("vault idle lock", () => {
 		const ok = await useVaultStore.getState().setupVault("2468", { anthropic: "sk-session" });
 		expect(ok).toBe(true);
 		disarmIdleTimer();
-		jest.useFakeTimers();
+		const clock = armIdleClock();
 		useVaultStore.getState().touchActivity();
+		expect(clock.delays()).toEqual([VAULT_IDLE_LOCK_MS]);
 
-		jest.advanceTimersByTime(61_000);
+		clock.runDue({ elapsedMs: 61_000 });
 		expect(useVaultStore.getState().isUnlocked).toBe(true);
 		expect(getActiveAnthropicKey()).toBe("sk-session");
 
-		jest.advanceTimersByTime(VAULT_IDLE_LOCK_MS);
+		clock.runDue({ elapsedMs: VAULT_IDLE_LOCK_MS });
 		expect(useVaultStore.getState().isUnlocked).toBe(false);
 		expect(getActiveAnthropicKey()).toBe("");
 	});
@@ -90,15 +148,16 @@ describe("vault idle lock", () => {
 	it("resets the idle window when the session is still in use", async () => {
 		await useVaultStore.getState().setupVault("2468", { anthropic: "sk-session" });
 		disarmIdleTimer();
-		jest.useFakeTimers();
+		const clock = armIdleClock();
 		useVaultStore.getState().touchActivity();
 
-		jest.advanceTimersByTime(VAULT_IDLE_LOCK_MS - 1_000);
+		clock.runDue({ elapsedMs: VAULT_IDLE_LOCK_MS - 1_000 });
 		useVaultStore.getState().touchActivity();
-		jest.advanceTimersByTime(VAULT_IDLE_LOCK_MS - 1_000);
+		expect(clock.delays()).toEqual([VAULT_IDLE_LOCK_MS]);
+		clock.runDue({ elapsedMs: VAULT_IDLE_LOCK_MS - 1_000 });
 		expect(useVaultStore.getState().isUnlocked).toBe(true);
 
-		jest.advanceTimersByTime(2_000);
+		clock.runDue({ elapsedMs: VAULT_IDLE_LOCK_MS });
 		expect(useVaultStore.getState().isUnlocked).toBe(false);
 	});
 
@@ -117,18 +176,20 @@ describe("Director run key snapshot", () => {
 	it("keeps the same key on a turn that happens after 60s and after the vault locks", async () => {
 		await useVaultStore.getState().setupVault("2468", { anthropic: "sk-director-run" });
 		disarmIdleTimer();
-		jest.useFakeTimers();
+		const clock = armIdleClock();
 		useVaultStore.getState().touchActivity();
+		expect(clock.delays()).toEqual([VAULT_IDLE_LOCK_MS]);
 
 		const sent: string[] = [];
-		globalThis.fetch = async (_input, init) => {
+		// eslint-disable-next-line opencut/prefer-object-params -- stand-in for global fetch, whose signature is positional.
+		const fetchMock = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 			sent.push(apiKeyFrom(init));
 			if (sent.length === 1) {
 				// Past the old 60s lock, the vault is still open.
-				jest.advanceTimersByTime(61_000);
+				clock.runDue({ elapsedMs: 61_000 });
 				expect(useVaultStore.getState().isUnlocked).toBe(true);
 				// Then the idle lock fires mid-run. Later turns must not re-read.
-				jest.advanceTimersByTime(VAULT_IDLE_LOCK_MS);
+				clock.runDue({ elapsedMs: VAULT_IDLE_LOCK_MS });
 				expect(useVaultStore.getState().isUnlocked).toBe(false);
 				expect(getActiveAnthropicKey()).toBe("");
 				return jsonResponse({
@@ -148,6 +209,7 @@ describe("Director run key snapshot", () => {
 				content: [{ type: "text", text: "Finished." }],
 			});
 		};
+		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
 
 		const reply = await askAIDirector("Make a longer cut", context);
 		expect(reply).toContain("Finished.");
