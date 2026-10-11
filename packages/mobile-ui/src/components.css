@@ -48,8 +48,11 @@
 	background: var(--cc-bg-panel);
 	border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
+/* The contextual row takes the primary row's place (one toolbar at a
+   time), so it matches its height and edge exactly — no layout jump. */
 .cc-toolbar--contextual {
-	height: var(--cc-subtoolbar-height);
+	height: var(--cc-toolbar-height, 60px);
+	border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 .cc-toolbar__item {
 	display: flex;
@@ -139,6 +142,7 @@
 	   export-sheet screenshot showed the white playhead line and the
 	   timecode overlapping the sheet's controls (2026-08-20). */
 	z-index: 10;
+	touch-action: none;
 }
 .cc-sheet {
 	background: var(--cc-bg-panel);
@@ -152,9 +156,13 @@
 	   Generate button was simply cut off (founder: "i dont see a
 	   generation button"). Sheets scroll now; radius clipping is
 	   preserved by overflow-y auto + hidden x. */
-	overflow-y: auto;
-	overflow-x: hidden;
-	-webkit-overflow-scrolling: touch;
+	/* The sheet itself never scrolls — only `.cc-sheet__body` does, and
+	   only vertically. Two nested vertical scrollers plus free-axis panning
+	   made the whole sheet sway on iOS (founder, 2026-09-30: "should appear
+	   fixed and solid"). Round 21's clipped-Generate-button bug stays fixed
+	   because the body is `flex: 1; min-height: 0; overflow-y: auto`. */
+	overflow: hidden;
+	overscroll-behavior: none;
 	/* M8 bugfix, found via real in-browser click testing (not caught by
 	   any prior visual-only check): CSS paints/hit-tests POSITIONED
 	   elements above NON-positioned siblings within the same stacking
@@ -208,8 +216,21 @@
 	transition: height 0.15s ease;
 }
 .cc-sheet__body {
+	flex: 1 1 auto;
+	min-height: 0;
+	min-width: 0;
+	overflow-x: hidden;
 	overflow-y: auto;
+	/* Vertical only: horizontal rows inside a sheet (chips, tabs) scroll
+	   themselves, and no gesture may drag the sheet or chain a bounce
+	   through to the web view behind it. */
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
 	padding: var(--cc-space-4);
+}
+.cc-sheet-header-group,
+.cc-sheet-header {
+	flex: none;
 }
 
 /* ============================== Sheet header =============================== */
@@ -892,7 +913,9 @@
 	height: 100%;
 	background-size: cover;
 	background-position: center;
-	border-right: 1px solid rgb(0 0 0 / 25%);
+	background-repeat: no-repeat;
+	/* Hairline, not a dark bar: frames should read as one continuous strip. */
+	box-shadow: inset -0.5px 0 0 rgb(0 0 0 / 35%);
 }
 .cc-timeline__clip-label {
 	position: absolute;
@@ -1413,12 +1436,16 @@
 	padding-right: env(safe-area-inset-right, 0px);
 }
 /* Real text entry stays selectable/editable despite the shell-wide
-   user-select:none above (caption textarea, text editor inputs). */
+   user-select:none above (caption textarea, text editor inputs, Key Vault).
+   touch-callout is inherited too, and on iOS `none` also suppresses the
+   Paste/Copy edit menu inside fields — so an API key could not be pasted
+   into the vault. Restore it with the selection. */
 .cc-editor-shell input,
 .cc-editor-shell textarea,
 .cc-editor-shell [contenteditable] {
 	-webkit-user-select: text;
 	user-select: text;
+	-webkit-touch-callout: default;
 }
 
 /* ------------------------------- Top bar ---------------------------------- */
@@ -1839,6 +1866,43 @@
 	height: 1px;
 	transform: translateY(-0.5px);
 }
+
+/* Selection frame for a motion-graphic template: shows its real edges and
+   carries four corner handles for one-finger resizing. Above the template
+   DOM layer (HtmlMotionLayer, z-index 20); only the handles take touches. */
+.cc-preview-frame {
+	position: absolute;
+	border: 1.5px solid var(--cc-accent);
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+	pointer-events: none;
+	z-index: 25;
+	box-sizing: border-box;
+}
+.cc-preview-frame__handle {
+	position: absolute;
+	width: 28px;
+	height: 28px;
+	margin: -14px;
+	pointer-events: auto;
+	touch-action: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+/* Big touch target, small visible dot. */
+.cc-preview-frame__handle::after {
+	content: "";
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: #fff;
+	border: 2px solid var(--cc-accent);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.cc-preview-frame__handle--nw { left: 0; top: 0; }
+.cc-preview-frame__handle--ne { right: 0; top: 0; margin-right: -14px; margin-left: 0; }
+.cc-preview-frame__handle--sw { left: 0; bottom: 0; margin-bottom: -14px; margin-top: 0; }
+.cc-preview-frame__handle--se { right: 0; bottom: 0; margin: 0 -14px -14px 0; }
 
 /* A panel's PRIMARY action — the one thing the sheet exists to do.
  *
@@ -2403,11 +2467,27 @@
    CapCut Mobile Pixel-Fidelity (Tokens: --cc-bg-panel, --cc-accent, etc.)
    ========================================================================== */
 
+/* Positioned + z-indexed so the sheet (fixed children) layers above the
+   Me screen's z-index 100 bottom nav; a plain wrapper keeps fixed
+   positioning viewport-relative. */
+.cc-vault-root {
+	position: relative;
+	z-index: 200;
+}
+/* The shared sheet cap (52dvh) clipped the keypad in the editor — the
+   vault is a modal step, so it gets the height its content needs. */
+.cc-sheet.cc-sheet--vault {
+	max-height: min(92dvh, 760px);
+}
+.cc-sheet--vault .cc-sheet__body {
+	padding-bottom: calc(var(--cc-space-4) + env(safe-area-inset-bottom, 0px));
+}
+
 .cc-vault-pin-view {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	padding: 12px 16px 20px;
+	padding: 4px 16px 8px;
 	text-align: center;
 }
 
@@ -2481,18 +2561,22 @@
 }
 
 /* 3x4 Numeric Keypad */
+/* Fixed-size circular keys (were 1fr-wide pills → stretched ovals). */
 .cc-vault-keypad {
 	display: grid;
-	grid-template-columns: repeat(3, 1fr);
-	gap: 12px;
-	width: 100%;
-	max-width: 280px;
+	grid-template-columns: repeat(3, 68px);
+	justify-content: center;
+	gap: 14px 26px;
 	margin: 0 auto;
 }
 
 .cc-vault-key {
-	height: 56px;
-	border-radius: var(--cc-radius-pill, 999px);
+	width: 68px;
+	height: 68px;
+	padding: 0;
+	border-radius: 50%;
+	font-family: var(--cc-font-ui);
+	line-height: 1;
 	background: var(--cc-bg-raised, #2e2e2e);
 	border: 1px solid rgba(255, 255, 255, 0.08);
 	color: var(--cc-text-primary, #f5f5f5);
@@ -2515,6 +2599,8 @@
 
 .cc-vault-key--action {
 	background: transparent;
+	-webkit-appearance: none;
+	appearance: none;
 	border: none;
 	color: var(--cc-text-secondary, #8b8a90);
 	font-size: 16px;

@@ -18,7 +18,17 @@ import { FilmstripThumbnail } from "./filmstrip-thumbnail";
 import { AudioWaveformMini } from "./audio-waveform-mini";
 
 export const MIN_CLIP_DURATION_SEC = 0.2;
-const TARGET_THUMB_WIDTH_PX = 44;
+/** Drawn height of a filmstrip frame: the 56px main row minus the clip's
+ *  2px top/bottom inset. Slot width = this × the frame's aspect, so a frame
+ *  renders whole rather than cover-cropped into a blurry zoomed sliver. */
+const FILMSTRIP_FRAME_HEIGHT_PX = 52;
+const DEFAULT_FRAME_ASPECT = 16 / 9;
+function targetThumbWidthPx(frameAspect: number | undefined): number {
+	const aspect = frameAspect && Number.isFinite(frameAspect) ? frameAspect : DEFAULT_FRAME_ASPECT;
+	// Clamp so ultra-tall portrait frames don't collapse into slivers and
+	// ultra-wide ones don't turn into a single smear.
+	return FILMSTRIP_FRAME_HEIGHT_PX * Math.min(2, Math.max(0.6, aspect));
+}
 const TRACK_HEIGHT_PX = 48; // matches --cc-track-height; kept in sync by src/__tests__ (visual, not enforced by types)
 /** Gesture thresholds + the long-press arbitration rule live in
  *  ../../timeline/clip-gesture so they can be unit-tested without a DOM (the
@@ -584,7 +594,7 @@ function ClipFilmstrip({
 }) {
 	const slotIntervalSec = thumbnailSlotIntervalSec({
 		pixelsPerSecond,
-		targetThumbWidthPx: TARGET_THUMB_WIDTH_PX,
+		targetThumbWidthPx: targetThumbWidthPx(clip.frameAspect),
 	});
 	// Clip-relative visible window — only generate/render slots actually
 	// on-screen (plan M7 item 8: virtualize thumbnail rendering).

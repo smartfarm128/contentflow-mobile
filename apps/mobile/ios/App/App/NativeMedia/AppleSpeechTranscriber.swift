@@ -118,6 +118,51 @@ public enum AppleSpeechTranscriber {
 		}
 	}
 
+	/// Decode the extracted AAC to a 16-bit PCM .caf with an exact length.
+	///
+	/// FOUND ON DEVICE: an AAC file's `AVAudioFile.length` includes encoder
+	/// padding, so reading to that length throws eofErr (-39) ~1-2k frames
+	/// before the end. BOTH engines read to `length` (SpeechAnalyzer's
+	/// `analyzeSequence(from:)` too), so every transcription failed. PCM has
+	/// no padding: its length is the real frame count.
+	static func decodeToPCM(_ url: URL) throws -> URL {
+		let source = try AVAudioFile(forReading: url)
+		let format = source.processingFormat
+		let outURL = FileManager.default.temporaryDirectory
+			.appendingPathComponent("kneecap-stt-\(UUID().uuidString).caf")
+		let settings: [String: Any] = [
+			AVFormatIDKey: kAudioFormatLinearPCM,
+			AVSampleRateKey: format.sampleRate,
+			AVNumberOfChannelsKey: format.channelCount,
+			AVLinearPCMBitDepthKey: 16,
+			AVLinearPCMIsFloatKey: false,
+			AVLinearPCMIsBigEndianKey: false,
+		]
+		do {
+			let sink = try AVAudioFile(
+				forWriting: outURL,
+				settings: settings,
+				commonFormat: format.commonFormat,
+				interleaved: format.isInterleaved
+			)
+			while source.framePosition < source.length {
+				guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else { break }
+				do {
+					try source.read(into: buffer)
+				} catch let error as NSError where error.domain == NSOSStatusErrorDomain
+					&& error.code == Int(kAudioFileEndOfFileError) && source.framePosition > 0 {
+					break // the padding described above: every real frame is written
+				}
+				if buffer.frameLength == 0 { break }
+				try sink.write(from: buffer)
+			}
+		} catch {
+			try? FileManager.default.removeItem(at: outURL)
+			throw error
+		}
+		return outURL
+	}
+
 	/// Transcribe a media file's audio on-device. `modelSize` from the wire
 	/// contract is accepted and ignored — Apple's recognizer has no model
 	/// tiers (documented on the TS side too). Completion is called exactly
@@ -137,8 +182,17 @@ public enum AppleSpeechTranscriber {
 			case .failure(let error):
 				completion(.failure(error))
 			case .success(let audioOnlyURL):
-				recognize(audioFileURL: audioOnlyURL, languageHint: languageHint) { result in
+				let pcmURL: URL
+				do {
+					pcmURL = try decodeToPCM(audioOnlyURL)
+				} catch {
 					try? FileManager.default.removeItem(at: audioOnlyURL)
+					completion(.failure(.audioNotReadable("PCM decode failed: \(error.localizedDescription)")))
+					return
+				}
+				try? FileManager.default.removeItem(at: audioOnlyURL)
+				recognize(audioFileURL: pcmURL, languageHint: languageHint) { result in
+					try? FileManager.default.removeItem(at: pcmURL)
 					completion(result)
 				}
 			}
@@ -326,7 +380,14 @@ public enum AppleSpeechTranscriber {
 			print("[kneecap-stt] feeding \(audioFile.length) frames @ \(format.sampleRate)Hz")
 			while audioFile.framePosition < audioFile.length {
 				guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else { break }
-				try audioFile.read(into: buffer)
+				do {
+					try audioFile.read(into: buffer)
+				} catch let error as NSError where error.domain == NSOSStatusErrorDomain && error.code == Int(kAudioFileEndOfFileError) && audioFile.framePosition > 0 {
+					// AAC `length` counts encoder padding, so the true end
+					// arrives ~1-2k frames early as eofErr (-39). Every real
+					// frame is already fed; treat it as end of stream.
+					break
+				}
 				if buffer.frameLength == 0 { break }
 				request.append(buffer)
 			}

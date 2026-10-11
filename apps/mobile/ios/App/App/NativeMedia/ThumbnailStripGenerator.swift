@@ -34,7 +34,7 @@ public enum ThumbnailStripGenerator {
 		sourceURL: URL,
 		outputDirectory: URL,
 		count: Int,
-		maxDimension: CGFloat = 240
+		maxDimension: CGFloat = 360
 	) async throws -> [URL] {
 		let asset = AVURLAsset(url: sourceURL)
 		let duration = try await asset.load(.duration)
@@ -79,7 +79,7 @@ public enum ThumbnailStripGenerator {
 		guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
 			throw ThumbnailStripError.jpegEncodeFailed
 		}
-		CGImageDestinationAddImage(dest, cgImage, [kCGImageDestinationLossyCompressionQuality as String: 0.7] as CFDictionary)
+		CGImageDestinationAddImage(dest, cgImage, [kCGImageDestinationLossyCompressionQuality as String: 0.8] as CFDictionary)
 		guard CGImageDestinationFinalize(dest) else {
 			throw ThumbnailStripError.jpegEncodeFailed
 		}

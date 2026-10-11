@@ -55,6 +55,9 @@ export {
 	buildNativeEdlAssetResolver,
 	insertHtmlTemplateElement,
 	importAndPlaceMedia,
+	createProjectFromPickedMedia,
+	describeImportProgress,
+	type CreateProjectFromMediaOutcome,
 } from "./editor/actions";
 export { generateCaptions, getAllCaptions } from "./editor/captions-actions";
 export { PreviewRenderer, ensurePreviewGpu } from "./components/editor/preview-renderer";

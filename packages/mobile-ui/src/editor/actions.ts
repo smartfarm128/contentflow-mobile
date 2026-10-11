@@ -77,13 +77,17 @@ import {
 } from "./keyframes";
 import { getNativeBridge } from "@kneecap/native-bridge";
 import {
+	commitPreparedMedia,
 	importMediaFromNative,
 	mediaTimeFromSeconds,
+	pickNativeMedia,
+	prepareNativeMedia,
 	resolveNativeMediaRawPath,
 	TICKS_PER_SECOND,
 	ZERO_MEDIA_TIME,
 	type MediaTime,
 	type NativeImportProgress,
+	type NativeMediaSource,
 } from "@kneecap/editor-core";
 import type { EdlAssetResolver } from "@kneecap/editor-core/edl";
 import {
@@ -1004,21 +1008,138 @@ export async function importAndPlaceMedia({
 		onProgress,
 	});
 	for (const asset of imported) {
-		const create = buildElementFromMedia({
-			mediaId: asset.id,
-			mediaType: asset.type,
-			name: asset.name,
-			// `||`, not `??`: a native image import probes durationMicros: 0,
-			// and a 0-length clip is invisible/untrimmable (found on device
-			// 2026-08-19 alongside the image-proxy fix).
-			duration: mediaTimeFromSeconds({ seconds: asset.duration || IMAGE_DEFAULT_DURATION_SEC }),
-			startTime: editor.playback.getCurrentTime(),
-		});
+		const create = buildClipFromAsset({ asset, startTime: editor.playback.getCurrentTime() });
 		editor.command.execute({
 			command: new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "video" } }),
 		});
 	}
 	return imported.length;
+}
+
+function buildClipFromAsset({ asset, startTime }: { asset: MediaAsset; startTime: MediaTime }) {
+	return buildElementFromMedia({
+		mediaId: asset.id,
+		mediaType: asset.type,
+		name: asset.name,
+		// `||`, not `??`: a native image import probes durationMicros: 0,
+		// and a 0-length clip is invisible/untrimmable (found on device
+		// 2026-08-19 alongside the image-proxy fix).
+		duration: mediaTimeFromSeconds({ seconds: asset.duration || IMAGE_DEFAULT_DURATION_SEC }),
+		startTime,
+	});
+}
+
+/** One overall percent + label for any import progress tick. */
+export function describeImportProgress(progress: NativeImportProgress): {
+	percent: number;
+	label: string;
+} {
+	const fraction = Math.min(1, Math.max(0, progress.fraction));
+	const percent = ((progress.index + fraction) / Math.max(1, progress.total)) * 100;
+	const label =
+		progress.stage === "picking"
+			? `Preparing media ${progress.index + 1} of ${progress.total}…`
+			: progress.total > 1
+				? `Importing ${progress.index + 1} of ${progress.total}…`
+				: `Importing ${progress.fileName}…`;
+	return { percent, label };
+}
+
+export type CreateProjectFromMediaOutcome =
+	| { kind: "cancelled" }
+	| { kind: "failed"; message: string }
+	| { kind: "created"; projectId: string };
+
+/**
+ * Start Creating: pick first, create the project only once media is ready.
+ * Nothing is created on cancel or when every pick/proxy fails. `onPicked`
+ * fires as soon as the user commits to a pick (first native event after
+ * Done, or the pick resolving on web) so the host can show the editor's
+ * loading screen while proxies generate. On success the clips sit back to
+ * back on the main track from 0, the first one selected, with an empty
+ * undo history and the project saved.
+ */
+export async function createProjectFromPickedMedia({
+	editor,
+	name,
+	source,
+	onPicked,
+	onProgress,
+}: {
+	editor: EditorCore;
+	name: string;
+	source?: NativeMediaSource;
+	onPicked?: () => void;
+	onProgress?: NativeImportProgressHandler;
+}): Promise<CreateProjectFromMediaOutcome> {
+	const media = source ?? (await getNativeBridge());
+	let pickedAnnounced = false;
+	const announcePicked = () => {
+		if (pickedAnnounced) return;
+		pickedAnnounced = true;
+		onPicked?.();
+	};
+
+	const { handles, pickFailures } = await pickNativeMedia({
+		source: media,
+		kinds: ["video", "image"],
+		allowMultiple: true,
+		onPickStart: announcePicked,
+		onProgress,
+	});
+	if (handles.length === 0) {
+		return pickFailures > 0
+			? {
+					kind: "failed",
+					message:
+						"Couldn't load the selected media. If it's stored in iCloud, check your connection and try again.",
+				}
+			: { kind: "cancelled" };
+	}
+
+	announcePicked();
+	const { prepared, failed, mediaRoot } = await prepareNativeMedia({
+		source: media,
+		handles,
+		onProgress,
+	});
+	if (prepared.length === 0) {
+		return {
+			kind: "failed",
+			message: `Couldn't import the selected media${failed[0] ? `: ${failed[0].error}` : "."}`,
+		};
+	}
+
+	const projectId = await editor.project.createNewProject({ name });
+	const imported = commitPreparedMedia({
+		editor,
+		projectId,
+		prepared,
+		toPlaybackUri: media.toPlaybackUri,
+		mediaRoot,
+	});
+
+	const mainTrackId = editor.scenes.getActiveScene().tracks.main.id;
+	let cursor = ZERO_MEDIA_TIME;
+	let first: ElementRef | null = null;
+	for (const asset of imported) {
+		const create = buildClipFromAsset({ asset, startTime: cursor });
+		const command = new InsertElementCommand({
+			element: create,
+			placement: { mode: "explicit", trackId: mainTrackId },
+		});
+		editor.command.execute({ command });
+		const trackId = command.getTrackId();
+		if (!first && trackId) first = { trackId, elementId: command.getElementId() };
+		cursor = addMediaTime({ a: cursor, b: create.duration });
+	}
+
+	selectElement({ editor, ref: first });
+	editor.playback.seek({ time: ZERO_MEDIA_TIME });
+	// The import is the project's starting point, not an undoable edit.
+	editor.command.clear();
+	await editor.project.saveCurrentProject();
+	return { kind: "created", projectId };
 }
 
 /**

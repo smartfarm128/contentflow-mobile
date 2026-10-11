@@ -65,7 +65,14 @@ export * from "./edl";
 export type { MediaAsset, MediaType } from "./media/types";
 export {
 	importMediaFromNative,
+	pickNativeMedia,
+	prepareNativeMedia,
+	commitPreparedMedia,
 	buildMediaAssetFromNativeImport,
+	type NativePickProgress,
+	type PreparedNativeMedia,
+	type PickNativeMediaResult,
+	type PrepareNativeMediaResult,
 	type NativeMediaSource,
 	type NativeMediaHandle,
 	type NativeProxyProgress,

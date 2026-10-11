@@ -133,7 +133,7 @@ extension NativeBridgePlugin {
                 let thumbURLs = try await ThumbnailStripGenerator.generate(
                     sourceURL: sourceURL,
                     outputDirectory: thumbDir,
-                    count: 10
+                    count: 500
                 )
 
                 self.emitProxyProgress(
@@ -271,6 +271,15 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
         Task {
             var handles: [[String: Any]] = []
             for (index, result) in results.enumerated() {
+                // Announce the item before its load starts: KVO fractions only
+                // arrive later, and JS uses the first event to open the editor
+                // the moment the user taps Done.
+                emitPickProgress([
+                    "index": index,
+                    "total": results.count,
+                    "stage": "loading",
+                    "fraction": 0,
+                ])
                 let outcome = await Self.importOne(
                     result: result,
                     onFraction: { [emitPickProgress] fraction in

@@ -8,13 +8,13 @@ import { filmstripUrisFromCover } from "../editor/use-timeline-project-vm";
  * thumbnailUrl. The VM re-derives the sibling frames from that cover path.
  */
 describe("filmstripUrisFromCover", () => {
-	it("expands a native cover into the full 10-frame strip", () => {
+	it("expands a native cover into the full 500-frame strip", () => {
 		const uris = filmstripUrisFromCover(
 			"capacitor://localhost/_capacitor_file_/x/Thumbnails/ASSET-1/thumb-000.jpg",
 		);
-		expect(uris).toHaveLength(10);
+		expect(uris).toHaveLength(500);
 		expect(uris?.[0]).toEndWith("Thumbnails/ASSET-1/thumb-000.jpg");
-		expect(uris?.[9]).toEndWith("Thumbnails/ASSET-1/thumb-009.jpg");
+		expect(uris?.[499]).toEndWith("Thumbnails/ASSET-1/thumb-499.jpg");
 		// Every frame keeps the cover's own directory.
 		for (const uri of uris ?? []) {
 			expect(uri).toStartWith("capacitor://localhost/_capacitor_file_/x/Thumbnails/ASSET-1/");

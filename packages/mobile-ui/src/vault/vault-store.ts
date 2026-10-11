@@ -17,6 +17,7 @@ import {
 export const LEGACY_KEY_ANTHROPIC = "cf_anthropic_api_key";
 export const LEGACY_KEY_ELEVENLABS = "cf_elevenlabs_api_key";
 export const LEGACY_KEY_PEXELS = "cf_pexels_api_key";
+export const LEGACY_KEY_ANSSELABS = "cf_anselabs_api_key";
 
 const DEFAULT_AUTO_LOCK_MS = 60_000;
 
@@ -44,6 +45,7 @@ export function readLegacyPlaintextKeys(): VaultKeys {
 		anthropic: storage.getItem(LEGACY_KEY_ANTHROPIC) ?? "",
 		elevenlabs: storage.getItem(LEGACY_KEY_ELEVENLABS) ?? "",
 		pexels: storage.getItem(LEGACY_KEY_PEXELS) ?? "",
+		anselabs: storage.getItem(LEGACY_KEY_ANSSELABS) ?? "",
 	};
 }
 
@@ -52,6 +54,7 @@ export function eraseLegacyPlaintextKeys(): void {
 	storage.removeItem(LEGACY_KEY_ANTHROPIC);
 	storage.removeItem(LEGACY_KEY_ELEVENLABS);
 	storage.removeItem(LEGACY_KEY_PEXELS);
+	storage.removeItem(LEGACY_KEY_ANSSELABS);
 }
 
 export function hasLegacyPlaintextKeys(): boolean {
@@ -85,6 +88,7 @@ export const useVaultStore = create<VaultStoreState>()((set, get) => ({
 				anthropic: initialKeys?.anthropic ?? legacy.anthropic ?? "",
 				elevenlabs: initialKeys?.elevenlabs ?? legacy.elevenlabs ?? "",
 				pexels: initialKeys?.pexels ?? legacy.pexels ?? "",
+				anselabs: initialKeys?.anselabs ?? legacy.anselabs ?? "",
 			};
 
 			await encryptAndSaveVault(pin, merged);
@@ -206,4 +210,10 @@ export function getActivePexelsKey(): string {
 		return vault.keys.pexels ?? "";
 	}
 	return getVaultStorage().getItem(LEGACY_KEY_PEXELS) ?? "";
+}
+
+export function getActiveAnselabsKey(): string {
+	const vault = useVaultStore.getState();
+	if (!vault.isUnlocked) return "";
+	return vault.keys.anselabs ?? "";
 }

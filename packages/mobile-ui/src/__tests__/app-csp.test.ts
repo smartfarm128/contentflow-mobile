@@ -29,6 +29,7 @@ function readCsp(): Map<string, string[]> {
 
 const REQUIRED: Array<{ directive: string; origin: string; usedBy: string }> = [
 	{ directive: "connect-src", origin: "https://api.anthropic.com", usedBy: "ai-agent.ts" },
+	{ directive: "connect-src", origin: "https://api.ananselabs.org", usedBy: "ai-director/ai-agent (Anselabs provider)" },
 	{ directive: "connect-src", origin: "https://api.elevenlabs.io", usedBy: "elevenlabs-voice.ts" },
 	{ directive: "connect-src", origin: "https://api.pexels.com", usedBy: "stock search" },
 	{ directive: "connect-src", origin: "https://images.pexels.com", usedBy: "stock photo download" },

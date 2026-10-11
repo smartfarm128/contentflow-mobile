@@ -892,3 +892,15 @@ body {
 	opacity: 0.5;
 	pointer-events: none;
 }
+
+/* Live mid-animation frame of the template, rendered by the same component
+   the editor's Templates sheet uses. Full-bleed across the card's padding. */
+.cf-template-card__thumb {
+	margin: -14px -14px 6px;
+	border-radius: 13px 13px 0 0;
+	overflow: hidden;
+}
+
+.cf-template-card__thumb .cc-motion-card__preview {
+	border-radius: 0;
+}

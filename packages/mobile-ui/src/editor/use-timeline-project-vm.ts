@@ -196,10 +196,10 @@ function keyframeVMs({ element }: { element: TimelineElement }): TimelineClipVM[
 /** Derives the asset's full on-disk thumbnail strip from its cover URL.
  *  Native import writes `Thumbnails/<assetId>/thumb-000.jpg` … `thumb-009.jpg`
  *  and persists only frame 000 as `thumbnailUrl` (native-import.ts documents
- *  the single-slot limit) — but the other nine frames are already there,
+ *  the single-slot limit) — but the rest of the strip is already there,
  *  same directory, deterministic names. Non-native covers (blob/object URLs)
  *  don't match and return undefined. */
-const NATIVE_STRIP_COUNT = 10;
+const NATIVE_STRIP_COUNT = 500;
 export function filmstripUrisFromCover(coverUrl: string | undefined): string[] | undefined {
 	if (!coverUrl) return undefined;
 	const match = /^(.*\/)thumb-000\.jpg$/.exec(coverUrl);
@@ -239,6 +239,8 @@ function mapTrack({
 			thumbnailUrl: coverThumbUrl,
 			thumbnails: coverThumbUrl ? { 0: coverThumbUrl } : undefined,
 			filmstripUris: filmstripUrisFromCover(asset?.thumbnailUrl),
+			frameAspect:
+				asset?.width && asset?.height ? asset.width / asset.height : undefined,
 			// Trim/source state for the handle-extension bounds (see the VM
 			// type's own doc comment). sourceDuration is only meaningful on
 			// media-backed elements; text/sticker/image leave it undefined and
@@ -302,11 +304,12 @@ export function useTimelineProjectVM(): TimelineProjectVM | null {
 		const overlayVMs = tracks.overlay.map((track) => mapTrack({ track, isMain: false, assetById }));
 		const audioVMs = tracks.audio.map((track) => mapTrack({ track, isMain: false, assetById }));
 
-		// VN Editor Vertical Hierarchy:
-		// 1. Audio tracks (top lane)
-		// 2. Subtitle / Caption / Text tracks (second lane)
-		// 3. Graphic / Sticker / PIP / Overlay tracks (third lane)
-		// 4. Main Video track (fourth lane)
+		// Lane display order, top to bottom (display only — engine track
+		// order and every edit path are untouched):
+		// 1. Subtitle / Caption / Text tracks
+		// 2. Graphic / Sticker / PIP / Overlay tracks
+		// 3. Main Video track
+		// 4. Audio / Music tracks (below the video — founder, 2026-09-30)
 		const audioTracks = audioVMs.filter((t) => t.kind === "audio");
 		const subtitleTracks = overlayVMs.filter((t) => t.kind === "caption" || t.kind === "text");
 		const graphicTracks = overlayVMs.filter(
@@ -337,10 +340,10 @@ export function useTimelineProjectVM(): TimelineProjectVM | null {
 		];
 
 		const trackVMs: TimelineTrackVM[] = [
-			...resolvedAudioTracks,
 			...resolvedSubtitleTracks,
 			...resolvedGraphicTracks,
 			mainTrackVM,
+			...resolvedAudioTracks,
 		];
 
 		return {

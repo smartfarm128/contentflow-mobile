@@ -95,6 +95,9 @@ export interface TimelineClipVM {
 	 * at every position instead of one cover stretched across the clip.
 	 */
 	filmstripUris?: string[];
+	/** Source frame width / height (e.g. 16/9). Sizes filmstrip slots so each
+	 *  frame shows whole instead of a cover-cropped, zoomed-in sliver. */
+	frameAspect?: number;
 	/** Cover thumbnail URL for this clip or its underlying asset. */
 	thumbnailUrl?: string;
 	/** Audio-only: amplitude samples 0..1 across the clip's SOURCE duration. */

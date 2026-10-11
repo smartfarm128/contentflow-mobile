@@ -20,6 +20,7 @@ import {
 	StrictMode,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 	type ReactNode,
 } from "react";
@@ -30,6 +31,7 @@ import {
 	registerNativeMediaPathResolver,
 	registerNativeAudioRouter,
 	type MediaTime,
+	type NativeImportProgress,
 } from "@kneecap/editor-core";
 import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas, loadFonts } from "@kneecap/editor-core/fonts/local-fonts";
@@ -39,10 +41,11 @@ import {
 	ensurePreviewGpu,
 	KeyVaultSheet,
 	getAllHtmlTemplates,
+	TemplateThumbnail,
 	insertHtmlTemplateElement,
 	getActiveAnthropicKey,
 	useVaultStore,
-	bootstrapDemoProject,
+	createProjectFromPickedMedia,
 	type SheetId,
 	type HtmlTemplate,
 } from "@kneecap/mobile-ui";
@@ -112,25 +115,11 @@ class CrashBoundary extends Component<
 type Screen = { name: "home" } | { name: "editor"; initialSheet?: SheetId };
 type TabId = "home" | "templates" | "projects" | "me";
 
-/** The demo project (`bootstrapDemoProject`, "M8 panel harness") is a
- *  dev-server fixture only: under `vite` (DEV), `#editor` opens straight into
- *  it. Every packaged build (`vite build`) boots Home and only ever edits a
- *  project the user created or opened — it must never swap in the demo,
- *  which it used to do for any project whose main track was still empty
- *  (i.e. every brand-new project, and every "use template" project). */
-const DEV_DEMO = import.meta.env.DEV;
-
-async function bootstrapDevDemo() {
-	if (!EditorCore.getInstance().project.getActiveOrNull()) {
-		await bootstrapDemoProject();
-	}
-}
-
 /** Outside the dev server nothing bootstraps a project for the editor, so it
  *  needs one already active. A cold launch or WebView reload that lands on
  *  `#editor` has none and goes Home instead. */
 function canShowEditor(): boolean {
-	return DEV_DEMO || EditorCore.getInstance().project.getActiveOrNull() !== null;
+	return EditorCore.getInstance().project.getActiveOrNull() !== null;
 }
 
 function App() {
@@ -163,11 +152,58 @@ function App() {
 		return () => window.removeEventListener("hashchange", handleHash);
 	}, []);
 
+	/** Pick media → create project → open editor.
+	 *  The picker runs from Home; the project is created only once picked
+	 *  media is ready.  Tapping Done switches to the editor, which shows
+	 *  `preparing` progress until the project exists. App (not HomeScreen)
+	 *  owns this because HomeScreen unmounts on that switch. */
+	const [preparing, setPreparing] = useState<NativeImportProgress | null>(null);
+	const [startError, setStartError] = useState<string | null>(null);
+	const creatingRef = useRef(false);
+
+	const startCreatingWithTool = async (initialSheet?: SheetId) => {
+		if (creatingRef.current) return;
+		creatingRef.current = true;
+		setStartError(null);
+		const editor = EditorCore.getInstance();
+		const goHome = () => {
+			window.location.hash = "#home";
+			setScreen({ name: "home" });
+		};
+		try {
+			const outcome = await createProjectFromPickedMedia({
+				editor,
+				name: nextProjectName(editor.project.getSavedProjects().map((p) => p.name)),
+				onPicked: () => {
+					setPreparing({ index: 0, total: 1, fileName: "", stage: "picking", fraction: 0 });
+					window.location.hash = "#editor";
+					setScreen({ name: "editor", initialSheet: initialSheet ?? "edit" });
+				},
+				onProgress: setPreparing,
+			});
+			if (outcome.kind === "failed") {
+				setStartError(outcome.message);
+				goHome();
+			} else if (outcome.kind === "cancelled") {
+				goHome();
+			}
+		} catch (err) {
+			setStartError(err instanceof Error ? err.message : "Something went wrong");
+			goHome();
+		} finally {
+			setPreparing(null);
+			creatingRef.current = false;
+		}
+	};
+
+	const startCreating = () => void startCreatingWithTool("edit");
+
 	if (screen.name === "editor") {
 		return (
 			<EditorShell
-				bootstrap={DEV_DEMO ? bootstrapDevDemo : NOOP_BOOTSTRAP}
+				bootstrap={NOOP_BOOTSTRAP}
 				initialSheet={screen.initialSheet}
+				preparing={preparing}
 				onBack={() => {
 					void EditorCore.getInstance().project.saveCurrentProject();
 					window.location.hash = "#home";
@@ -183,14 +219,23 @@ function App() {
 				window.location.hash = "#editor";
 				setScreen({ name: "editor", initialSheet });
 			}}
+			onStartCreating={() => startCreating()}
+			startWithTool={startCreatingWithTool}
+			startError={startError}
 		/>
 	);
 }
 
 function HomeScreen({
 	onOpenEditor,
+	onStartCreating,
+	startWithTool,
+	startError,
 }: {
 	onOpenEditor: (initialSheet?: SheetId) => void;
+	onStartCreating: () => void;
+	startWithTool: (initialSheet?: SheetId) => void;
+	startError: string | null;
 }) {
 	const editor = useEditor();
 	const projects = useEditor((e) => e.project.getSavedProjects());
@@ -226,16 +271,6 @@ function HomeScreen({
 		} finally {
 			setBusy(false);
 		}
-	};
-
-	const createAndOpenNewProject = (initialSheet?: SheetId) => {
-		void run(
-			() =>
-				editor.project.createNewProject({
-					name: nextProjectName(projects.map((p) => p.name)),
-				}),
-			{ open: true, initialSheet },
-		);
 	};
 
 	const useTemplateInNewProject = async (tmpl: HtmlTemplate) => {
@@ -326,7 +361,9 @@ function HomeScreen({
 			</header>
 				)}
 
-			{error && <div className="cf-home-error">{error}</div>}
+			{(error ?? startError) && (
+				<div className="cf-home-error">{error ?? startError}</div>
+			)}
 
 			{/* Main Scrollable View Area */}
 			<main className="cf-home-content">
@@ -336,11 +373,11 @@ function HomeScreen({
 						{/* Herocard (Expo parity: 140px, #111, stripes) */}
 						<section
 							className="cf-herocard"
-							onClick={() => createAndOpenNewProject()}
+							onClick={onStartCreating}
 							role="button"
 							tabIndex={0}
 							onKeyDown={(e) => {
-								if (e.key === "Enter" || e.key === " ") createAndOpenNewProject();
+								if (e.key === "Enter" || e.key === " ") onStartCreating();
 							}}
 						>
 							<div className="cf-herocard__content">
@@ -381,7 +418,7 @@ function HomeScreen({
 								<button
 									type="button"
 									className="cf-tool-btn"
-									onClick={() => createAndOpenNewProject("ai")}
+									onClick={() => startWithTool("ai")}
 								>
 									<div className="cf-tool-btn__icon cf-tool-btn__icon--ai">
 										<Sparkles size={20} strokeWidth={2.2} />
@@ -392,7 +429,7 @@ function HomeScreen({
 								<button
 									type="button"
 									className="cf-tool-btn"
-									onClick={() => setActiveTab("templates")}
+									onClick={() => startWithTool("template")}
 								>
 									<div className="cf-tool-btn__icon">
 										<LayoutTemplate size={20} strokeWidth={2.2} />
@@ -403,7 +440,7 @@ function HomeScreen({
 								<button
 									type="button"
 									className="cf-tool-btn"
-									onClick={() => createAndOpenNewProject("captions")}
+									onClick={() => startWithTool("captions")}
 								>
 									<div className="cf-tool-btn__icon">
 										<Captions size={20} strokeWidth={2.2} />
@@ -414,7 +451,7 @@ function HomeScreen({
 								<button
 									type="button"
 									className="cf-tool-btn"
-									onClick={() => createAndOpenNewProject("voiceover")}
+									onClick={() => startWithTool("voiceover")}
 								>
 									<div className="cf-tool-btn__icon">
 										<Mic size={20} strokeWidth={2.2} />
@@ -428,7 +465,7 @@ function HomeScreen({
 										<button
 											type="button"
 											className="cf-tool-btn"
-											onClick={() => createAndOpenNewProject("stock")}
+											onClick={() => startWithTool("stock")}
 										>
 											<div className="cf-tool-btn__icon">
 												<Film size={20} strokeWidth={2.2} />
@@ -439,7 +476,7 @@ function HomeScreen({
 										<button
 											type="button"
 											className="cf-tool-btn"
-											onClick={() => createAndOpenNewProject("text")}
+											onClick={() => startWithTool("text")}
 										>
 											<div className="cf-tool-btn__icon">
 												<Type size={20} strokeWidth={2.2} />
@@ -450,7 +487,7 @@ function HomeScreen({
 										<button
 											type="button"
 											className="cf-tool-btn"
-											onClick={() => createAndOpenNewProject("audio")}
+											onClick={() => startWithTool("audio")}
 										>
 											<div className="cf-tool-btn__icon">
 												<Music size={20} strokeWidth={2.2} />
@@ -489,7 +526,7 @@ function HomeScreen({
 									<button
 										type="button"
 										className="cf-btn-primary"
-										onClick={() => createAndOpenNewProject()}
+										onClick={onStartCreating}
 									>
 										+ Start Creating
 									</button>
@@ -575,6 +612,9 @@ function HomeScreen({
 						<div className="cf-templates-grid">
 							{filteredTemplates.map((tmpl) => (
 								<div key={tmpl.id} className="cf-template-card">
+									<div className="cf-template-card__thumb" data-kneecap-theme="capcut-mobile">
+										<TemplateThumbnail template={tmpl} />
+									</div>
 									<div className="cf-template-card__badge-row">
 										<span className="cf-template-card__tag">
 											{tmpl.tags[0] ?? "Graphic"}
@@ -615,7 +655,7 @@ function HomeScreen({
 								type="button"
 								className="cf-btn-primary"
 								disabled={busy}
-								onClick={() => createAndOpenNewProject()}
+								onClick={onStartCreating}
 							>
 								+ New
 							</button>
@@ -645,6 +685,13 @@ function HomeScreen({
 						{filteredProjects.length === 0 ? (
 							<div className="cf-projects-empty">
 								<p>No projects match your search.</p>
+								<button
+									type="button"
+									className="cf-btn-primary"
+									onClick={onStartCreating}
+								>
+									+ Start Creating
+								</button>
 							</div>
 						) : (
 							<ul className="cf-projects-grid">

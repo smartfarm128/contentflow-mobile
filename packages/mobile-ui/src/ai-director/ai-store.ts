@@ -44,12 +44,14 @@ export interface PendingPlan {
 
 interface AIDirectorState {
   selectedModel: string;
+  selectedProvider: "anthropic" | "anselabs";
   messages: ChatMessage[];
   isStreaming: boolean;
   /** The plan awaiting the user's review, if any. Only ever one at a time —
    *  a second proposal replaces the first rather than stacking approvals. */
   pendingPlan: PendingPlan | null;
   setSelectedModel: (model: string) => void;
+  setSelectedProvider: (provider: "anthropic" | "anselabs") => void;
   addMessage: (message: Omit<ChatMessage, "id" | "timestamp">) => void;
   setIsStreaming: (streaming: boolean) => void;
   setPendingPlan: (plan: PendingPlan | null) => void;
@@ -61,6 +63,7 @@ interface AIDirectorState {
 
 export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
   selectedModel: "claude-sonnet-5-5",
+  selectedProvider: "anthropic" as const,
   // Starts empty: every message in the feed is either the user's or the
   // model's. A scripted greeting would be sent to the API as something the
   // model "said".
@@ -69,6 +72,9 @@ export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
   pendingPlan: null,
 
   setSelectedModel: (selectedModel: string) => set({ selectedModel }),
+
+  setSelectedProvider: (selectedProvider: "anthropic" | "anselabs") => set({ selectedProvider }),
+
 
   addMessage: (msg) => {
     const newMessage: ChatMessage = {

@@ -6,6 +6,8 @@ import { buildFixtureProject, buildFixtureScene } from "@/edl/__tests__/fixture"
 import {
 	buildMediaAssetFromNativeImport,
 	importMediaFromNative,
+	pickNativeMedia,
+	prepareNativeMedia,
 	type NativeMediaHandle,
 	type NativeMediaSource,
 	type NativeProxyProgress,
@@ -291,5 +293,87 @@ describe("importMediaFromNative", () => {
 		expect(result.imported).toHaveLength(2);
 		expect(result.imported[0]?.id).not.toBe(result.imported[1]?.id);
 		expect(editor.media.getAssets()).toHaveLength(2);
+	});
+});
+
+// --- pick / prepare split: usable BEFORE any project exists ----------------
+
+describe("pickNativeMedia + prepareNativeMedia (no project)", () => {
+	beforeEach(() => {
+		EditorCore.reset();
+		setNotifier(() => {});
+	});
+
+	afterEach(() => {
+		resetNotifier();
+		EditorCore.reset();
+	});
+
+	test("Android USER_CANCELLED rejection is an empty pick, not an error", async () => {
+		const cancelled = Object.assign(new Error("cancelled"), {
+			code: "USER_CANCELLED",
+		});
+		const result = await pickNativeMedia({
+			source: fakeSource({
+				async pickMedia() {
+					throw cancelled;
+				},
+			}),
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		expect(result).toEqual({ handles: [], pickFailures: 0 });
+	});
+
+	test("any other picker rejection still throws", async () => {
+		const source = fakeSource({
+			async pickMedia() {
+				throw Object.assign(new Error("boom"), { code: "INTERNAL" });
+			},
+		});
+		await expect(
+			pickNativeMedia({ source, kinds: ["video"], allowMultiple: false }),
+		).rejects.toThrow("boom");
+	});
+
+	test("onPickStart fires once on the first native event; failures are counted", async () => {
+		let starts = 0;
+		const h1 = makeHandle("p1");
+		const result = await pickNativeMedia({
+			source: fakeSource({
+				async pickMedia({ onProgress }) {
+					onProgress?.({ index: 0, total: 2, stage: "loading", fraction: 0 });
+					onProgress?.({ index: 0, total: 2, stage: "loaded", fraction: 1 });
+					onProgress?.({ index: 1, total: 2, stage: "error", fraction: 0, error: "x" });
+					return [h1];
+				},
+			}),
+			kinds: ["video"],
+			allowMultiple: true,
+			onPickStart: () => starts++,
+		});
+		expect(starts).toBe(1);
+		expect(result.handles).toEqual([h1]);
+		expect(result.pickFailures).toBe(1);
+	});
+
+	test("prepareNativeMedia needs no active project and splits prepared/failed", async () => {
+		expect(EditorCore.getInstance().project.getActiveOrNull()).toBeNull();
+		const good = makeHandle("good");
+		const bad = makeHandle("bad");
+		const image: NativeMediaHandle = { ...makeHandle("img"), kind: "image" };
+		const result = await prepareNativeMedia({
+			source: fakeSource({
+				async *generateProxy({ handle: h }) {
+					yield h.id === "bad"
+						? ({ assetId: h.id, stage: "error", fraction: 0, error: "codec" } satisfies NativeProxyProgress)
+						: ({ assetId: h.id, stage: "done", fraction: 1, proxyUri: `/p/${h.id}.mp4` } satisfies NativeProxyProgress);
+				},
+			}),
+			handles: [good, bad, image],
+		});
+		expect(result.prepared.map((p) => p.handle.id)).toEqual(["good", "img"]);
+		expect(result.prepared[1]?.proxy.proxyUri).toBe(image.uri);
+		expect(result.failed).toEqual([{ handle: bad, error: "codec" }]);
 	});
 });

@@ -104,6 +104,11 @@ const ALLOWED_HOSTS = new Set([
 	// no telemetry/analytics rides along. See
 	// packages/mobile-ui/src/ai-director/ai-agent.ts.
 	"api.anthropic.com",
+	// AI Director, Anselabs provider (OpenAI-compatible): same contract as
+	// api.anthropic.com above — contacted ONLY when the user has selected
+	// Anselabs, supplied their own key, and sends a prompt. No key => zero
+	// requests.
+	"api.ananselabs.org",
 	// ContentFlow Pexels B-Roll: optional user-initiated stock video/photo
 	// search. Contacted ONLY when the user searches Pexels with their API key.
 	"api.pexels.com",

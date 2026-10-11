@@ -171,6 +171,9 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	}) => void;
 	/** Fired when a clip is double-tapped on the timeline. */
 	onDoubleTapClip?: (params: { clipId: string; trackId: string; kind: string }) => void;
+	/** Fired on user-initiated scroll (not programmatic scroll from playback
+	 *  follow). */
+	onUserScroll?: () => void;
 }>(function TimelineView(
 	{
 		project,
@@ -201,6 +204,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		onReorderMainTrack,
 		onKeyframeTap,
 		keyframeControl,
+		onUserScroll,
 	},
 	ref,
 ) {
@@ -341,13 +345,14 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			isProgrammaticScrollRef.current = false;
 			return;
 		}
+		onUserScroll?.();
 		const timeSec = clampTime({
 			timeSec: pixelsToTime({ px: node.scrollLeft, pixelsPerSecond }),
 			durationSec: project.durationSec,
 		});
 		setCurrentTimeSec(timeSec);
 		onTimeChange?.({ timeSec });
-	}, [onTimeChange, pixelsPerSecond, project.durationSec, scrollRef]);
+	}, [onTimeChange, onUserScroll, pixelsPerSecond, project.durationSec, scrollRef]);
 
 	const applyZoomFactor = useCallback(
 		(factor: number) => {

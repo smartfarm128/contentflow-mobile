@@ -44,6 +44,7 @@ import { initializeGpu } from "opencut-wasm";
 import type { ElementRef } from "@kneecap/editor-core/timeline";
 import { getVisibleElementsWithBounds, type ElementBounds, type ElementWithBounds } from "@kneecap/editor-core/preview/element-bounds";
 import { selectElement } from "../../editor/actions";
+import { isHtmlTemplateGraphic } from "../../motion-templates/engine-bridge";
 
 /** Same contract as apps/web's `initializeGpuRenderer()`: init once per
  *  process, NEVER reject — a GPU-less environment degrades (the compositor
@@ -70,6 +71,36 @@ function ensureGpu(): Promise<boolean> {
 	return gpuInitPromise;
 }
 
+
+/** Smallest a motion-graphic template may be pinched/dragged to, as a
+ *  fraction of the canvas. The largest is 1: at scale 1 a template exactly
+ *  fills the frame, so anything bigger just gets cropped. */
+const TEMPLATE_MIN_SCALE = 0.15;
+
+function isTemplateElement(element: TimelineElement): boolean {
+	return element.type === "graphic" && isHtmlTemplateGraphic({ definitionId: element.definitionId });
+}
+
+/** Engine bounds for a graphic assume a square 512px source contain-fitted
+ *  to the canvas; an HTML template is drawn at canvas width x height times
+ *  its scale (HtmlMotionLayer). Stretch the square to the drawn box so taps
+ *  and the selection frame match the pixels. */
+function templateBounds({
+	bounds,
+	canvasWidth,
+	canvasHeight,
+}: {
+	bounds: ElementBounds;
+	canvasWidth: number;
+	canvasHeight: number;
+}): ElementBounds {
+	const side = Math.min(canvasWidth, canvasHeight);
+	return {
+		...bounds,
+		width: (bounds.width * canvasWidth) / side,
+		height: (bounds.height * canvasHeight) / side,
+	};
+}
 
 function pointInRotatedBounds(px: number, py: number, bounds: ElementBounds): boolean {
 	const rad = (-bounds.rotation * Math.PI) / 180;
@@ -216,7 +247,25 @@ function PreviewRendererInner({
 		onEditCaption,
 	});
 
-	const { snapGuides, ...pointerHandlers } = gestureHandlers;
+	const { snapGuides, startResize, ...pointerHandlers } = gestureHandlers;
+
+	// Visible edges for a selected motion-graphic template — the frame the
+	// user resizes against (founder, 2026-09-30: "soooo hard to resize it to
+	// fit on the screen"). Read from the render tracks so it follows the
+	// live drag preview, not the committed params.
+	const [selectedRef] = useSelectedElement();
+	const templateFrame = useMemo(() => {
+		if (!selectedRef) return null;
+		const hit = getVisibleElementsWithBounds({
+			tracks,
+			currentTime: editor.playback.getCurrentTime(),
+			canvasSize: { width, height },
+			mediaAssets,
+		}).find((item: ElementWithBounds) => item.elementId === selectedRef.elementId);
+		if (!hit || !isTemplateElement(hit.element)) return null;
+		return templateBounds({ bounds: hit.bounds, canvasWidth: width, canvasHeight: height });
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- editor is the process singleton; tracks change on every drag frame.
+	}, [selectedRef, tracks, mediaAssets, width, height]);
 
 	return (
 		<div
@@ -240,6 +289,30 @@ function PreviewRendererInner({
 					className="cc-preview-guide cc-preview-guide--h"
 					aria-hidden="true"
 				/>
+			)}
+			{templateFrame && (
+				<div
+					className="cc-preview-frame"
+					style={{
+						left: `${((templateFrame.cx - templateFrame.width / 2) / width) * 100}%`,
+						top: `${((templateFrame.cy - templateFrame.height / 2) / height) * 100}%`,
+						width: `${(templateFrame.width / width) * 100}%`,
+						height: `${(templateFrame.height / height) * 100}%`,
+						transform: templateFrame.rotation ? `rotate(${templateFrame.rotation}deg)` : undefined,
+					}}
+				>
+					{(["nw", "ne", "sw", "se"] as const).map((corner) => (
+						<div
+							key={corner}
+							className={`cc-preview-frame__handle cc-preview-frame__handle--${corner}`}
+							onPointerDown={startResize}
+							aria-label="Resize"
+							role="slider"
+							aria-valuenow={Math.round((templateFrame.width / width) * 100)}
+							tabIndex={-1}
+						/>
+					))}
+				</div>
 			)}
 		</div>
 	);
@@ -341,6 +414,12 @@ function usePreviewTransformGesture({
 		 *  is selected — the shared transform fans out to all of them per
 		 *  frame, each written its own way (params vs keyframe). */
 		targets: GestureTarget[];
+		/** Corner-handle resize: one finger scales about this point (the
+		 *  element's on-screen centre) instead of moving the element. */
+		pivot: { x: number; y: number } | null;
+		/** Motion-graphic template: keep it between TEMPLATE_MIN_SCALE and
+		 *  full-frame, and fully on the canvas. */
+		fitToCanvas: boolean;
 	} | null>(null);
 
 	const centroidAndDistance = (pointers: Map<number, { x: number; y: number }>) => {
@@ -374,9 +453,20 @@ function usePreviewTransformGesture({
 	 * the axis during the drag. Snapping only on release would land in the
 	 * same place while showing the user nothing.
 	 */
+	/** Pointer geometry for a session — for a corner-handle resize the
+	 *  centroid is pinned (no move) and the distance is finger-to-pivot. */
+	const sessionGeometry = (session: Session) => {
+		if (!session.pivot) return centroidAndDistance(session.pointers);
+		const [point] = [...session.pointers.values()];
+		return {
+			centroid: session.startCentroid,
+			distance: point ? Math.hypot(point.x - session.pivot.x, point.y - session.pivot.y) : null,
+		};
+	};
+
 	const currentTransform = (session: Session) => {
 		const scale = pxToCanvas();
-		const { centroid, distance } = centroidAndDistance(session.pointers);
+		const { centroid, distance } = sessionGeometry(session);
 		const factor =
 			distance !== null && session.startDistance && session.startDistance > 0
 				? distance / session.startDistance
@@ -393,12 +483,26 @@ function usePreviewTransformGesture({
 			capture: SNAP_CAPTURE_PX * scale,
 			release: SNAP_RELEASE_PX * scale,
 		});
-		return {
+		const next = {
 			positionX: snap.x,
 			positionY: snap.y,
 			scaleX: session.anchorScaleX * factor,
 			scaleY: session.anchorScaleY * factor,
 			snapped: snap.snapped,
+		};
+		if (!session.fitToCanvas) return next;
+		// Boundaries: never bigger than the frame, never partly off it.
+		const clamp = ({ v, lo, hi }: { v: number; lo: number; hi: number }) => Math.min(hi, Math.max(lo, v));
+		const scaleX = clamp({ v: next.scaleX, lo: TEMPLATE_MIN_SCALE, hi: 1 });
+		const scaleY = clamp({ v: next.scaleY, lo: TEMPLATE_MIN_SCALE, hi: 1 });
+		const maxX = (canvasWidth * (1 - scaleX)) / 2;
+		const maxY = (canvasHeight * (1 - scaleY)) / 2;
+		return {
+			...next,
+			scaleX,
+			scaleY,
+			positionX: clamp({ v: next.positionX, lo: -maxX, hi: maxX }),
+			positionY: clamp({ v: next.positionY, lo: -maxY, hi: maxY }),
 		};
 	};
 
@@ -410,7 +514,9 @@ function usePreviewTransformGesture({
 		session.anchorPositionY = current.positionY;
 		session.anchorScaleX = current.scaleX;
 		session.anchorScaleY = current.scaleY;
-		const { centroid, distance } = centroidAndDistance(session.pointers);
+		// A second finger turns a corner-handle resize into a normal pinch.
+		if (session.pivot && session.pointers.size > 1) session.pivot = null;
+		const { centroid, distance } = sessionGeometry(session);
 		session.startCentroid = centroid;
 		session.startDistance = distance;
 	};
@@ -512,13 +618,17 @@ function usePreviewTransformGesture({
 		element,
 		target,
 		isCaption,
+		pivot = null,
 	}: {
 		pointers: Map<number, { x: number; y: number }>;
 		element: TimelineElement;
 		target: { trackId: string; elementId: string };
 		isCaption: boolean;
+		pivot?: { x: number; y: number } | null;
 	}) => {
-		const { centroid, distance } = centroidAndDistance(pointers);
+		const { centroid, distance: pinchDistance } = centroidAndDistance(pointers);
+		const [first] = [...pointers.values()];
+		const distance = pivot && first ? Math.hypot(first.x - pivot.x, first.y - pivot.y) : pinchDistance;
 		const targets = isCaption ? collectCaptionFanout() : [];
 		if (!targets.some((t) => t.elementId === target.elementId)) {
 			targets.unshift(makeTarget({ trackId: target.trackId, element }));
@@ -538,6 +648,8 @@ function usePreviewTransformGesture({
 			dragging: false,
 			snapped: NO_SNAP,
 			targets,
+			pivot,
+			fitToCanvas: isTemplateElement(element),
 		};
 	};
 
@@ -548,6 +660,29 @@ function usePreviewTransformGesture({
 
 	return {
 		snapGuides,
+		/** Corner handle of the selection frame: one-finger resize about the
+		 *  element's centre. */
+		startResize: (event: ReactPointerEvent<HTMLDivElement>) => {
+			event.stopPropagation();
+			if (sessionRef.current || !selectedRef || !selectedElement) return;
+			const frame = event.currentTarget.parentElement?.getBoundingClientRect();
+			if (!frame) return;
+			const point = { x: event.clientX, y: event.clientY };
+			openSession({
+				pointers: new Map([[event.pointerId, point]]),
+				element: selectedElement,
+				target: selectedRef,
+				isCaption: false,
+				pivot: { x: frame.left + frame.width / 2, y: frame.top + frame.height / 2 },
+			});
+			const session = sessionRef.current as Session | null;
+			if (session) session.dragging = true;
+			try {
+				mountRef.current?.setPointerCapture(event.pointerId);
+			} catch {
+				// Capture is an optimization; moves still bubble to the mount.
+			}
+		},
 		onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
 			tapRef.current = { time: Date.now(), x: event.clientX, y: event.clientY };
 			const point = { x: event.clientX, y: event.clientY };
@@ -612,7 +747,13 @@ function usePreviewTransformGesture({
 							mediaAssets,
 						});
 						const hit = visibleWithBounds.find((item: ElementWithBounds) =>
-							pointInRotatedBounds(canvasX, canvasY, item.bounds),
+							pointInRotatedBounds(
+								canvasX,
+								canvasY,
+								isTemplateElement(item.element)
+									? templateBounds({ bounds: item.bounds, canvasWidth, canvasHeight })
+									: item.bounds,
+							),
 						);
 						if (hit) {
 							const isAlreadySelected = selectedRef?.elementId === hit.elementId;

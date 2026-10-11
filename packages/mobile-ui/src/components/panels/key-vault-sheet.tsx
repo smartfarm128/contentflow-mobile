@@ -16,6 +16,7 @@ import {
 	Mic,
 	Film,
 	Delete,
+	Server,
 } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 
@@ -47,9 +48,11 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 	const [anthropicKey, setAnthropicKey] = useState(keys.anthropic ?? "");
 	const [elevenlabsKey, setElevenlabsKey] = useState(keys.elevenlabs ?? "");
 	const [pexelsKey, setPexelsKey] = useState(keys.pexels ?? "");
+	const [anselabsKey, setAnselabsKey] = useState(keys.anselabs ?? "");
 	const [showAnthropic, setShowAnthropic] = useState(false);
 	const [showElevenlabs, setShowElevenlabs] = useState(false);
 	const [showPexels, setShowPexels] = useState(false);
+	const [showAnselabs, setShowAnselabs] = useState(false);
 	const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
 	// Sync local inputs when keys change
@@ -58,6 +61,7 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 			setAnthropicKey(keys.anthropic ?? "");
 			setElevenlabsKey(keys.elevenlabs ?? "");
 			setPexelsKey(keys.pexels ?? "");
+			setAnselabsKey(keys.anselabs ?? "");
 		}
 	}, [isUnlocked, keys]);
 
@@ -148,6 +152,7 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 				anthropic: anthropicKey,
 				elevenlabs: elevenlabsKey,
 				pexels: pexelsKey,
+				anselabs: anselabsKey,
 			});
 			if (success) {
 				setPinInput("");
@@ -163,6 +168,7 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 			anthropic: anthropicKey.trim(),
 			elevenlabs: elevenlabsKey.trim(),
 			pexels: pexelsKey.trim(),
+			anselabs: anselabsKey.trim(),
 		});
 		if (success) {
 			setSavedNotice("Keys encrypted & saved.");
@@ -174,248 +180,287 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 		(!isConfigured || isChangingPin) && isConfirmingSetup ? confirmPinInput : pinInput;
 
 	return (
-		<PanelSheet
-			onScrimClick={onClose}
-			header={
-				<SheetHeader
-					title="Key Vault"
-					onClose={onClose}
-				/>
-			}
-		>
-			{!isUnlocked ? (
-				/* ── PIN PAD VIEW ── */
-				<div className="cc-vault-pin-view">
-					<div className="cc-vault-badge">
-						<Lock size={16} strokeWidth={CC_ICON_STROKE} />
-						<span>AES-256 Encrypted Vault</span>
-					</div>
-
-					<p className="cc-vault-title">
-						{!isConfigured
-							? isConfirmingSetup
-								? "Confirm your 4-digit PIN"
-								: "Create your 4-digit PIN"
-							: isChangingPin
-								? isConfirmingSetup
-									? "Confirm new 4-digit PIN"
-									: "Enter new 4-digit PIN"
-								: "Enter PIN to unlock"}
-					</p>
-					<p className="cc-vault-subtitle">
-						{!isConfigured
-							? "Protect your paid API keys from unauthorized access."
-							: isChangingPin
-								? "Choose a 4-digit PIN you will remember."
-								: "Keys are encrypted at rest with hardware AES-GCM."}
-					</p>
-
-					{/* 4-Digit Dots Indicator */}
-					<div className="cc-vault-dots">
-						{[0, 1, 2, 3].map((idx) => (
-							<div
-								key={idx}
-								className={`cc-vault-dot ${
-									idx < activeDisplayPin.length ? "cc-vault-dot--filled" : ""
-								}`}
-							/>
-						))}
-					</div>
-
-					{error && <p className="cc-vault-error">{error}</p>}
-
-					{/* 3x4 Numeric Keypad */}
-					<div className="cc-vault-keypad">
-						{[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-							<button
-								key={num}
-								type="button"
-								onClick={() => handleDigit(String(num))}
-								className="cc-vault-key"
-							>
-								{num}
-							</button>
-						))}
-						<button
-							type="button"
-							onClick={() => {
-								setPinInput("");
-								setConfirmPinInput("");
-								setIsConfirmingSetup(false);
-								clearError();
-							}}
-							className="cc-vault-key cc-vault-key--action"
-						>
-							C
-						</button>
-						<button
-							type="button"
-							onClick={() => handleDigit("0")}
-							className="cc-vault-key"
-						>
-							0
-						</button>
-						<button
-							type="button"
-							onClick={handleBackspace}
-							className="cc-vault-key cc-vault-key--action"
-							aria-label="Delete"
-						>
-							<Delete size={20} strokeWidth={CC_ICON_STROKE} />
-						</button>
-					</div>
-				</div>
-			) : (
-				/* ── UNLOCKED KEY VAULT MANAGEMENT VIEW ── */
-				<div className="cc-vault-unlocked-view">
-					{/* Status & Actions Header */}
-					<div className="cc-vault-status-header">
-						<div className="cc-vault-status-badge">
-							<ShieldCheck size={14} color="var(--cc-accent)" />
-							<span>Vault Unlocked · Auto-locks in 60s</span>
+		// Own theme scope + stacking layer: the Me screen mounts this outside
+		// the editor's themed shell (no tokens → transparent, unstyled sheet)
+		// and under its z-index 100 bottom nav.
+		<div className="cc-vault-root" data-kneecap-theme="capcut-mobile">
+			<PanelSheet
+				className="cc-sheet--vault"
+				onScrimClick={onClose}
+				header={
+					<SheetHeader
+						title="Key Vault"
+						onClose={onClose}
+					/>
+				}
+			>
+				{!isUnlocked ? (
+					/* ── PIN PAD VIEW ── */
+					<div className="cc-vault-pin-view">
+						<div className="cc-vault-badge">
+							<Lock size={16} strokeWidth={CC_ICON_STROKE} />
+							<span>AES-256 Encrypted Vault</span>
 						</div>
-						<div style={{ display: "flex", gap: "6px" }}>
+
+						<p className="cc-vault-title">
+							{!isConfigured
+								? isConfirmingSetup
+									? "Confirm your 4-digit PIN"
+									: "Create your 4-digit PIN"
+								: isChangingPin
+									? isConfirmingSetup
+										? "Confirm new 4-digit PIN"
+										: "Enter new 4-digit PIN"
+									: "Enter PIN to unlock"}
+						</p>
+						<p className="cc-vault-subtitle">
+							{!isConfigured
+								? "Protect your paid API keys from unauthorized access."
+								: isChangingPin
+									? "Choose a 4-digit PIN you will remember."
+									: "Keys are encrypted at rest with hardware AES-GCM."}
+						</p>
+
+						{/* 4-Digit Dots Indicator */}
+						<div className="cc-vault-dots">
+							{[0, 1, 2, 3].map((idx) => (
+								<div
+									key={idx}
+									className={`cc-vault-dot ${
+										idx < activeDisplayPin.length ? "cc-vault-dot--filled" : ""
+									}`}
+								/>
+							))}
+						</div>
+
+						{error && <p className="cc-vault-error">{error}</p>}
+
+						{/* 3x4 Numeric Keypad */}
+						<div className="cc-vault-keypad">
+							{[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+								<button
+									key={num}
+									type="button"
+									onClick={() => handleDigit(String(num))}
+									className="cc-vault-key"
+								>
+									{num}
+								</button>
+							))}
 							<button
 								type="button"
 								onClick={() => {
-									const old = useVaultStore.getState().activePin;
-									if (old) {
-										setOldPinForChange(old);
-										setIsChangingPin(true);
-										setPinInput("");
-										setConfirmPinInput("");
-										setIsConfirmingSetup(false);
-										lock();
-									}
+									setPinInput("");
+									setConfirmPinInput("");
+									setIsConfirmingSetup(false);
+									clearError();
 								}}
-								className="cc-vault-sm-btn"
+								className="cc-vault-key cc-vault-key--action"
 							>
-								Change PIN
+								C
 							</button>
 							<button
 								type="button"
-								onClick={lock}
-								className="cc-vault-sm-btn cc-vault-sm-btn--accent"
+								onClick={() => handleDigit("0")}
+								className="cc-vault-key"
 							>
-								Lock Now
+								0
 							</button>
-						</div>
-					</div>
-
-					{savedNotice && <p className="cc-vault-notice">{savedNotice}</p>}
-					{error && <p className="cc-vault-error">{error}</p>}
-
-					{/* 1. Anthropic Claude Key */}
-					<div className="cc-vault-card">
-						<div className="cc-vault-card__header">
-							<div className="cc-vault-card__icon-badge">
-								<Sparkles size={14} color="var(--cc-accent)" />
-							</div>
-							<div style={{ flex: 1 }}>
-								<h4 className="cc-vault-card__title">Anthropic Claude API</h4>
-								<p className="cc-vault-card__desc">Powers the AI Director, vision, and script planning.</p>
-							</div>
-						</div>
-						<div className="cc-vault-input-row">
-							<input
-								type={showAnthropic ? "text" : "password"}
-								value={anthropicKey}
-								onChange={(e) => {
-									setAnthropicKey(e.target.value);
-									touchActivity();
-								}}
-								placeholder="sk-ant-api03-..."
-								className="cc-text-content-input"
-							/>
 							<button
 								type="button"
-								onClick={() => setShowAnthropic(!showAnthropic)}
-								className="cc-vault-eye-btn"
-								aria-label={showAnthropic ? "Hide" : "Show"}
+								onClick={handleBackspace}
+								className="cc-vault-key cc-vault-key--action"
+								aria-label="Delete"
 							>
-								{showAnthropic ? <EyeOff size={16} /> : <Eye size={16} />}
+								<Delete size={20} strokeWidth={CC_ICON_STROKE} />
 							</button>
 						</div>
 					</div>
+				) : (
+					/* ── UNLOCKED KEY VAULT MANAGEMENT VIEW ── */
+					<div className="cc-vault-unlocked-view">
+						{/* Status & Actions Header */}
+						<div className="cc-vault-status-header">
+							<div className="cc-vault-status-badge">
+								<ShieldCheck size={14} color="var(--cc-accent)" />
+								<span>Vault Unlocked · Auto-locks in 60s</span>
+							</div>
+							<div style={{ display: "flex", gap: "6px" }}>
+								<button
+									type="button"
+									onClick={() => {
+										const old = useVaultStore.getState().activePin;
+										if (old) {
+											setOldPinForChange(old);
+											setIsChangingPin(true);
+											setPinInput("");
+											setConfirmPinInput("");
+											setIsConfirmingSetup(false);
+											lock();
+										}
+									}}
+									className="cc-vault-sm-btn"
+								>
+									Change PIN
+								</button>
+								<button
+									type="button"
+									onClick={lock}
+									className="cc-vault-sm-btn cc-vault-sm-btn--accent"
+								>
+									Lock Now
+								</button>
+							</div>
+						</div>
 
-					{/* 2. ElevenLabs Key */}
-					<div className="cc-vault-card">
-						<div className="cc-vault-card__header">
-							<div className="cc-vault-card__icon-badge">
-								<Mic size={14} color="#10b981" />
+						{savedNotice && <p className="cc-vault-notice">{savedNotice}</p>}
+						{error && <p className="cc-vault-error">{error}</p>}
+
+						{/* 1. Anthropic Claude Key */}
+						<div className="cc-vault-card">
+							<div className="cc-vault-card__header">
+								<div className="cc-vault-card__icon-badge">
+									<Sparkles size={14} color="var(--cc-accent)" />
+								</div>
+								<div style={{ flex: 1 }}>
+									<h4 className="cc-vault-card__title">Anthropic Claude API</h4>
+									<p className="cc-vault-card__desc">Powers the AI Director, vision, and script planning.</p>
+								</div>
 							</div>
-							<div style={{ flex: 1 }}>
-								<h4 className="cc-vault-card__title">ElevenLabs API</h4>
-								<p className="cc-vault-card__desc">Lifelike premium narration and custom voice cloning.</p>
+							<div className="cc-vault-input-row">
+								<input
+									type={showAnthropic ? "text" : "password"}
+									value={anthropicKey}
+									onChange={(e) => {
+										setAnthropicKey(e.target.value);
+										touchActivity();
+									}}
+									placeholder="sk-ant-api03-..."
+									className="cc-text-content-input"
+								/>
+								<button
+									type="button"
+									onClick={() => setShowAnthropic(!showAnthropic)}
+									className="cc-vault-eye-btn"
+									aria-label={showAnthropic ? "Hide" : "Show"}
+								>
+									{showAnthropic ? <EyeOff size={16} /> : <Eye size={16} />}
+								</button>
 							</div>
 						</div>
-						<div className="cc-vault-input-row">
-							<input
-								type={showElevenlabs ? "text" : "password"}
-								value={elevenlabsKey}
-								onChange={(e) => {
-									setElevenlabsKey(e.target.value);
-									touchActivity();
-								}}
-								placeholder="xi-..."
-								className="cc-text-content-input"
-							/>
-							<button
-								type="button"
-								onClick={() => setShowElevenlabs(!showElevenlabs)}
-								className="cc-vault-eye-btn"
-								aria-label={showElevenlabs ? "Hide" : "Show"}
-							>
-								{showElevenlabs ? <EyeOff size={16} /> : <Eye size={16} />}
-							</button>
+
+						{/* 2. ElevenLabs Key */}
+						<div className="cc-vault-card">
+							<div className="cc-vault-card__header">
+								<div className="cc-vault-card__icon-badge">
+									<Mic size={14} color="#10b981" />
+								</div>
+								<div style={{ flex: 1 }}>
+									<h4 className="cc-vault-card__title">ElevenLabs API</h4>
+									<p className="cc-vault-card__desc">Lifelike premium narration and custom voice cloning.</p>
+								</div>
+							</div>
+							<div className="cc-vault-input-row">
+								<input
+									type={showElevenlabs ? "text" : "password"}
+									value={elevenlabsKey}
+									onChange={(e) => {
+										setElevenlabsKey(e.target.value);
+										touchActivity();
+									}}
+									placeholder="xi-..."
+									className="cc-text-content-input"
+								/>
+								<button
+									type="button"
+									onClick={() => setShowElevenlabs(!showElevenlabs)}
+									className="cc-vault-eye-btn"
+									aria-label={showElevenlabs ? "Hide" : "Show"}
+								>
+									{showElevenlabs ? <EyeOff size={16} /> : <Eye size={16} />}
+								</button>
+							</div>
 						</div>
+
+						{/* 3. Pexels Key */}
+						<div className="cc-vault-card">
+							<div className="cc-vault-card__header">
+								<div className="cc-vault-card__icon-badge">
+									<Film size={14} color="#f59e0b" />
+								</div>
+								<div style={{ flex: 1 }}>
+									<h4 className="cc-vault-card__title">Pexels Stock Media API</h4>
+									<p className="cc-vault-card__desc">Free HD stock footage and photos for B-roll insertion.</p>
+								</div>
+							</div>
+							<div className="cc-vault-input-row">
+								<input
+									type={showPexels ? "text" : "password"}
+									value={pexelsKey}
+									onChange={(e) => {
+										setPexelsKey(e.target.value);
+										touchActivity();
+									}}
+									placeholder="Pexels API key"
+									className="cc-text-content-input"
+								/>
+								<button
+									type="button"
+									onClick={() => setShowPexels(!showPexels)}
+									className="cc-vault-eye-btn"
+									aria-label={showPexels ? "Hide" : "Show"}
+								>
+									{showPexels ? <EyeOff size={16} /> : <Eye size={16} />}
+								</button>
+							</div>
+						</div>
+
+						{/* 4. Anselabs Key */}
+						<div className="cc-vault-card">
+							<div className="cc-vault-card__header">
+								<div className="cc-vault-card__icon-badge">
+									<Server size={14} color="#6366f1" />
+								</div>
+								<div style={{ flex: 1 }}>
+									<h4 className="cc-vault-card__title">Anselabs API</h4>
+									<p className="cc-vault-card__desc">OpenAI-compatible model (hst-coding-beta) for AI Director planning and creative direction.</p>
+								</div>
+							</div>
+							<div className="cc-vault-input-row">
+								<input
+									type={showAnselabs ? "text" : "password"}
+									value={anselabsKey}
+									onChange={(e) => {
+										setAnselabsKey(e.target.value);
+										touchActivity();
+									}}
+									placeholder="sk-anselabs-..."
+									className="cc-text-content-input"
+								/>
+								<button
+									type="button"
+									onClick={() => setShowAnselabs(!showAnselabs)}
+									className="cc-vault-eye-btn"
+									aria-label={showAnselabs ? "Hide" : "Show"}
+								>
+									{showAnselabs ? <EyeOff size={16} /> : <Eye size={16} />}
+								</button>
+							</div>
+						</div>
+
+						{/* Save Button */}
+						<button
+							type="button"
+							onClick={handleSaveKeys}
+							className="cc-panel-cta"
+							style={{ marginTop: "8px" }}
+						>
+							<Check size={16} strokeWidth={CC_ICON_STROKE} />
+							<span>Encrypt & Save Keys</span>
+						</button>
 					</div>
-
-					{/* 3. Pexels Key */}
-					<div className="cc-vault-card">
-						<div className="cc-vault-card__header">
-							<div className="cc-vault-card__icon-badge">
-								<Film size={14} color="#f59e0b" />
-							</div>
-							<div style={{ flex: 1 }}>
-								<h4 className="cc-vault-card__title">Pexels Stock Media API</h4>
-								<p className="cc-vault-card__desc">Free HD stock footage and photos for B-roll insertion.</p>
-							</div>
-						</div>
-						<div className="cc-vault-input-row">
-							<input
-								type={showPexels ? "text" : "password"}
-								value={pexelsKey}
-								onChange={(e) => {
-									setPexelsKey(e.target.value);
-									touchActivity();
-								}}
-								placeholder="Pexels API key"
-								className="cc-text-content-input"
-							/>
-							<button
-								type="button"
-								onClick={() => setShowPexels(!showPexels)}
-								className="cc-vault-eye-btn"
-								aria-label={showPexels ? "Hide" : "Show"}
-							>
-								{showPexels ? <EyeOff size={16} /> : <Eye size={16} />}
-							</button>
-						</div>
-					</div>
-
-					{/* Save Button */}
-					<button
-						type="button"
-						onClick={handleSaveKeys}
-						className="cc-panel-cta"
-						style={{ marginTop: "8px" }}
-					>
-						<Check size={16} strokeWidth={CC_ICON_STROKE} />
-						<span>Encrypt & Save Keys</span>
-					</button>
-				</div>
-			)}
-		</PanelSheet>
+				)}
+			</PanelSheet>
+		</div>
 	);
 }

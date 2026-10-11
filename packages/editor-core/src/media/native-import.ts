@@ -257,58 +257,120 @@ export interface ImportMediaFromNativeResult {
 	failed: NativeImportFailure[];
 }
 
+
+/** A handle whose proxy finished — ready to commit once a project exists. */
+export interface PreparedNativeMedia {
+	handle: NativeMediaHandle;
+	proxy: NativeProxyProgress;
+}
+
+export interface PickNativeMediaResult {
+	handles: NativeMediaHandle[];
+	/** Items the user chose that failed to load (e.g. offline iCloud). */
+	pickFailures: number;
+}
+
+export interface PrepareNativeMediaResult {
+	prepared: PreparedNativeMedia[];
+	failed: NativeImportFailure[];
+	mediaRoot: string | null;
+}
+
+/** Android rejects a dismissed picker with `USER_CANCELLED`; iOS and web
+ *  resolve `[]`. Both are the same outcome: nothing picked. */
+function isUserCancelled(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		error.code === "USER_CANCELLED"
+	);
+}
+
 /**
- * The end-to-end M4 import flow: pick → (per asset) generate proxy →
- * construct + commit a `MediaAsset`. Plan M4 item 7's import-failure UX
- * (unsupported codec, proxy-generation failure) is handled per-asset — one
- * bad clip in a multi-select doesn't abort the rest, matching
- * `MediaPickerCoordinator.importOne`'s same one-bad-item-doesn't-lose-the-
- * batch policy on the native side.
+ * Step 1 of the import: open the picker and wait for the native side to
+ * load what was chosen. Needs no editor or project, so a caller can decide
+ * whether to create a project only AFTER media actually arrived.
+ * `onPickStart` fires once, on the first native event after Done — the
+ * earliest moment the UI knows the user committed to a pick.
  */
-export async function importMediaFromNative({
-	editor,
-	projectId,
+export async function pickNativeMedia({
 	source,
 	kinds,
 	allowMultiple,
+	onPickStart,
+	onProgress,
+}: {
+	source: NativeMediaSource;
+	kinds: MediaType[];
+	allowMultiple: boolean;
+	onPickStart?: () => void;
+	onProgress?: (progress: NativeImportProgress) => void;
+}): Promise<PickNativeMediaResult> {
+	let pickFailures = 0;
+	let started = false;
+	let handles: NativeMediaHandle[];
+	try {
+		handles = await source.pickMedia({
+			kinds,
+			allowMultiple,
+			onProgress: (pick) => {
+				if (!started) {
+					started = true;
+					onPickStart?.();
+				}
+				if (pick.stage === "error") {
+					// A dropped item must be VISIBLE — the silent version made an
+					// all-failed batch (e.g. iCloud originals with no network)
+					// indistinguishable from a user cancel (2026-08-19).
+					pickFailures++;
+					toast.error({
+						message: `Couldn't load item ${pick.index + 1} of ${pick.total}`,
+						description: `${pick.error ?? "unknown error"} — if it's stored in iCloud, check your connection and try again`,
+					});
+					return;
+				}
+				onProgress?.({
+					index: pick.index,
+					total: pick.total,
+					fileName: "",
+					stage: "picking",
+					fraction: pick.fraction,
+				});
+			},
+		});
+	} catch (error) {
+		if (isUserCancelled(error)) {
+			return { handles: [], pickFailures: 0 };
+		}
+		throw error;
+	}
+	return { handles, pickFailures };
+}
+
+/**
+ * Step 2: generate proxies for picked handles. Needs no editor or project.
+ * Plan M4 item 7's import-failure UX (unsupported codec, proxy-generation
+ * failure) is handled per-asset — one bad clip in a multi-select doesn't
+ * abort the rest, matching `MediaPickerCoordinator.importOne`'s same
+ * one-bad-item-doesn't-lose-the-batch policy on the native side.
+ */
+export async function prepareNativeMedia({
+	source,
+	handles,
 	proxySpec = { targetHeight: 540, shortGop: true },
 	onProgress,
-}: ImportMediaFromNativeParams): Promise<ImportMediaFromNativeResult> {
-	let pickFailures = 0;
-	const handles = await source.pickMedia({
-		kinds,
-		allowMultiple,
-		onProgress: (pick) => {
-			if (pick.stage === "error") {
-				// A dropped item must be VISIBLE — the silent version made an
-				// all-failed batch (e.g. iCloud originals with no network)
-				// indistinguishable from a user cancel (2026-08-19).
-				pickFailures++;
-				toast.error({
-					message: `Couldn't load item ${pick.index + 1} of ${pick.total}`,
-					description: `${pick.error ?? "unknown error"} — if it's stored in iCloud, check your connection and try again`,
-				});
-				return;
-			}
-			onProgress?.({
-				index: pick.index,
-				total: pick.total,
-				fileName: "",
-				stage: "picking",
-				fraction: pick.fraction,
-			});
-		},
-	});
-	if (handles.length === 0 && pickFailures > 0) {
-		// Not a cancel: everything the user chose failed to load.
-		return { imported: [], failed: [] };
-	}
-
+}: {
+	source: NativeMediaSource;
+	handles: NativeMediaHandle[];
+	/** Plan Amendment 4 default: 540p short edge, short-GOP on. */
+	proxySpec?: { targetHeight: number; shortGop: boolean };
+	onProgress?: (progress: NativeImportProgress) => void;
+}): Promise<PrepareNativeMediaResult> {
 	// One root lookup per import batch; null (web / old native build) just
 	// disables relative-path persistence, it never blocks the import.
 	const mediaRoot = await source.getMediaRoot().catch(() => null);
 
-	const imported: MediaAsset[] = [];
+	const prepared: PreparedNativeMedia[] = [];
 	const failed: NativeImportFailure[] = [];
 
 	for (const [index, handle] of handles.entries()) {
@@ -388,10 +450,33 @@ export async function importMediaFromNative({
 			continue;
 		}
 
+		prepared.push({ handle, proxy: finalProxy });
+	}
+
+	return { prepared, failed, mediaRoot };
+}
+
+/** Step 3: construct + commit a `MediaAsset` per prepared item into the
+ *  active project. Requires the project to exist. */
+export function commitPreparedMedia({
+	editor,
+	projectId,
+	prepared,
+	toPlaybackUri,
+	mediaRoot,
+}: {
+	editor: EditorCore;
+	projectId: string;
+	prepared: PreparedNativeMedia[];
+	toPlaybackUri: (nativeUri: string) => string;
+	mediaRoot: string | null;
+}): MediaAsset[] {
+	const imported: MediaAsset[] = [];
+	for (const { handle, proxy } of prepared) {
 		const assetInput = buildMediaAssetFromNativeImport({
 			handle,
-			proxy: finalProxy,
-			toPlaybackUri: source.toPlaybackUri,
+			proxy,
+			toPlaybackUri,
 			mediaRoot,
 		});
 
@@ -406,6 +491,43 @@ export async function importMediaFromNative({
 			imported.push(created);
 		}
 	}
+	return imported;
+}
 
+/**
+ * The end-to-end M4 import flow into an EXISTING project: pick → (per
+ * asset) generate proxy → construct + commit a `MediaAsset`.
+ */
+export async function importMediaFromNative({
+	editor,
+	projectId,
+	source,
+	kinds,
+	allowMultiple,
+	proxySpec,
+	onProgress,
+}: ImportMediaFromNativeParams): Promise<ImportMediaFromNativeResult> {
+	const { handles } = await pickNativeMedia({
+		source,
+		kinds,
+		allowMultiple,
+		onProgress,
+	});
+	if (handles.length === 0) {
+		return { imported: [], failed: [] };
+	}
+	const { prepared, failed, mediaRoot } = await prepareNativeMedia({
+		source,
+		handles,
+		proxySpec,
+		onProgress,
+	});
+	const imported = commitPreparedMedia({
+		editor,
+		projectId,
+		prepared,
+		toPlaybackUri: source.toPlaybackUri,
+		mediaRoot,
+	});
 	return { imported, failed };
 }

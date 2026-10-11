@@ -8,8 +8,8 @@ import { PlaybackBar } from "./playback-bar";
 import { PreviewStage } from "./preview-stage";
 import { PreviewRenderer } from "./preview-renderer";
 import { BottomToolbar } from "../bottom-toolbar";
-import { SubToolbar, type ToolbarItemDef } from "../sub-toolbar";
-import { PRIMARY_TOOLBAR_ITEMS, type PrimaryToolId } from "./toolbar-defs";
+import { SubToolbar } from "../sub-toolbar";
+import { PRIMARY_TOOLBAR_ITEMS, CONTEXTUAL_BACK_ID, buildContextualItems, editSheetFor, type PrimaryToolId } from "./toolbar-defs";
 import { TimelineView } from "../timeline/timeline-view";
 import { EditPanel } from "../panels/edit-panel";
 import { AudioPanel } from "../panels/audio-panel";
@@ -54,6 +54,7 @@ import {
 	togglePlayback,
 	seekToSeconds,
 	importAndPlaceMedia,
+	describeImportProgress,
 	setProjectResolution,
 	setProjectBackground,
 	commitElementTrim,
@@ -68,7 +69,6 @@ import {
 	seekToClipKeyframeTime,
 	setClipKeyframeEasing,
 } from "../../editor/actions";
-import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type, Volume2, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
@@ -98,58 +98,17 @@ export interface EditorShellProps {
 	bootstrap?: () => Promise<unknown>;
 	/** Opens directly into a tool sheet on mount (e.g. from Home tools shortcuts). */
 	initialSheet?: SheetId;
+	/** Non-null while the host is still importing the media a new project
+	 *  will be created from (Start Creating): the shell shows the import
+	 *  progress instead of editor chrome until it clears. */
+	preparing?: NativeImportProgress | null;
 }
-
-/** Selected-clip actions, CapCut-style: the frequent verbs live DIRECTLY
- *  on the contextual row — Delete especially must never be two taps deep
- *  behind a sheet (founder feedback 2026-08-19: "delete not popping up is
- *  the most critical thing"). "Edit" still opens the full sheet for the
- *  rest (trim readouts, per-clip params). */
-const CONTEXTUAL_ITEMS: ToolbarItemDef[] = [
-	{ id: "split", label: "Split", icon: Scissors },
-	{ id: "delete", label: "Delete", icon: Trash2 },
-	{ id: "duplicate", label: "Duplicate", icon: CopyPlus },
-	{ id: "edit", label: "Edit", icon: SlidersHorizontal },
-];
-
-/** Round 42 (founder: "add a button so that when i select a clip i can cut
- *  all deadspace without speech or any significant audio"): only clips that
- *  CAN carry audio get it — offering "Cut gaps" on a sticker would be a
- *  button that can only ever decline. */
-const CUT_GAPS_ITEM: ToolbarItemDef = { id: "cut-gaps", label: "Cut gaps", icon: ScissorsLineDashed };
 
 const AUDIBLE_ELEMENT_TYPES = new Set(["video", "audio"]);
 
 /** Shown when Split was tapped but the playhead isn't strictly inside the
  *  clip — on its edge or outside it — so there is nothing to cut. */
 const SPLIT_NOOP_NOTICE = "Move the playhead inside the clip to split it.";
-
-/** Round 22 (founder: "there should be an edit text button in the menu
- *  when i select it"): text and caption clips get a direct Edit-text verb
- *  that opens the panel with their content field. */
-const EDIT_TEXT_ITEM: ToolbarItemDef = { id: "edit-text", label: "Edit text", icon: Type };
-
-/** Round 47: CapCut's "Graph" verb — keyframe easing presets — appears on
- *  the contextual row once the selected clip has a keyframe. */
-const GRAPH_ITEM: ToolbarItemDef = { id: "graph", label: "Graph", icon: Spline };
-
-/** The contextual row for a selection: type-specific lead verb, the direct
- *  verbs, then situational extras, with the sheet-opening "Edit" last. */
-function buildContextualItems({
-	element,
-	hasKeyframes,
-}: {
-	element: TimelineElement;
-	hasKeyframes: boolean;
-}): ToolbarItemDef[] {
-	const lead = element.type === "text" || element.type === "caption" ? [EDIT_TEXT_ITEM] : [];
-	const extras: ToolbarItemDef[] = [];
-	if (AUDIBLE_ELEMENT_TYPES.has(element.type)) extras.push(CUT_GAPS_ITEM);
-	if (hasKeyframes) extras.push(GRAPH_ITEM);
-	// Before "Edit": the direct verbs stay together and the sheet-opener
-	// stays last.
-	return [...lead, ...CONTEXTUAL_ITEMS.slice(0, -1), ...extras, ...CONTEXTUAL_ITEMS.slice(-1)];
-}
 
 function formatKeyframeTime(time: MediaTime): string {
 	return `${mediaTimeToSeconds({ time }).toFixed(2)}s`;
@@ -210,7 +169,7 @@ const BACKGROUND_PRESETS = ["#000000", "#FFFFFF", "#101010", "#1E3A5F", "#4A1942
  * only the dev harness — see `bootstrap`/`onBack` above for the two knobs
  * that made that possible without forking the component.
  */
-export function EditorShell({ className, onBack, bootstrap, initialSheet }: EditorShellProps) {
+export function EditorShell({ className, onBack, bootstrap, initialSheet, preparing = null }: EditorShellProps) {
 	const editor = useLiveEditor();
 	const [ready, setReady] = useState(false);
 	const [activeSheet, setActiveSheet] = useState<SheetId | null>(initialSheet ?? null);
@@ -309,20 +268,8 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 		importer({
 			editor,
 			onProgress: (p) => {
-				const overall =
-					((p.index + Math.min(1, Math.max(0, p.fraction))) /
-						Math.max(1, p.total)) *
-					100;
-				// "picking" = post-pick load/copy, which for iCloud-stored
-				// originals is a real download — name it, or minutes of it
-				// read as a hang.
-				const label =
-					p.stage === "picking"
-						? `Preparing media ${p.index + 1} of ${p.total}…`
-						: p.total > 1
-							? `Importing ${p.index + 1} of ${p.total}…`
-							: `Importing ${p.fileName}…`;
-				setImportProgress({ percent: Math.round(overall), label });
+				const { percent, label } = describeImportProgress(p);
+				setImportProgress({ percent: Math.round(percent), label });
 			},
 		})
 			.catch(reportChromeError)
@@ -345,10 +292,17 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 	const durationSeconds = useProjectDurationSeconds();
 	const isPlaying = useIsPlaying();
 
-	if (!ready) {
+	// No live chrome until a project exists: Start Creating mounts the shell
+	// the moment the user taps Done, before the project is created.
+	if (!ready || preparing || !editor.project.getActiveOrNull()) {
+		const progress = preparing ? describeImportProgress(preparing) : null;
 		return (
 			<div className={cn("cc-editor-shell", className)} data-kneecap-theme="capcut-mobile">
-				<p className="cc-panel-note">Loading demo project…</p>
+				{progress ? (
+					<ProgressOverlay percent={Math.round(progress.percent)} label={progress.label} />
+				) : (
+					<p className="cc-panel-note">Loading…</p>
+				)}
 			</div>
 		);
 	}
@@ -544,6 +498,11 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 						}
 						playbackTimeSec={currentTimeSeconds}
 						isPlaying={isPlaying}
+						onUserScroll={() => {
+							if (isPlaying) {
+								togglePlayback({ editor });
+							}
+						}}
 						onAddClip={() => runMediaImport(importAndPlaceMedia)}
 						showAddAudio={!timelineProject.tracks.some((t) => t.kind === "audio")}
 						onAddAudio={() => setActiveSheet("audio")}
@@ -600,20 +559,17 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 			{selectedRef && selectedElement && (
 				<SubToolbar
 					items={buildContextualItems({
-						element: selectedElement,
+						type: selectedElement.type,
 						hasKeyframes: (keyframeState?.times.length ?? 0) > 0,
 					})}
 					activeId={activeSheet}
 					onSelect={(id) => {
-						if (id === "edit-text") {
-							setActiveSheet(selectedElement.type === "caption" ? "captions" : "text");
+						// Direct verbs act immediately; everything else opens a sheet.
+						if (id === CONTEXTUAL_BACK_ID) {
+							setActiveSheet(null);
+							selectElement({ editor, ref: null });
 							return;
 						}
-						if (id === "graph") {
-							setActiveSheet("graph");
-							return;
-						}
-						// Direct verbs act immediately; only "edit" opens a sheet.
 						if (id === "split") {
 							runSplit({ ref: selectedRef });
 							return;
@@ -630,12 +586,16 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet }: Edit
 							runCutDeadSpace({ ref: selectedRef });
 							return;
 						}
-						setActiveSheet(id as SheetId);
+						setActiveSheet(id === "edit" ? editSheetFor({ element: selectedElement }) : (id as SheetId));
 					}}
 				/>
 			)}
 
-			<BottomToolbar items={PRIMARY_TOOLBAR_ITEMS} activeId={activeSheet} onSelect={(id) => setActiveSheet(id as SheetId)} />
+			{/* One toolbar at a time: the clip row above replaces this one while
+			    something is selected (founder, 2026-09-30). */}
+			{!(selectedRef && selectedElement) && (
+				<BottomToolbar items={PRIMARY_TOOLBAR_ITEMS} activeId={activeSheet} onSelect={(id) => setActiveSheet(id as SheetId)} />
+			)}
 
 			{activeSheet === "edit" && selectedRef && selectedElement && (
 				<EditPanel

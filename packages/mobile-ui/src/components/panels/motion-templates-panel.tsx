@@ -35,7 +35,6 @@ export function MotionTemplatesPanel({
 }: MotionTemplatesPanelProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [tab, setTab] = useState<string>("library");
   const [previewingId, setPreviewingId] = useState<string | null>(null);
 
   const editor = useEditor();
@@ -43,6 +42,14 @@ export function MotionTemplatesPanel({
   // canvas and opening this sheet now refer to the same thing. (They used to
   // be two unrelated ids: the engine's, and the template store's.)
   const [selectedRef, selectedElement] = useSelectedElement();
+  // Opened with a template clip selected means it came from that clip's
+  // "Edit" item, so land on its editor rather than the library.
+  const [tab, setTab] = useState<string>(() =>
+    selectedElement?.type === "graphic" &&
+    isHtmlTemplateGraphic({ definitionId: selectedElement.definitionId })
+      ? "edit"
+      : "library",
+  );
 
   /** The selected element, but only when it is a template clip. */
   const selectedClip = useMemo(() => {
@@ -343,7 +350,8 @@ export function MotionTemplatesPanel({
                   : 1) * 100,
               )}
               min={20}
-              max={250}
+              // 1.00x = fills the frame; the preview pinch/handles stop there too.
+              max={100}
               step={5}
               formatValue={(v) => `${(v / 100).toFixed(2)}x`}
               onChange={(v) => {

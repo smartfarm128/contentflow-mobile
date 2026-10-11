@@ -43,6 +43,11 @@ export function AIDirectorPanel({
   const vaultAnthropicKey = useVaultStore((s) => s.keys.anthropic);
   const selectedModel = useAIDirectorStore((s) => s.selectedModel);
   const setSelectedModel = useAIDirectorStore((s) => s.setSelectedModel);
+  const selectedProvider = useAIDirectorStore((s) => s.selectedProvider);
+  const setSelectedProvider = useAIDirectorStore((s) => s.setSelectedProvider);
+  const vaultAnselabsKey = useVaultStore((s) => s.keys.anselabs);
+  const providerName = selectedProvider === "anselabs" ? "Anselabs" : "Anthropic";
+  const hasProviderKey = Boolean(selectedProvider === "anselabs" ? vaultAnselabsKey : vaultAnthropicKey);
 
   // Scroll the FEED only, by setting its own scrollTop — never
   // `scrollIntoView`. The sheet body (`.cc-sheet__body`) is also scrollable,
@@ -91,7 +96,7 @@ export function AIDirectorPanel({
         <div className="cc-director__status-bar">
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <Sparkles size={14} strokeWidth={CC_ICON_STROKE} />
-            <span>Director Mode · {selectedModel.replace("claude-", "")}</span>
+            <span>Director Mode · {selectedProvider === 'anselabs' ? 'Anselabs' : selectedModel.replace('claude-', '')}</span>
           </div>
           <button
             type="button"
@@ -122,7 +127,7 @@ export function AIDirectorPanel({
                 in the Key Vault. This row reports status and routes there, so a
                 borrowed phone cannot surface a paid key from a tool panel. */}
             <div>
-              <label className="cc-form-label">Anthropic API Key</label>
+              <span className="cc-form-label">{providerName} API Key</span>
               <button
                 type="button"
                 onClick={() => {
@@ -135,7 +140,7 @@ export function AIDirectorPanel({
                 <span>
                   {!vaultConfigured
                     ? "Set up Key Vault"
-                    : vaultUnlocked && vaultAnthropicKey
+                    : vaultUnlocked && hasProviderKey
                       ? "Key set · Manage in Vault"
                       : vaultUnlocked
                         ? "No key yet · Add in Vault"
@@ -144,8 +149,21 @@ export function AIDirectorPanel({
               </button>
             </div>
             <div>
-              <label className="cc-form-label">Model</label>
+              <label className="cc-form-label" htmlFor="cc-director-provider">Provider</label>
               <select
+                id="cc-director-provider"
+                value={selectedProvider}
+                onChange={(e) => setSelectedProvider(e.target.value === "anselabs" ? "anselabs" : "anthropic")}
+                className="cc-select"
+              >
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="anselabs">Anselabs (OpenAI-compatible)</option>
+              </select>
+            </div>
+            <div>
+              <label className="cc-form-label" htmlFor="cc-director-model">Model</label>
+              <select
+                id="cc-director-model"
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="cc-select"
@@ -153,6 +171,7 @@ export function AIDirectorPanel({
                 <option value="claude-sonnet-5-5">Claude Sonnet 5 (Recommended)</option>
                 <option value="claude-opus-5-5">Claude Opus 5.5 (Deep Creative Direction)</option>
                 <option value="claude-fable-5-1">Claude Fable 5.1 (Highest Intelligence)</option>
+                <option value="hst-coding-beta">Anselabs Beta (hst-coding-beta)</option>
               </select>
             </div>
           </div>
@@ -162,9 +181,11 @@ export function AIDirectorPanel({
         <div className="cc-director__chat-feed" ref={chatFeedRef}>
           {messages.length === 0 && !isStreaming && (
             <p className="cc-panel-note">
-              {vaultUnlocked && vaultAnthropicKey
+              {vaultUnlocked && hasProviderKey
                 ? "Tell the Director what you want: cut silences, add captions, match a reference, add titles."
-                : "Add your Anthropic API key in Settings to start directing edits."}
+                : vaultConfigured && !vaultUnlocked
+                  ? "Unlock the Key Vault (lock icon) to start directing edits."
+                  : `Add your ${providerName} API key in the Key Vault to start directing edits.`}
             </p>
           )}
           {messages.map((msg) =>

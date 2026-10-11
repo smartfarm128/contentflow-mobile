@@ -31,6 +31,13 @@ const config: CapacitorConfig = {
 	android: {
 		allowMixedContent: false,
 	},
+	ios: {
+		// The app is a fixed full-screen shell: every scrollable region is its
+		// own overflow container. Leaving WKWebView's outer scroll view on let
+		// the whole page pan/bounce on both axes, so fixed sheets swayed under
+		// a scrolling finger (founder, 2026-09-30).
+		scrollEnabled: false,
+	},
 	server: {
 		hostname: "appassets.androidplatform.net",
 		androidScheme: "https",
