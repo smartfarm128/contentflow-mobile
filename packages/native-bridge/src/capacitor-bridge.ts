@@ -230,6 +230,7 @@ interface NativeBridgePluginSpec {
 	 *  playback URL — native export reads the file itself. */
 	writeOverlayPng(params: { pngBase64: string }): Promise<{ path: string }>;
 	clearOverlayPngs(): Promise<void>;
+	removeAutotestFlag(params: { name: string }): Promise<void>;
 	/** Plugin-private — NOT part of the public `NativeBridge` TS interface,
 	 * which expresses cancellation as the caller simply stopping iteration
 	 * of the `AsyncGenerator<ExportProgress>` `exportProject` returns. This
@@ -704,6 +705,14 @@ export function createCapacitorBridge({
 				await plugin.clearOverlayPngs();
 			} catch (err) {
 				throw toNativeBridgeError({ err, method: "clearOverlayPngs" });
+			}
+		},
+
+		async removeAutotestFlag({ name }: { name: string }): Promise<void> {
+			try {
+				await plugin.removeAutotestFlag({ name });
+			} catch (err) {
+				throw toNativeBridgeError({ err, method: "removeAutotestFlag" });
 			}
 		},
 

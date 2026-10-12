@@ -405,6 +405,13 @@ export interface NativeBridge {
 	/** Deletes overlay PNGs written by `writeOverlayPng`. Call after the
 	 *  exporter has finished reading them. */
 	clearOverlayPngs(): Promise<void>;
+	/**
+	 * Deletes one planted autotest flag (`autotest.flag`,
+	 * `autotest-overlay-pixels.flag`, …) from the media root. The name is
+	 * a basename, never a path. A missing file resolves. Web fallback
+	 * resolves without touching the filesystem.
+	 */
+	removeAutotestFlag(params: { name: string }): Promise<void>;
 	transcribe(params: {
 		handle: MediaHandle;
 		opts: TranscribeOptions;

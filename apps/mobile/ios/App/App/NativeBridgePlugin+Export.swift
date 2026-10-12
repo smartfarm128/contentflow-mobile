@@ -55,10 +55,21 @@ extension NativeBridgePlugin {
             }
             let image: CIImage?
             let pngPath = dict["pngPath"] as? String
+            var spilledPath: String?
             if let pngPath, !pngPath.isEmpty {
-                // Lazy: Core Image reads the file when the frame is composited,
-                // so a 60s timeline does not decode every PNG up front.
-                image = CIImage(contentsOf: URL(fileURLWithPath: pngPath))
+                // Decode later, one finite bitmap at a time, inside the
+                // compositor. `CIImage(contentsOf:)` is lazy and can report
+                // an infinite extent, which scales to nothing and can poison
+                // the encoded frame. The placeholder is never drawn when
+                // `pngPath` is set.
+                let url = URL(fileURLWithPath: pngPath)
+                if overlayFrames.isEmpty {
+                    let exists = FileManager.default.fileExists(atPath: url.path)
+                    print("[kneecap-export] first overlay png path=\(url.path) exists=\(exists)")
+                }
+                image = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0))
+                    .cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1))
+                spilledPath = url.path
             } else if let base64 = dict["pngBase64"] as? String,
                       let data = Data(base64Encoded: base64),
                       let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -75,7 +86,8 @@ extension NativeBridgePlugin {
                 PrerenderedOverlayFrame(
                     startTicks: startTicks,
                     endTicks: endTicks,
-                    image: image
+                    image: image,
+                    pngPath: spilledPath
                 )
             )
         }
@@ -178,8 +190,8 @@ extension NativeBridgePlugin {
     }
 
     /// One overlay PNG into `Application Support/kneecap/OverlayFrames`.
-    /// The path is raw (no `file://`) — `exportProject` loads it with
-    /// `URL(fileURLWithPath:)`.
+    /// The path is raw (no `file://`) — `exportProject` keeps it and the
+    /// compositor decodes the file with ImageIO when that frame is drawn.
     @objc func writeOverlayPng(_ call: CAPPluginCall) {
         guard let base64 = call.getString("pngBase64"),
               let data = Data(base64Encoded: base64),
