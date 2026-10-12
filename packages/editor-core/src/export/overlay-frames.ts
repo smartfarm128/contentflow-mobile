@@ -90,19 +90,47 @@ function createCanvas({
 	width: number;
 	height: number;
 }): OverlayCanvas | null {
+	// Prefer a DOM canvas whenever a document exists. WKWebView's
+	// OffscreenCanvas.convertToBlob throws SecurityError ("The operation
+	// is insecure.") even for an origin-clean canvas, and toDataURL on an
+	// HTMLCanvasElement does not.
+	if (typeof document !== "undefined") {
+		const canvas = document.createElement("canvas");
+		canvas.width = width;
+		canvas.height = height;
+		const ctx = canvas.getContext("2d");
+		if (ctx) return { canvas, ctx };
+	}
 	if (typeof OffscreenCanvas !== "undefined") {
 		const canvas = new OffscreenCanvas(width, height);
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return null;
 		return { canvas, ctx };
 	}
-	if (typeof document === "undefined") return null;
-	const canvas = document.createElement("canvas");
-	canvas.width = width;
-	canvas.height = height;
-	const ctx = canvas.getContext("2d");
-	if (!ctx) return null;
-	return { canvas, ctx };
+	return null;
+}
+
+/**
+ * Base64 characters of PNG this pass will hand to the native bridge.
+ * Matches the HTML sampler's budget: past this, later samples keep the
+ * last frame instead of allocating another full-resolution PNG.
+ */
+const MAX_OVERLAY_PAYLOAD_CHARS = 36 * 1024 * 1024;
+
+function sourceIsReadable({ source }: { source: CanvasImageSource }): boolean {
+	if (typeof document === "undefined") return true;
+	const probe = document.createElement("canvas");
+	probe.width = 1;
+	probe.height = 1;
+	const ctx = probe.getContext("2d");
+	if (!ctx) return false;
+	try {
+		ctx.drawImage(source, 0, 0, 1, 1);
+		ctx.getImageData(0, 0, 1, 1);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /** Depth-first, which is the order `buildScene` appended them: bottom to top. */
@@ -210,21 +238,30 @@ function drawPlacedSource({
 	canvasSize: TCanvasSize;
 	transform: Transform;
 	opacity: number;
-}): void {
-	if (!(opacity > 0) || sourceWidth <= 0 || sourceHeight <= 0) return;
+}): boolean {
+	if (!(opacity > 0) || sourceWidth <= 0 || sourceHeight <= 0) return true;
 	const containScale = Math.min(canvasSize.width / sourceWidth, canvasSize.height / sourceHeight);
 	const scaledWidth = sourceWidth * containScale * transform.scaleX;
 	const scaledHeight = sourceHeight * containScale * transform.scaleY;
 	const absWidth = Math.abs(scaledWidth);
 	const absHeight = Math.abs(scaledHeight);
-	if (!(absWidth > 0) || !(absHeight > 0)) return;
+	if (!(absWidth > 0) || !(absHeight > 0)) return true;
+	// A cross-origin or capacitor:// image taints the destination. WebKit
+	// then throws SecurityError on toDataURL for the whole export frame.
+	if (!sourceIsReadable({ source })) return false;
 	ctx.save();
 	ctx.globalAlpha = opacity;
 	ctx.translate(canvasSize.width / 2 + transform.position.x, canvasSize.height / 2 + transform.position.y);
 	ctx.rotate((transform.rotate * Math.PI) / 180);
 	ctx.scale(scaledWidth < 0 ? -1 : 1, scaledHeight < 0 ? -1 : 1);
-	ctx.drawImage(source, -absWidth / 2, -absHeight / 2, absWidth, absHeight);
+	try {
+		ctx.drawImage(source, -absWidth / 2, -absHeight / 2, absWidth, absHeight);
+	} catch {
+		ctx.restore();
+		return false;
+	}
 	ctx.restore();
+	return true;
 }
 
 function drawCanvasOverlayNode({
@@ -247,7 +284,7 @@ function drawCanvasOverlayNode({
 		const resolved = node.resolved;
 		try {
 			const source = node.getSource({ resolvedParams: resolved.resolvedParams });
-			drawPlacedSource({
+			const drew = drawPlacedSource({
 				ctx,
 				source,
 				sourceWidth: DEFAULT_GRAPHIC_SOURCE_SIZE,
@@ -256,6 +293,7 @@ function drawCanvasOverlayNode({
 				transform: resolved.transform,
 				opacity: resolved.opacity,
 			});
+			if (!drew && node.params.elementId) failedIds.add(node.params.elementId);
 		} catch {
 			if (node.params.elementId) failedIds.add(node.params.elementId);
 		}
@@ -264,7 +302,7 @@ function drawCanvasOverlayNode({
 	if (node instanceof StickerNode) {
 		const resolved = node.resolved;
 		try {
-			drawPlacedSource({
+			const drew = drawPlacedSource({
 				ctx,
 				source: resolved.source,
 				sourceWidth: resolved.sourceWidth,
@@ -273,6 +311,7 @@ function drawCanvasOverlayNode({
 				transform: resolved.transform,
 				opacity: resolved.opacity,
 			});
+			if (!drew && node.params.elementId) failedIds.add(node.params.elementId);
 		} catch {
 			if (node.params.elementId) failedIds.add(node.params.elementId);
 		}
@@ -291,20 +330,34 @@ function overlayHash(nodes: AnyBaseNode[]): string {
 	);
 }
 
-async function toPngBase64(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<string> {
-	if (typeof OffscreenCanvas !== "undefined" && canvas instanceof OffscreenCanvas) {
-		const blob = await canvas.convertToBlob({ type: "image/png" });
-		const buffer = await blob.arrayBuffer();
-		let binary = "";
-		const bytes = new Uint8Array(buffer);
-		const chunk = 0x8000;
-		for (let i = 0; i < bytes.length; i += chunk) {
-			binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-		}
-		return btoa(binary);
-	}
-	const dataUrl = (canvas as HTMLCanvasElement).toDataURL("image/png");
+function pngDataUrlPayload({ dataUrl }: { dataUrl: string }): string {
 	return dataUrl.slice(dataUrl.indexOf(",") + 1);
+}
+
+async function toPngBase64(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<string> {
+	if (canvas instanceof HTMLCanvasElement) {
+		return pngDataUrlPayload({ dataUrl: canvas.toDataURL("image/png") });
+	}
+	// Headless tests have no document. WKWebView does, and convertToBlob
+	// there throws SecurityError, so copy through an HTML canvas first.
+	if (typeof document !== "undefined") {
+		const html = document.createElement("canvas");
+		html.width = canvas.width;
+		html.height = canvas.height;
+		const ctx = html.getContext("2d");
+		if (!ctx) throw new Error("2d context unavailable");
+		ctx.drawImage(canvas, 0, 0);
+		return pngDataUrlPayload({ dataUrl: html.toDataURL("image/png") });
+	}
+	const blob = await canvas.convertToBlob({ type: "image/png" });
+	const buffer = await blob.arrayBuffer();
+	let binary = "";
+	const bytes = new Uint8Array(buffer);
+	const chunk = 0x8000;
+	for (let i = 0; i < bytes.length; i += chunk) {
+		binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+	}
+	return btoa(binary);
 }
 
 export interface RenderOverlayFramesParams {
@@ -392,15 +445,25 @@ export async function renderOverlayFrames({
 
 	const frames: OverlayFrame[] = [];
 	let openFrame: { startTicks: number; hash: string; pngBase64: string } | null = null;
+	let payloadChars = 0;
 
 	const flush = (endTicks: number) => {
-		if (!openFrame || openFrame.hash === "") return;
+		if (!openFrame || openFrame.hash === "" || openFrame.pngBase64 === "") return;
 		if (endTicks <= openFrame.startTicks) return;
 		frames.push({
 			startTicks: openFrame.startTicks,
 			endTicks,
 			pngBase64: openFrame.pngBase64,
 		});
+	};
+
+	const noteUnencoded = () => {
+		for (const track of overlayOnlyTracks.overlay) {
+			for (const element of track.elements) {
+				if (element.type === "graphic" || element.type === "sticker") failedIds.add(element.id);
+			}
+		}
+		for (const id of htmlTemplateElementIds({ tracks })) failedIds.add(id);
 	};
 
 	for (let index = 0; index < frameCount; index++) {
@@ -422,40 +485,65 @@ export async function renderOverlayFrames({
 		const nodeHash = overlayHash(nodes);
 		const hash = nodeHash === "" && extra === "" ? "" : `${nodeHash}|${extra}`;
 
-		if (!openFrame || hash !== openFrame.hash) {
+		const holdForBudget =
+			openFrame !== null &&
+			openFrame.pngBase64 !== "" &&
+			payloadChars >= MAX_OVERLAY_PAYLOAD_CHARS &&
+			hash !== "" &&
+			hash !== openFrame.hash;
+		if (holdForBudget && openFrame) {
+			// Further unique frames would blow the bridge payload. The last
+			// PNG stays on screen for the rest of this run.
+			openFrame.hash = hash;
+		} else if (!openFrame || hash !== openFrame.hash) {
 			let pngBase64 = "";
+			let encodeFailed = false;
 			if (hash !== "") {
-				surface.ctx.clearRect(0, 0, canvasSize.width, canvasSize.height);
-				// Tree order matches the preview. The host paints HTML last,
-				// which is where HtmlMotionLayer sits (above the canvas).
-				for (const node of nodes) {
-					drawCanvasOverlayNode({
-						node,
-						ctx: surface.ctx,
-						canvasSize,
-						failedIds,
-					});
+				try {
+					surface.ctx.clearRect(0, 0, canvasSize.width, canvasSize.height);
+					// Tree order matches the preview. The host paints HTML last,
+					// which is where HtmlMotionLayer sits (above the canvas).
+					for (const node of nodes) {
+						drawCanvasOverlayNode({
+							node,
+							ctx: surface.ctx,
+							canvasSize,
+							failedIds,
+						});
+					}
+					// An empty extra hash means the host has nothing new to paint
+					// (no template is on screen). Skipping the DOM capture keeps
+					// a long timeline from re-rendering React on every text frame.
+					const captured: string[] = [];
+					if (paintExtras && (!extraHash || extra !== "")) {
+						const painted = await paintExtras({
+							ctx: surface.ctx,
+							timeSeconds,
+							canvasSize,
+						});
+						captured.push(...painted.captured);
+					}
+					pngBase64 = await toPngBase64(surface.canvas);
+					for (const id of captured) failedIds.delete(id);
+				} catch {
+					// One bad frame must not abort the export. Templates that
+					// never made it into a PNG stay on the omission list.
+					encodeFailed = true;
+					pngBase64 = "";
+					if (payloadChars === 0) noteUnencoded();
 				}
-				// An empty extra hash means the host has nothing new to paint
-				// (no template is on screen). Skipping the DOM capture keeps
-				// a long timeline from re-rendering React on every text frame.
-				if (paintExtras && (!extraHash || extra !== "")) {
-					const painted = await paintExtras({
-						ctx: surface.ctx,
-						timeSeconds,
-						canvasSize,
-					});
-					for (const id of painted.captured) failedIds.delete(id);
-				}
-				pngBase64 = await toPngBase64(surface.canvas);
 			}
 			// Identical pixels share one PNG, even when the sample bucket
 			// changed. A static title over a long clip stays one image.
-			if (openFrame && pngBase64 === openFrame.pngBase64) {
+			if (encodeFailed) {
+				if (openFrame) openFrame.hash = hash;
+				else openFrame = { startTicks: timeTicks, hash, pngBase64: "" };
+			} else if (openFrame && pngBase64 === openFrame.pngBase64) {
 				openFrame.hash = hash;
 			} else {
 				flush(timeTicks);
 				openFrame = { startTicks: timeTicks, hash, pngBase64 };
+				if (pngBase64 !== "") payloadChars += pngBase64.length;
 			}
 		}
 		onProgress?.((index + 1) / frameCount);

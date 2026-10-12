@@ -44,6 +44,8 @@
  *      alone, then again with a CSS template, a WebGL template and a
  *      sticker. The second file's frames must differ from the baseline in
  *      each of those three regions, and none of them is an omission.
+ *      Each stage logs `step: <name>`. A thrown failure logs
+ *      `VERDICT phase=overlay-pixels FAIL step=<name>` plus the stack.
  *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
@@ -1204,13 +1206,34 @@ async function frameImageData({
 			};
 			video.currentTime = timeSeconds;
 		});
-		const canvas = document.createElement("canvas");
-		canvas.width = video.videoWidth;
-		canvas.height = video.videoHeight;
-		const ctx = canvas.getContext("2d");
-		if (!ctx || canvas.width < 2) throw new Error("export frame has no pixels");
-		ctx.drawImage(video, 0, 0);
-		return ctx.getImageData(0, 0, canvas.width, canvas.height);
+		const read = ({ source, width, height }: { source: CanvasImageSource; width: number; height: number }) => {
+			const canvas = document.createElement("canvas");
+			canvas.width = width;
+			canvas.height = height;
+			const ctx = canvas.getContext("2d");
+			if (!ctx || width < 2 || height < 2) throw new Error("export frame has no pixels");
+			ctx.drawImage(source, 0, 0, width, height);
+			try {
+				return ctx.getImageData(0, 0, width, height);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				throw new Error(`getImageData failed (${message})`);
+			}
+		};
+		try {
+			return read({ source: video, width: video.videoWidth, height: video.videoHeight });
+		} catch (error) {
+			// WKWebView taints a canvas after drawing some video elements
+			// ("The operation is insecure."). A bitmap copied out of the
+			// element is same-origin and can be read from a fresh canvas.
+			if (typeof createImageBitmap !== "function") throw error;
+			const bitmap = await createImageBitmap(video);
+			try {
+				return read({ source: bitmap, width: bitmap.width, height: bitmap.height });
+			} finally {
+				bitmap.close();
+			}
+		}
 	} finally {
 		URL.revokeObjectURL(url);
 	}
@@ -1258,10 +1281,14 @@ async function runOverlayPixels({
 	editor: EditorCore;
 	root: string;
 }): Promise<void> {
-	const fail = (detail: string) => {
+	const fail = (detail: string, error?: unknown) => {
 		log(`VERDICT phase=overlay-pixels FAIL ${detail}`);
+		if (error instanceof Error && error.stack) log(error.stack);
 	};
+	let step = "start";
 	try {
+		step = "create project";
+		log("step:", step);
 		await editor.project.createNewProject({ name: OVERLAY_PROJECT });
 		const bridge = await getNativeBridge();
 		const source: NativeMediaSource = {
@@ -1270,6 +1297,8 @@ async function runOverlayPixels({
 			toPlaybackUri: bridge.toPlaybackUri,
 			getMediaRoot: () => bridge.getMediaRoot(),
 		};
+		step = "import planted video";
+		log("step:", step);
 		const { imported, failed } = await importMediaFromNative({
 			editor,
 			projectId: editor.project.getActive().metadata.id,
@@ -1299,8 +1328,12 @@ async function runOverlayPixels({
 			}),
 		});
 
+		step = "baseline export";
+		log("step:", step);
 		const baselineBytes = await exportEdlBytes({ editor, overlayFrames: [] });
 
+		step = "insert templates";
+		log("step:", step);
 		const canvas = editor.project.getActive().settings.canvasSize;
 		const scramble = insertHtmlTemplateElement({
 			editor,
@@ -1374,9 +1407,13 @@ async function runOverlayPixels({
 				includeAudio: true,
 			},
 		});
+		step = "rasterize overlays";
+		log("step:", step);
 		const painter = createHtmlOverlayPainter({
 			tracks: editor.scenes.getActiveScene().tracks,
 			durationSeconds: edl.meta.durationTicks / edl.meta.ticksPerSecond,
+			width: edl.output.resolution.width,
+			height: edl.output.resolution.height,
 		});
 		let overlayBytes: ArrayBuffer;
 		try {
@@ -1404,18 +1441,30 @@ async function runOverlayPixels({
 			const blocked = omissions.filter((item) =>
 				/Text Scramble|Kinetic Shader|Sticker "star"/i.test(item.message),
 			);
+			log(
+				"raster:",
+				`frames=${rendered.frames.length}`,
+				`uncaptured=${rendered.uncapturedElementIds.join(",") || "none"}`,
+				`payloadKB=${Math.round(rendered.frames.reduce((sum, frame) => sum + frame.pngBase64.length, 0) / 1024)}`,
+			);
 			if (blocked.length > 0 || rendered.uncapturedElementIds.length > 0) {
 				fail(
-					`capture missed ids=${rendered.uncapturedElementIds.join(",") || "none"} omissions=${blocked.map((item) => item.message).join(" | ")}`,
+					`step=rasterize overlays capture missed ids=${rendered.uncapturedElementIds.join(",") || "none"} omissions=${blocked.map((item) => item.message).join(" | ")}`,
 				);
 				return;
 			}
+			step = "export with overlays";
+			log("step:", step);
 			overlayBytes = await exportEdlBytes({ editor, overlayFrames: rendered.frames });
 		} finally {
 			painter.dispose();
 		}
 
+		step = "sample baseline frame";
+		log("step:", step);
 		const baseFrame = await frameImageData({ bytes: baselineBytes, timeSeconds: 1 });
+		step = "sample overlay frame";
+		log("step:", step);
 		const overFrame = await frameImageData({ bytes: overlayBytes, timeSeconds: 1 });
 		if (baseFrame.width !== overFrame.width || baseFrame.height !== overFrame.height) {
 			fail(`frame size ${baseFrame.width}x${baseFrame.height} vs ${overFrame.width}x${overFrame.height}`);
@@ -1469,7 +1518,8 @@ async function runOverlayPixels({
 			`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} frames=${baseFrame.width}x${baseFrame.height}`,
 		);
 	} catch (error) {
-		fail(error instanceof Error ? error.message : String(error));
+		const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+		fail(`step=${step} ${message}`, error);
 	}
 }
 

@@ -262,6 +262,8 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 			const painter = createHtmlOverlayPainter({
 				tracks: sceneTracks,
 				durationSeconds: edl.meta.durationTicks / edl.meta.ticksPerSecond,
+				width: edl.output.resolution.width,
+				height: edl.output.resolution.height,
 			});
 			const platform: NativeExportPlatform =
 				bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";

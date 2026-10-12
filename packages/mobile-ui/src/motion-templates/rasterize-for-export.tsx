@@ -8,13 +8,16 @@
  *   - a `<canvas>` (three.js / WebGL) is drawn with `drawImage` — WebGL
  *     contexts created while this painter is alive request
  *     `preserveDrawingBuffer` so the pixels survive until we read them
- *   - the rest of the tree (CSS, text) is captured through an SVG
- *     `foreignObject`
+ *   - CSS and text are captured through an SVG `foreignObject` where that
+ *     stays origin-clean (Chromium). WebKit taints the canvas
+ *     ("The operation is insecure.") so there the same tree is painted
+ *     with fillRect / fillText from computed style
  *
  * A clip that produces no visible pixels is returned as uncaptured. The
- * omission list names it. Samples are capped (8 fps, 24 unique frames over
- * the whole timeline) so a long animation does not hold a PNG per output
- * frame in memory.
+ * omission list names it. One clip's failure does not abort the others.
+ * Samples aim for 15 fps. The frame count grows with the time templates
+ * are actually on screen, and stops when the PNG payload would pass the
+ * bridge budget (see `htmlOverlayStepSeconds`).
  */
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -28,12 +31,53 @@ import { getHtmlTemplate } from "./registry";
 import { isHtmlTemplateGraphic, templateIdFromDefinitionId } from "./engine-bridge";
 import type { EditingTemplatePrimitive, HtmlTemplateComponent } from "./types";
 
-const MAX_HTML_FPS = 8;
-const MAX_HTML_FRAMES = 24;
+/** Motion-graphics sample rate when the payload budget allows it. */
+export const HTML_OVERLAY_TARGET_FPS = 15;
 
-export function htmlOverlayStepSeconds({ durationSeconds }: { durationSeconds: number }): number {
+/**
+ * Base64 characters of overlay PNG we will hold for the native bridge.
+ *
+ * A 1920×1080 frame is about 0.05MB when it is mostly transparent text and
+ * about 0.4–0.8MB when a noisy shader fills part of it. 36MB is ~90 sparse
+ * 1080p frames (15 fps for 6s) or ~45 dense ones. Past that, the step
+ * widens and `renderOverlayFrames` holds the last PNG instead of growing
+ * the payload. 15 fps for a full minute would be ~180MB and is not viable
+ * in the WKWebView bridge.
+ */
+export const HTML_OVERLAY_PAYLOAD_CHARS = 36 * 1024 * 1024;
+
+const ESTIMATED_BYTES_PER_PIXEL = 0.2;
+
+export function htmlOverlayStepSeconds({
+	durationSeconds,
+	width = 1280,
+	height = 720,
+}: {
+	durationSeconds: number;
+	/** Export width, so the frame budget matches the PNG size. */
+	width?: number;
+	/** Export height. */
+	height?: number;
+}): number {
 	const duration = Math.max(durationSeconds, 0.1);
-	return Math.max(1 / MAX_HTML_FPS, duration / MAX_HTML_FRAMES);
+	const estimatedFrame = Math.max(32_000, Math.round(width * height * ESTIMATED_BYTES_PER_PIXEL));
+	const budgetFrames = Math.max(8, Math.floor(HTML_OVERLAY_PAYLOAD_CHARS / estimatedFrame));
+	const wantedFrames = Math.max(1, Math.ceil(duration * HTML_OVERLAY_TARGET_FPS));
+	const frames = Math.min(wantedFrames, budgetFrames);
+	return duration / frames;
+}
+
+/**
+ * WebKit (every iOS browser, and desktop Safari) marks a canvas origin-dirty
+ * after drawing an SVG that contains `foreignObject`. Reading it then throws
+ * SecurityError. Chromium still allows that read, so the foreignObject path
+ * stays for it.
+ */
+function foreignObjectTaintsCanvas(): boolean {
+	if (typeof navigator === "undefined") return false;
+	const ua = navigator.userAgent;
+	if (/iPhone|iPad|iPod/i.test(ua)) return true;
+	return /AppleWebKit/i.test(ua) && !/Chrome|Chromium|Edg\//i.test(ua);
 }
 
 interface TemplateClipBox {
@@ -178,6 +222,45 @@ function installPreserveDrawingBuffer(): () => void {
 	};
 }
 
+/**
+ * Draw `source` into a tiny 2D canvas and read it back. Returns null when
+ * WebKit refuses the read (tainted canvas, SecurityError "The operation
+ * is insecure.") so the caller can skip that source instead of poisoning
+ * the export canvas.
+ */
+function readProbe({
+	source,
+	width,
+	height,
+}: {
+	source: CanvasImageSource;
+	width: number;
+	height: number;
+}): Uint8ClampedArray | null {
+	const probe = document.createElement("canvas");
+	probe.width = Math.max(1, Math.min(64, Math.round(width)));
+	probe.height = Math.max(1, Math.min(64, Math.round(height)));
+	const ctx = probe.getContext("2d");
+	if (!ctx) return null;
+	try {
+		ctx.drawImage(source, 0, 0, probe.width, probe.height);
+		return ctx.getImageData(0, 0, probe.width, probe.height).data;
+	} catch {
+		return null;
+	}
+}
+
+function canvasReadAllowed({ canvas }: { canvas: HTMLCanvasElement }): boolean {
+	const ctx = canvas.getContext("2d");
+	if (!ctx) return false;
+	try {
+		ctx.getImageData(0, 0, 1, 1);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function canvasHasPixels({
 	source,
 	width,
@@ -187,17 +270,8 @@ function canvasHasPixels({
 	width: number;
 	height: number;
 }): boolean {
-	const probe = document.createElement("canvas");
-	probe.width = Math.max(1, Math.min(64, Math.round(width)));
-	probe.height = Math.max(1, Math.min(64, Math.round(height)));
-	const ctx = probe.getContext("2d");
-	if (!ctx) return false;
-	try {
-		ctx.drawImage(source, 0, 0, probe.width, probe.height);
-	} catch {
-		return false;
-	}
-	const data = ctx.getImageData(0, 0, probe.width, probe.height).data;
+	const data = readProbe({ source, width, height });
+	if (!data) return false;
 	for (let i = 3; i < data.length; i += 16) {
 		if ((data[i] ?? 0) > 12) return true;
 	}
@@ -288,51 +362,148 @@ async function rasterizeDom({
 	}
 }
 
-function paintClip({
-	clip,
-	node,
+function cssColorIsVisible({ color }: { color: string }): boolean {
+	if (!color || color === "transparent") return false;
+	const match = /rgba?\(\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*(?:,\s*([\d.]+)\s*)?\)/.exec(color);
+	if (!match) return true;
+	const alpha = match[1] === undefined ? 1 : Number(match[1]);
+	return alpha > 0.004;
+}
+
+function paintText({
 	ctx,
-	dom,
-	drewCanvas,
+	style,
+	text,
+	x,
+	y,
+	height,
 }: {
-	clip: TemplateClipBox;
-	node: HTMLElement;
-	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-	dom: HTMLCanvasElement | null;
-	drewCanvas: boolean;
+	ctx: CanvasRenderingContext2D;
+	style: CSSStyleDeclaration;
+	text: string;
+	x: number;
+	y: number;
+	height: number;
 }): void {
 	ctx.save();
-	ctx.globalAlpha = clip.opacity;
-	ctx.translate(clip.left + clip.width / 2, clip.top + clip.height / 2);
-	ctx.rotate((clip.rotation * Math.PI) / 180);
-	if (drewCanvas) {
-		for (const canvas of node.querySelectorAll("canvas")) {
-			const box = canvas.getBoundingClientRect();
-			const nodeBox = node.getBoundingClientRect();
-			if (box.width < 1 || box.height < 1) continue;
-			try {
-				ctx.drawImage(
-					canvas,
-					box.left - nodeBox.left - clip.width / 2,
-					box.top - nodeBox.top - clip.height / 2,
-					box.width,
-					box.height,
-				);
-			} catch {
-				// A tainted canvas is reported by the pixel check below.
-			}
+	ctx.fillStyle = style.color;
+	const font = style.font && style.font !== "" ? style.font : `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+	ctx.font = font;
+	ctx.textBaseline = "middle";
+	ctx.textAlign = "left";
+	const spacing = Number.parseFloat(style.letterSpacing);
+	const baseline = y + height / 2;
+	if (Number.isFinite(spacing) && spacing !== 0 && text.length > 1) {
+		let cursor = x;
+		for (const char of text) {
+			ctx.fillText(char, cursor, baseline);
+			cursor += ctx.measureText(char).width + spacing;
+		}
+	} else {
+		ctx.fillText(text, x, baseline);
+	}
+	ctx.restore();
+}
+
+/**
+ * Paint a laid-out DOM tree with the 2D context. WebKit can read this;
+ * nothing here is an SVG foreignObject or a cross-origin image. Positions
+ * come from getBoundingClientRect, so flex/absolute layout matches preview.
+ */
+function paintDomDirect({
+	element,
+	skipPlates,
+}: {
+	element: HTMLElement;
+	skipPlates: boolean;
+}): HTMLCanvasElement | null {
+	const root = element.getBoundingClientRect();
+	const width = Math.max(1, Math.round(root.width));
+	const height = Math.max(1, Math.round(root.height));
+	const canvas = document.createElement("canvas");
+	canvas.width = width;
+	canvas.height = height;
+	const ctx = canvas.getContext("2d");
+	if (!ctx) return null;
+
+	const paintElement = ({ node }: { node: Element }) => {
+		if (node instanceof HTMLCanvasElement) return;
+		if (!(node instanceof HTMLElement) && !(node instanceof SVGElement)) return;
+		const style = getComputedStyle(node);
+		if (style.display === "none" || style.visibility === "hidden") return;
+		const opacity = Number.parseFloat(style.opacity);
+		ctx.save();
+		if (Number.isFinite(opacity) && opacity < 1) ctx.globalAlpha *= Math.max(0, opacity);
+		const rect = node.getBoundingClientRect();
+		const x = rect.left - root.left;
+		const y = rect.top - root.top;
+		const plate = node instanceof HTMLElement && node.hasAttribute(PLATE_ATTR);
+		if (!(skipPlates && plate) && rect.width >= 1 && rect.height >= 1 && cssColorIsVisible({ color: style.backgroundColor })) {
+			ctx.fillStyle = style.backgroundColor;
+			ctx.fillRect(x, y, rect.width, rect.height);
+		}
+		for (const child of node.childNodes) {
+			if (child.nodeType !== Node.TEXT_NODE) continue;
+			const text = child.textContent ?? "";
+			if (text.trim().length === 0) continue;
+			paintText({ ctx, style, text, x, y, height: rect.height });
+		}
+		for (const child of node.children) paintElement({ node: child });
+		ctx.restore();
+	};
+
+	paintElement({ node: element });
+	return canvas;
+}
+
+function activeDurationSeconds({ tracks }: { tracks: SceneTracks }): number {
+	let start = Number.POSITIVE_INFINITY;
+	let end = 0;
+	for (const track of tracks.overlay) {
+		if (track.hidden) continue;
+		for (const element of track.elements) {
+			if (element.type !== "graphic") continue;
+			if (!isHtmlTemplateGraphic({ definitionId: element.definitionId })) continue;
+			if ("hidden" in element && element.hidden) continue;
+			const startSec = mediaTimeToSeconds({ time: element.startTime });
+			const durationSec = mediaTimeToSeconds({ time: element.duration });
+			start = Math.min(start, startSec);
+			end = Math.max(end, startSec + durationSec);
 		}
 	}
-	if (dom) ctx.drawImage(dom, -clip.width / 2, -clip.height / 2, clip.width, clip.height);
+	if (!Number.isFinite(start)) return 0.1;
+	return Math.max(0.1, end - start);
+}
+
+function blitClip({
+	clip,
+	source,
+	ctx,
+}: {
+	clip: TemplateClipBox;
+	source: HTMLCanvasElement;
+	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+}): void {
+	ctx.save();
+	// The clip node's own opacity is already in the local raster.
+	ctx.translate(clip.left + clip.width / 2, clip.top + clip.height / 2);
+	ctx.rotate((clip.rotation * Math.PI) / 180);
+	ctx.drawImage(source, -clip.width / 2, -clip.height / 2, clip.width, clip.height);
 	ctx.restore();
 }
 
 export function createHtmlOverlayPainter({
 	tracks,
 	durationSeconds,
+	width = 1280,
+	height = 720,
 }: {
 	tracks: SceneTracks;
 	durationSeconds: number;
+	/** Export width. The sample step is chosen from this and the on-screen span. */
+	width?: number;
+	/** Export height. */
+	height?: number;
 }): {
 	hashAt: (args: { timeSeconds: number }) => string;
 	paint: (args: OverlayPaintArgs) => Promise<{ captured: string[]; missed: string[] }>;
@@ -346,7 +517,8 @@ export function createHtmlOverlayPainter({
 			templateIds.push(element.id);
 		}
 	}
-	const step = htmlOverlayStepSeconds({ durationSeconds });
+	const span = Math.min(Math.max(durationSeconds, 0.1), activeDurationSeconds({ tracks }));
+	const step = htmlOverlayStepSeconds({ durationSeconds: span, width, height });
 	const activeAt = ({ timeSeconds }: { timeSeconds: number }) =>
 		clipsAtTime({
 			tracks,
@@ -381,7 +553,7 @@ export function createHtmlOverlayPainter({
 
 	// Empty when nothing is on screen, so a gap between templates does not
 	// force a new PNG. While a template is visible, the bucket is the sample
-	// key (8 fps, 24 frames across the timeline).
+	// key (about 15 fps, widened when the PNG budget would overflow).
 	const hashAt = ({ timeSeconds }: { timeSeconds: number }) =>
 		activeAt({ timeSeconds }) ? String(Math.floor(timeSeconds / step)) : "";
 
@@ -405,6 +577,7 @@ export function createHtmlOverlayPainter({
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		await nextFrame();
 		await nextFrame();
+		if (document.fonts?.ready) await document.fonts.ready;
 		const plate = document.createElement("canvas");
 		plate.width = Math.max(1, Math.round(canvasSize.width));
 		plate.height = Math.max(1, Math.round(canvasSize.height));
@@ -413,48 +586,89 @@ export function createHtmlOverlayPainter({
 		const captured: string[] = [];
 		if (!plateCtx) return { canvas: plate, misses: clips.map((clip) => clip.id), captured };
 		for (const clip of clips) {
-			const node = host.querySelector(`[data-html-template-clip="${clip.id}"]`);
-			if (!(node instanceof HTMLElement)) {
-				misses.push(clip.id);
-				continue;
-			}
-			const canvases = [...node.querySelectorAll("canvas")].filter(
-				(canvas) => canvas.width >= 1 && canvas.height >= 1,
-			);
-			let drewCanvas = false;
-			for (const canvas of canvases) {
-				if (canvasHasPixels({ source: canvas, width: canvas.width, height: canvas.height })) {
-					drewCanvas = true;
-					break;
-				}
-			}
-			// A template that owns a canvas (three.js, a 2D effect) is only
-			// captured when that canvas has pixels. The CSS plate behind it
-			// is not a substitute — otherwise a blank shader exports as a
-			// black rectangle and never shows up as an omission.
-			if (canvases.length > 0 && !drewCanvas) {
-				misses.push(clip.id);
-				continue;
-			}
-			const plates = drewCanvas ? markCanvasPlates({ node }) : [];
-			let dom: HTMLCanvasElement | null = null;
 			try {
-				dom = await rasterizeDom({
-					element: node,
-					width: clip.width,
-					height: clip.height,
-					clearBackground: drewCanvas,
-				});
-			} finally {
-				for (const plate of plates) plate.removeAttribute(PLATE_ATTR);
-			}
-			const domVisible = dom ? canvasHasPixels({ source: dom, width: dom.width, height: dom.height }) : false;
-			if (!drewCanvas && !domVisible) {
+				const node = host.querySelector(`[data-html-template-clip="${clip.id}"]`);
+				if (!(node instanceof HTMLElement)) {
+					misses.push(clip.id);
+					continue;
+				}
+				const local = document.createElement("canvas");
+				const localWidth = Math.max(1, Math.round(clip.width));
+				const localHeight = Math.max(1, Math.round(clip.height));
+				local.width = localWidth;
+				local.height = localHeight;
+				const localCtx = local.getContext("2d");
+				if (!localCtx) {
+					misses.push(clip.id);
+					continue;
+				}
+				const nodeBox = node.getBoundingClientRect();
+				const canvases = [...node.querySelectorAll("canvas")].filter(
+					(canvas) => canvas.width >= 1 && canvas.height >= 1,
+				);
+				let drewCanvas = false;
+				for (const canvas of canvases) {
+					// Probing reads pixels. A tainted canvas returns no probe
+					// and is not drawn, so it cannot mark the export canvas dirty.
+					if (!canvasHasPixels({ source: canvas, width: canvas.width, height: canvas.height })) continue;
+					const box = canvas.getBoundingClientRect();
+					if (box.width < 1 || box.height < 1) continue;
+					try {
+						localCtx.drawImage(
+							canvas,
+							box.left - nodeBox.left,
+							box.top - nodeBox.top,
+							box.width,
+							box.height,
+						);
+						drewCanvas = true;
+					} catch {
+						// This canvas stays out. Another one in the clip may still draw.
+					}
+				}
+				// A template that owns a canvas (three.js, a 2D effect) is only
+				// captured when that canvas has pixels. The CSS plate behind it
+				// is not a substitute — otherwise a blank shader exports as a
+				// black rectangle and never shows up as an omission.
+				if (canvases.length > 0 && !drewCanvas) {
+					misses.push(clip.id);
+					continue;
+				}
+				const plates = drewCanvas ? markCanvasPlates({ node }) : [];
+				let dom: HTMLCanvasElement | null = null;
+				try {
+					if (!foreignObjectTaintsCanvas()) {
+						dom = await rasterizeDom({
+							element: node,
+							width: clip.width,
+							height: clip.height,
+							clearBackground: drewCanvas,
+						});
+						if (dom && !canvasHasPixels({ source: dom, width: dom.width, height: dom.height })) dom = null;
+					}
+					if (!dom) {
+						dom = paintDomDirect({ element: node, skipPlates: drewCanvas });
+						if (dom && !canvasHasPixels({ source: dom, width: dom.width, height: dom.height })) dom = null;
+					}
+				} finally {
+					for (const plateNode of plates) plateNode.removeAttribute(PLATE_ATTR);
+				}
+				if (dom) {
+					try {
+						localCtx.drawImage(dom, 0, 0, localWidth, localHeight);
+					} catch {
+						dom = null;
+					}
+				}
+				if (!drewCanvas && !dom) {
+					misses.push(clip.id);
+					continue;
+				}
+				blitClip({ clip, source: local, ctx: plateCtx });
+				captured.push(clip.id);
+			} catch {
 				misses.push(clip.id);
-				continue;
 			}
-			paintClip({ clip, node, ctx: plateCtx, dom: domVisible ? dom : null, drewCanvas });
-			captured.push(clip.id);
 		}
 		return { canvas: plate, misses, captured };
 	};
@@ -462,16 +676,27 @@ export function createHtmlOverlayPainter({
 	return {
 		hashAt,
 		paint: async ({ ctx, timeSeconds, canvasSize }) => {
-			const bucket = hashAt({ timeSeconds });
-			if (cachedBucket !== bucket || !cachedCanvas) {
-				const rendered = await renderBucket({ timeSeconds, canvasSize });
-				cachedBucket = bucket;
-				cachedCanvas = rendered.canvas;
-				cachedMisses = rendered.misses;
-				cachedCaptured = rendered.captured;
+			try {
+				const bucket = hashAt({ timeSeconds });
+				if (cachedBucket !== bucket || !cachedCanvas) {
+					const rendered = await renderBucket({ timeSeconds, canvasSize });
+					cachedBucket = bucket;
+					cachedCanvas = rendered.canvas;
+					cachedMisses = rendered.misses;
+					cachedCaptured = rendered.captured;
+				}
+				if (cachedCanvas && canvasReadAllowed({ canvas: cachedCanvas })) {
+					ctx.drawImage(cachedCanvas, 0, 0);
+				} else {
+					return { missed: templateIds, captured: [] };
+				}
+				return { missed: cachedMisses, captured: cachedCaptured };
+			} catch {
+				// The whole painter failed. Every template stays on the
+				// omission list; stickers and shapes already on the overlay
+				// canvas are left alone.
+				return { missed: templateIds, captured: [] };
 			}
-			ctx.drawImage(cachedCanvas, 0, 0);
-			return { missed: cachedMisses, captured: cachedCaptured };
 		},
 		dispose: () => {
 			root.unmount();
