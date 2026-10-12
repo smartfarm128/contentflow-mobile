@@ -572,10 +572,19 @@ final class AudioDocumentPickerCoordinator: NSObject, UIDocumentPickerDelegate {
             onFinished()
         }
     }
+}
 
+extension NativeBridgePlugin {
     /// One upright JPEG of a sandbox video at `timeSeconds`. Used by the AI
     /// still, which composites this under the overlay raster on a private
     /// canvas. The webview never decodes the MP4.
+    ///
+    /// This has to be a method of `NativeBridgePlugin` itself, listed in
+    /// `pluginMethods`, with the `@objc` selector `grabVideoFrame:`.
+    /// Capacitor looks that selector up on the plugin instance. A method
+    /// on a helper class is invisible: the bridge logs
+    /// "does not respond to method call" and returns without resolving or
+    /// rejecting, so the JavaScript promise never settles.
     @objc func grabVideoFrame(_ call: CAPPluginCall) {
         guard let raw = call.getString("path"), !raw.isEmpty else {
             call.reject("grabVideoFrame requires path")

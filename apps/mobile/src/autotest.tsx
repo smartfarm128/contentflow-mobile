@@ -1312,7 +1312,7 @@ async function frameImageData({
 	bytes: ArrayBuffer;
 	timeSeconds: number;
 	label: string;
-}): Promise<ImageData> {
+}): Promise<{ image: ImageData; decodedWidth: number; decodedHeight: number }> {
 	log(`diag: ${label} blob bytes=${bytes.byteLength}`);
 	const url = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
 	const video = document.createElement("video");
@@ -1364,10 +1364,12 @@ async function frameImageData({
 		});
 		await sought;
 		diag(`seeked t=${video.currentTime.toFixed(3)} ${video.videoWidth}x${video.videoHeight}`);
-		const longEdge = Math.max(video.videoWidth, video.videoHeight, 1);
+		const decodedWidth = video.videoWidth;
+		const decodedHeight = video.videoHeight;
+		const longEdge = Math.max(decodedWidth, decodedHeight, 1);
 		const scale = Math.min(1, SAMPLE_MAX_EDGE / longEdge);
-		const width = Math.max(2, Math.round(video.videoWidth * scale));
-		const height = Math.max(2, Math.round(video.videoHeight * scale));
+		const width = Math.max(2, Math.round(decodedWidth * scale));
+		const height = Math.max(2, Math.round(decodedHeight * scale));
 		const read = ({
 			source,
 			width: readWidth,
@@ -1392,8 +1394,8 @@ async function frameImageData({
 		};
 		try {
 			const pixels = read({ source: video, width, height });
-			diag(`getImageData ${width}x${height}`);
-			return pixels;
+			diag(`getImageData ${width}x${height} decoded=${decodedWidth}x${decodedHeight}`);
+			return { image: pixels, decodedWidth, decodedHeight };
 		} catch (error) {
 			// WKWebView taints a canvas after drawing some video elements
 			// ("The operation is insecure."). A bitmap copied out of the
@@ -1408,8 +1410,8 @@ async function frameImageData({
 				const bitmapWidth = Math.max(2, Math.round(bitmap.width * bitmapScale));
 				const bitmapHeight = Math.max(2, Math.round(bitmap.height * bitmapScale));
 				const pixels = read({ source: bitmap, width: bitmapWidth, height: bitmapHeight });
-				diag(`bitmap ${bitmapWidth}x${bitmapHeight}`);
-				return pixels;
+				diag(`bitmap ${bitmapWidth}x${bitmapHeight} decoded=${decodedWidth}x${decodedHeight}`);
+				return { image: pixels, decodedWidth, decodedHeight };
 			} finally {
 				bitmap.close();
 			}
@@ -1650,21 +1652,25 @@ async function runOverlayPixels({
 			step = "export with overlays";
 			log("step:", step);
 			overlayBytes = await exportEdlBytes({ editor, overlayFrames: rendered.frames });
-			log(`diag: export bytes=${overlayBytes.byteLength}`);
+			log(
+				`diag: export bytes=${overlayBytes.byteLength} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
+			);
 		} finally {
 			painter.dispose();
 		}
 
 		step = "sample baseline frame";
 		log("step:", step);
-		const baseFrame = await frameImageData({ bytes: baselineBytes, timeSeconds: 1, label: "baseline" });
+		const baseSample = await frameImageData({ bytes: baselineBytes, timeSeconds: 1, label: "baseline" });
+		const baseFrame = baseSample.image;
 		// Let WKWebView drop the baseline decoder before the overlay file
 		// asks for one. A second <video> started while the first still owns
 		// the hardware decoder never fires loadeddata or error.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		step = "sample overlay frame";
 		log("step:", step);
-		const overFrame = await frameImageData({ bytes: overlayBytes, timeSeconds: 1, label: "overlay" });
+		const overSample = await frameImageData({ bytes: overlayBytes, timeSeconds: 1, label: "overlay" });
+		const overFrame = overSample.image;
 		if (baseFrame.width !== overFrame.width || baseFrame.height !== overFrame.height) {
 			fail(`frame size ${baseFrame.width}x${baseFrame.height} vs ${overFrame.width}x${overFrame.height}`);
 			return;
@@ -1721,7 +1727,7 @@ async function runOverlayPixels({
 		}
 		if (guard.claim()) {
 			log(
-				`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} frames=${baseFrame.width}x${baseFrame.height}`,
+				`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} sampled=${baseFrame.width}x${baseFrame.height} decoded=${baseSample.decodedWidth}x${baseSample.decodedHeight} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
 			);
 		}
 	} catch (error) {

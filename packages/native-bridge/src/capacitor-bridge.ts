@@ -730,8 +730,38 @@ export function createCapacitorBridge({
 			timeSeconds: number;
 			maxEdge?: number;
 		}): Promise<{ jpegBase64: string; width: number; height: number }> {
+			// Capacitor drops a call whose selector is missing on the plugin
+			// instance: it logs and returns without resolving or rejecting.
+			// Race a timeout so that miss becomes an error the caller can
+			// catch, instead of a promise that never settles.
+			const GRAB_TIMEOUT_MS = 12_000;
 			try {
-				const frame = await plugin.grabVideoFrame({ path, timeSeconds, maxEdge });
+				const frame = await new Promise<{
+					jpegBase64: string;
+					width: number;
+					height: number;
+				}>((resolve, reject) => {
+					const timer = setTimeout(() => {
+						reject(
+							new NativeBridgeError({
+								code: "IO_ERROR",
+								message: `grabVideoFrame timed out after ${GRAB_TIMEOUT_MS}ms; native did not answer`,
+							}),
+						);
+					}, GRAB_TIMEOUT_MS);
+					plugin
+						.grabVideoFrame({ path, timeSeconds, maxEdge })
+						.then(
+							(value) => {
+								clearTimeout(timer);
+								resolve(value);
+							},
+							(err: unknown) => {
+								clearTimeout(timer);
+								reject(err);
+							},
+						);
+				});
 				if (!frame.jpegBase64) {
 					throw new NativeBridgeError({
 						code: "IO_ERROR",

@@ -174,7 +174,7 @@ export async function captureFrameAt({
 				const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 				report.video = "error";
 				report.videoDetail = message;
-				trace(`grab error: ${message}`);
+				trace(`grab error: ${message}; painting overlay-only still`);
 			}
 		}
 
