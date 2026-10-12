@@ -368,7 +368,13 @@ object EdlToComposition {
         // renderer below stays as the fallback for callers that send none.
         val textOverlays: List<androidx.media3.effect.TextureOverlay> =
             if (overlayFrames.isNotEmpty()) {
-                listOf(PrerenderedOverlay(overlayFrames))
+                listOf(
+                    PrerenderedOverlay(
+                        frames = overlayFrames,
+                        targetWidth = edl.output.resolutionWidth,
+                        targetHeight = edl.output.resolutionHeight,
+                    ),
+                )
             } else edl.overlays
             .filter { it.kind == EdlOverlayKind.TEXT || it.kind == EdlOverlayKind.CAPTION }
             .sortedBy { it.zIndex }

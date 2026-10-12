@@ -57,6 +57,19 @@ describe("createWebFallbackBridge", () => {
 		]);
 	});
 
+	test("writeOverlayPng is unsupported without a sandbox, and clear is a no-op", async () => {
+		await expect(bridge.clearOverlayPngs()).resolves.toBeUndefined();
+		await expect(bridge.removeAutotestFlag({ name: "autotest.flag" })).resolves.toBeUndefined();
+		let caught: unknown;
+		try {
+			await bridge.writeOverlayPng({ pngBase64: "aaaa" });
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBeInstanceOf(NativeBridgeError);
+		expect((caught as InstanceType<typeof NativeBridgeError>).code).toBe("UNSUPPORTED");
+	});
+
 	test("exportProject throws a typed NativeBridgeError naming the real (native) implementation", async () => {
 		const iterator = bridge.exportProject({ edl: {} as never });
 		let caught: unknown;

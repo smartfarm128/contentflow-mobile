@@ -6,6 +6,8 @@ import {
 } from "./visual-node";
 
 export interface StickerNodeParams extends VisualNodeParams {
+	/** Timeline element id, so a failed raster can be named in the omission list. */
+	elementId?: string;
 	stickerId: string;
 	intrinsicWidth?: number;
 	intrinsicHeight?: number;

@@ -11,6 +11,9 @@
  *                    next to autotest.flag) -> the export-honesty phase.
  *   #/autotest/custody-media (or `<mediaRoot>/autotest-custody-media.flag`)
  *                    -> stock + voiceover files imported into native custody.
+ *   #/autotest/overlay-pixels (or `<mediaRoot>/autotest-overlay-pixels.flag`)
+ *                    -> CSS template, WebGL template and sticker pixels in
+ *                    the exported file.
  *
  * Both are dynamic imports so the diagnostics path stays out of the
  * editor's startup graph and vice versa. A hash flip between modes does a

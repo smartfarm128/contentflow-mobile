@@ -29,8 +29,14 @@ export type Platform = "ios" | "android" | "web";
 export interface ExportOverlayFrame {
 	startTicks: number;
 	endTicks: number;
-	/** Base64 PNG (no `data:` prefix) at the export resolution. */
+	/**
+	 * Base64 PNG (no `data:` prefix) at the export resolution.
+	 * Empty when `pngPath` is set — the bytes were written to the sandbox
+	 * one frame at a time so a long timeline does not ride in this payload.
+	 */
 	pngBase64: string;
+	/** Raw sandbox path from `writeOverlayPng`. Native reads the file. */
+	pngPath?: string;
 }
 
 export type MediaKind = "video" | "audio" | "image";
@@ -385,9 +391,27 @@ export interface NativeBridge {
 		 *  the native exporter composites these instead of re-rasterizing
 		 *  text and captions itself — one implementation, so preview and
 		 *  export cannot drift. Omitted (older callers, the standalone
-		 *  verify harness) → the native CoreText path still applies. */
+		 *  verify harness) → the native CoreText path still applies.
+		 *  Frames may name a sandbox `pngPath` instead of inline bytes. */
 		overlayFrames?: ExportOverlayFrame[];
 	}): AsyncGenerator<ExportProgress>;
+	/**
+	 * Writes one overlay PNG into the sandbox and returns its raw path.
+	 * The export rasterizer calls this per finished frame so a 30s+ timeline
+	 * never ships every PNG in a single `exportProject` payload. Web
+	 * fallback rejects with UNSUPPORTED — there is no sandbox there.
+	 */
+	writeOverlayPng(params: { pngBase64: string }): Promise<{ path: string }>;
+	/** Deletes overlay PNGs written by `writeOverlayPng`. Call after the
+	 *  exporter has finished reading them. */
+	clearOverlayPngs(): Promise<void>;
+	/**
+	 * Deletes one planted autotest flag (`autotest.flag`,
+	 * `autotest-overlay-pixels.flag`, …) from the media root. The name is
+	 * a basename, never a path. A missing file resolves. Web fallback
+	 * resolves without touching the filesystem.
+	 */
+	removeAutotestFlag(params: { name: string }): Promise<void>;
 	transcribe(params: {
 		handle: MediaHandle;
 		opts: TranscribeOptions;

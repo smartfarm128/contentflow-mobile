@@ -54,6 +54,7 @@ export {
 	toEdlMediaAssets,
 	buildNativeEdlAssetResolver,
 	insertHtmlTemplateElement,
+	insertStickerElement,
 	importAndPlaceMedia,
 	createProjectFromPickedMedia,
 	describeImportProgress,
@@ -77,4 +78,6 @@ export {
 	HTML_TEMPLATES,
 } from "./motion-templates/registry";
 export { TemplateThumbnail } from "./motion-templates/ui/template-thumbnail";
+export { createHtmlOverlayPainter, htmlOverlayStepSeconds } from "./motion-templates/rasterize-for-export";
+export { clearSpilledOverlayPngs, spillOverlayFrame } from "./export/spill-overlay-frame";
 export type { HtmlTemplate } from "./motion-templates/types";

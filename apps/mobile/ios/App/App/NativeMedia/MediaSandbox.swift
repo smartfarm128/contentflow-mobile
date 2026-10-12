@@ -95,6 +95,31 @@ public enum MediaSandbox {
 		try exportsDirectory().appendingPathComponent("\(exportId).mp4")
 	}
 
+	/// Overlay rasters for the current export. Re-derivable, so excluded
+	/// from backup. One PNG per file; the exporter reads them lazily and
+	/// `clearOverlayPngs` deletes them after encode finishes.
+	public static func overlayFramesDirectory() throws -> URL {
+		try subdirectory("OverlayFrames")
+	}
+
+	public static func writeOverlayPng(data: Data) throws -> URL {
+		let dest = try overlayFramesDirectory().appendingPathComponent("\(UUID().uuidString).png")
+		try data.write(to: dest, options: .atomic)
+		excludeFromBackup(dest)
+		return dest
+	}
+
+	public static func clearOverlayPngs() {
+		guard let directory = try? overlayFramesDirectory(),
+		      let entries = try? FileManager.default.contentsOfDirectory(
+		      	at: directory,
+		      	includingPropertiesForKeys: nil
+		      ) else { return }
+		for url in entries {
+			try? FileManager.default.removeItem(at: url)
+		}
+	}
+
 	/// Every finished export is ALSO copied into the Photos library, so the
 	/// container's copy is a second full-resolution video on a device that
 	/// already holds the originals, their proxies and their thumbnails. Left

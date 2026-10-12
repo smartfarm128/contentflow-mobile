@@ -84,6 +84,13 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // events on).
         CAPPluginMethod(name: "exportProject", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exportCancel", returnType: CAPPluginReturnPromise),
+        // Overlay PNGs land in the sandbox one at a time so a long timeline
+        // is not one base64 payload. See NativeBridgePlugin+Export.swift.
+        CAPPluginMethod(name: "writeOverlayPng", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearOverlayPngs", returnType: CAPPluginReturnPromise),
+        // Deletes one planted `<mediaRoot>/autotest*.flag` so a crashed
+        // autotest phase cannot relaunch into itself. Basename only.
+        CAPPluginMethod(name: "removeAutotestFlag", returnType: CAPPluginReturnPromise),
         // M10 round 20: on-device captions via Apple Speech — see
         // NativeBridgePlugin+Transcribe.swift / NativeMedia/AppleSpeechTranscriber.swift.
         CAPPluginMethod(name: "transcribe", returnType: CAPPluginReturnPromise),
@@ -210,6 +217,35 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["root": root.path])
         } catch {
             call.reject("getMediaRoot failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Deletes one autotest flag planted next to the media root. The name
+    /// must be a basename matching `autotest*.flag`. A missing file is
+    /// success. Anything that is not a direct child of the media root is
+    /// refused.
+    @objc func removeAutotestFlag(_ call: CAPPluginCall) {
+        guard let name = call.getString("name") else {
+            call.reject("removeAutotestFlag requires name")
+            return
+        }
+        guard name.range(of: #"^autotest[\w.-]*\.flag$"#, options: .regularExpression) != nil else {
+            call.reject("removeAutotestFlag name must be an autotest flag basename")
+            return
+        }
+        do {
+            let root = try MediaSandbox.rootDirectory()
+            let url = root.appendingPathComponent(name)
+            guard url.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else {
+                call.reject("removeAutotestFlag refused a path outside the media root")
+                return
+            }
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            call.resolve(["removed": true])
+        } catch {
+            call.reject("removeAutotestFlag failed: \(error.localizedDescription)")
         }
     }
 
