@@ -318,10 +318,13 @@ export async function executeTool(
 					text: "Could not render a frame — the preview compositor isn't running (no project open, or the GPU isn't available here). Judge from get_timeline instead, and say you could not look.",
 				};
 			}
+			const videoLine = frame.includesVideo
+				? `The ${frame.trace.videoDetail} video frame is underneath the overlays on a private canvas.`
+				: `The video frame was not composited (${frame.trace.videoDetail}). This still is overlays only.`;
 			return {
 				text:
-					`Overlays and motion templates at ${frame.timeSeconds.toFixed(2)}s, painted on a private canvas. ` +
-					`The live preview was not redrawn. Video pixels are not in this still:`,
+					`Still at ${frame.timeSeconds.toFixed(2)}s. ${videoLine} ` +
+					`The live preview was not redrawn.`,
 				frames: [frame],
 			};
 		}
@@ -334,11 +337,16 @@ export async function executeTool(
 					text: "Could not render review frames — the timeline is empty or the compositor isn't running.",
 				};
 			}
+			const withVideo = frames.filter((frame) => frame.includesVideo).length;
+			const videoLine =
+				withVideo === frames.length
+					? "Each still composites the proxy video frame under the overlays and motion templates."
+					: `${withVideo} of ${frames.length} stills include the proxy video frame. The rest are overlays only — say so, and do not treat them as the full picture.`;
 			return {
 				text:
-					`Self-review: ${frames.length} overlay frames across the video, at ` +
+					`Self-review: ${frames.length} frames across the video, at ` +
 					frames.map((f) => `${f.timeSeconds.toFixed(2)}s`).join(", ") +
-					". These include motion templates and canvas graphics. They do not include the video layer, and the live preview was not redrawn. " +
+					`. ${videoLine} The live preview was not redrawn. ` +
 					"Check each for clipped or unreadable titles, dead/black frames, and overlapping graphics. Fix what is wrong before reporting done.",
 				frames,
 			};

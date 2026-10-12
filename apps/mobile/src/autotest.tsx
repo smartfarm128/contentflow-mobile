@@ -51,10 +51,13 @@
  *      logs `VERDICT phase=overlay-pixels FAIL`.
  *
  *   8. FRAME-CAPTURE phase (`#/autotest/frame-capture`, or
- *      `<mediaRoot>/autotest-frame-capture.flag`): inserts a CSS motion
- *      template and captures one AI still. The JPEG must be non-black and
- *      contain the template's magenta. The live preview canvas, when it
- *      can be read, must be unchanged.
+ *      `<mediaRoot>/autotest-frame-capture.flag`): imports the planted mp4,
+ *      inserts a CSS motion template, and captures one AI still. The JPEG
+ *      must include the proxy video (non-black) and the template's magenta.
+ *      The phase flag is deleted first. `diag:` lines name the grab and
+ *      paint sub-steps. The live preview canvas, when it can be read, must
+ *      be unchanged. A throw, window error, or the 240s watchdog logs
+ *      `VERDICT phase=frame-capture FAIL`.
  *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
@@ -1779,13 +1782,21 @@ async function jpegPixels({ base64 }: { base64: string }): Promise<ImageData> {
 }
 
 /**
- * Captures one AI still of a magenta scramble template. PASS means the JPEG
- * is non-black, contains that magenta, and the live preview canvas was not
+ * Imports the planted clip, inserts a magenta scramble template, and
+ * captures one AI still. PASS means the JPEG contains the proxy video
+ * (non-black) and that magenta, and the live preview canvas was not
  * rewritten.
  */
-async function runFrameCapture({ editor }: { editor: EditorCore }): Promise<void> {
+async function runFrameCapture({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "frame-capture" });
 	const fail = (detail: string, error?: unknown) => {
-		log(`VERDICT phase=frame-capture FAIL ${detail}`);
+		guard.note(detail);
 		if (error instanceof Error && error.stack) log(error.stack);
 	};
 	let step = "start";
@@ -1794,6 +1805,44 @@ async function runFrameCapture({ editor }: { editor: EditorCore }): Promise<void
 		log("step:", step);
 		await editor.project.createNewProject({ name: FRAME_PROJECT });
 		const before = await previewFingerprint();
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		log(`diag: imported id=${video.id} proxy=${video.nativeRelativePath ?? "none"} source=${video.sourceNativeRelativePath ?? "none"}`);
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
 		step = "insert template";
 		log("step:", step);
 		const scramble = insertHtmlTemplateElement({
@@ -1814,19 +1863,34 @@ async function runFrameCapture({ editor }: { editor: EditorCore }): Promise<void
 		}
 		step = "capture frame";
 		log("step:", step);
-		const frame = await captureFrameAt({ editor, timeSeconds: 1 });
+		const frame = await captureFrameAt({
+			editor,
+			timeSeconds: 1,
+			onTrace: (line) => log("diag:", line),
+		});
 		if (!frame || frame.base64.length < 100) {
-			fail("capture returned no jpeg");
+			fail(`capture returned no jpeg video=${frame?.trace.video ?? "none"} ${frame?.trace.videoDetail ?? ""}`);
 			return;
 		}
+		log(
+			`diag: jpeg chars=${frame.base64.length} video=${frame.trace.video} detail=${frame.trace.videoDetail} captured=${frame.trace.captured.join(",") || "none"} missed=${frame.trace.missed.join(",") || "none"}`,
+		);
 		const after = await previewFingerprint();
 		if (before && after && before !== after) {
 			fail("capture drew into the live preview");
 			return;
 		}
+		if (!frame.includesVideo) {
+			fail(`video not composited ${frame.trace.videoDetail}`);
+			return;
+		}
 		step = "read jpeg";
 		log("step:", step);
-		const pixels = await jpegPixels({ base64: frame.base64 });
+		const pixels = await withTimeout({
+			promise: jpegPixels({ base64: frame.base64 }),
+			ms: 10_000,
+			label: "jpeg decode",
+		});
 		let nonBlack = 0;
 		let magenta = 0;
 		const count = pixels.data.length / 4;
@@ -1841,22 +1905,26 @@ async function runFrameCapture({ editor }: { editor: EditorCore }): Promise<void
 		const templateRatio = magenta / count;
 		const preview = before && after ? "unchanged" : "unread";
 		log(
-			`capture nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview}`,
+			`capture nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview} video=${frame.trace.video}`,
 		);
-		if (nonBlackRatio < 0.01 || templateRatio < 0.0005) {
+		if (nonBlackRatio < 0.2 || templateRatio < 0.0003) {
 			fail(
-				`frame missing template pixels nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)}`,
+				`frame missing video or template pixels nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)}`,
 			);
 			return;
 		}
-		log(
-			`VERDICT phase=frame-capture PASS nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview}`,
-		);
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=frame-capture PASS nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview} video=${frame.trace.video}`,
+			);
+		}
 	} catch (error) {
 		fail(
 			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
 			error,
 		);
+	} finally {
+		guard.close();
 	}
 }
 
@@ -1897,11 +1965,14 @@ export async function mountAutotest(): Promise<void> {
 	}
 	if (frameCapture) {
 		log("phase: frame-capture");
+		await clearAutotestFlags({
+			names: ["autotest-frame-capture.flag", "autotest.flag"],
+		});
 		container.innerHTML = "";
 		createRoot(container).render(
 			<EditorShell
 				bootstrap={async () => {
-					await runFrameCapture({ editor });
+					await runFrameCapture({ editor, root });
 				}}
 			/>,
 		);

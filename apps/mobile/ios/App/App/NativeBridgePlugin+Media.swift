@@ -572,4 +572,55 @@ final class AudioDocumentPickerCoordinator: NSObject, UIDocumentPickerDelegate {
             onFinished()
         }
     }
+
+    /// One upright JPEG of a sandbox video at `timeSeconds`. Used by the AI
+    /// still, which composites this under the overlay raster on a private
+    /// canvas. The webview never decodes the MP4.
+    @objc func grabVideoFrame(_ call: CAPPluginCall) {
+        guard let raw = call.getString("path"), !raw.isEmpty else {
+            call.reject("grabVideoFrame requires path")
+            return
+        }
+        let timeSeconds = call.getDouble("timeSeconds") ?? 0
+        let maxEdge = CGFloat(call.getDouble("maxEdge") ?? 768)
+        let path = Self.filesystemPath(from: raw)
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            call.reject("grabVideoFrame file missing at \(url.path)")
+            return
+        }
+        Task {
+            do {
+                let grabbed = try await ThumbnailStripGenerator.grabFrame(
+                    sourceURL: url,
+                    timeSeconds: timeSeconds,
+                    maxEdge: maxEdge
+                )
+                call.resolve([
+                    "jpegBase64": grabbed.base64,
+                    "width": grabbed.width,
+                    "height": grabbed.height,
+                ])
+            } catch {
+                call.reject("grabVideoFrame failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Raw path, `file://`, or a Capacitor playback URL
+    /// (`…/_capacitor_file_/…`). Spaces in `Application Support` stay
+    /// literal once the percent-encoding is removed.
+    private static func filesystemPath(from raw: String) -> String {
+        if let range = raw.range(of: "/_capacitor_file_") {
+            let rest = String(raw[range.upperBound...])
+            return rest.removingPercentEncoding ?? rest
+        }
+        if raw.hasPrefix("file://") {
+            if let url = URL(string: raw), url.isFileURL {
+                return url.path
+            }
+            return String(raw.dropFirst("file://".count))
+        }
+        return raw
+    }
 }

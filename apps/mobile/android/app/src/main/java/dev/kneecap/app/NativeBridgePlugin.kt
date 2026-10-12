@@ -1,5 +1,7 @@
 package dev.kneecap.app
 
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
@@ -761,6 +763,77 @@ class NativeBridgePlugin : Plugin() {
 			return
 		}
 		call.resolve()
+	}
+
+	/** One JPEG of a sandbox video at `timeSeconds`. The webview composites
+	 *  it under the overlay raster. `path` may be raw, `file://`, or a
+	 *  Capacitor playback URL. */
+	@PluginMethod
+	fun grabVideoFrame(call: PluginCall) {
+		val raw = call.getString("path")
+		if (raw.isNullOrEmpty()) {
+			call.reject("grabVideoFrame requires path", "IO_ERROR")
+			return
+		}
+		val timeSeconds = call.getDouble("timeSeconds") ?: 0.0
+		val maxEdge = (call.getDouble("maxEdge") ?: 768.0).toInt().coerceIn(64, 1920)
+		val path = filesystemPath(raw)
+		Thread {
+			val retriever = MediaMetadataRetriever()
+			try {
+				retriever.setDataSource(path)
+				val frame = retriever.getFrameAtTime(
+					(timeSeconds.coerceAtLeast(0.0) * 1_000_000.0).toLong(),
+					MediaMetadataRetriever.OPTION_CLOSEST,
+				)
+				if (frame == null) {
+					call.reject("grabVideoFrame produced no frame", "IO_ERROR")
+					return@Thread
+				}
+				val longEdge = maxOf(frame.width, frame.height)
+				val scaled = if (longEdge <= maxEdge || longEdge == 0) {
+					frame
+				} else {
+					val scale = maxEdge.toFloat() / longEdge
+					Bitmap.createScaledBitmap(
+						frame,
+						(frame.width * scale).toInt().coerceAtLeast(1),
+						(frame.height * scale).toInt().coerceAtLeast(1),
+						true,
+					)
+				}
+				val width = scaled.width
+				val height = scaled.height
+				val bytes = java.io.ByteArrayOutputStream()
+				scaled.compress(Bitmap.CompressFormat.JPEG, 80, bytes)
+				if (scaled !== frame) frame.recycle()
+				scaled.recycle()
+				val result = JSObject()
+				result.put(
+					"jpegBase64",
+					android.util.Base64.encodeToString(bytes.toByteArray(), android.util.Base64.NO_WRAP),
+				)
+				result.put("width", width)
+				result.put("height", height)
+				call.resolve(result)
+			} catch (error: Exception) {
+				call.reject(error.message ?: "grabVideoFrame failed", "IO_ERROR")
+			} finally {
+				retriever.release()
+			}
+		}.start()
+	}
+
+	private fun filesystemPath(raw: String): String {
+		val marker = "/_capacitor_file_"
+		val index = raw.indexOf(marker)
+		val stripped = if (index >= 0) raw.substring(index + marker.length) else raw
+		val noScheme = if (stripped.startsWith("file://")) stripped.removePrefix("file://") else stripped
+		return try {
+			java.net.URLDecoder.decode(noScheme, "UTF-8")
+		} catch (error: Exception) {
+			noScheme
+		}
 	}
 
 	/** Not part of the `NativeBridge` TS interface (that abstraction expresses

@@ -231,6 +231,11 @@ interface NativeBridgePluginSpec {
 	writeOverlayPng(params: { pngBase64: string }): Promise<{ path: string }>;
 	clearOverlayPngs(): Promise<void>;
 	removeAutotestFlag(params: { name: string }): Promise<void>;
+	grabVideoFrame(params: {
+		path: string;
+		timeSeconds: number;
+		maxEdge?: number;
+	}): Promise<{ jpegBase64: string; width: number; height: number }>;
 	/** Plugin-private — NOT part of the public `NativeBridge` TS interface,
 	 * which expresses cancellation as the caller simply stopping iteration
 	 * of the `AsyncGenerator<ExportProgress>` `exportProject` returns. This
@@ -713,6 +718,34 @@ export function createCapacitorBridge({
 				await plugin.removeAutotestFlag({ name });
 			} catch (err) {
 				throw toNativeBridgeError({ err, method: "removeAutotestFlag" });
+			}
+		},
+
+		async grabVideoFrame({
+			path,
+			timeSeconds,
+			maxEdge,
+		}: {
+			path: string;
+			timeSeconds: number;
+			maxEdge?: number;
+		}): Promise<{ jpegBase64: string; width: number; height: number }> {
+			try {
+				const frame = await plugin.grabVideoFrame({ path, timeSeconds, maxEdge });
+				if (!frame.jpegBase64) {
+					throw new NativeBridgeError({
+						code: "IO_ERROR",
+						message: "grabVideoFrame returned no jpeg",
+					});
+				}
+				return {
+					jpegBase64: frame.jpegBase64,
+					width: frame.width,
+					height: frame.height,
+				};
+			} catch (err) {
+				if (err instanceof NativeBridgeError) throw err;
+				throw toNativeBridgeError({ err, method: "grabVideoFrame" });
 			}
 		},
 

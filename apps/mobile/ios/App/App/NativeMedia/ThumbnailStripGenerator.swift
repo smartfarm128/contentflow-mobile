@@ -75,6 +75,28 @@ public enum ThumbnailStripGenerator {
 		}
 	}
 
+	public static func grabFrame(sourceURL: URL, timeSeconds: Double, maxEdge: CGFloat) async throws -> (base64: String, width: Int, height: Int) {
+		let asset = AVURLAsset(url: sourceURL)
+		let generator = AVAssetImageGenerator(asset: asset)
+		generator.appliesPreferredTrackTransform = true
+		let edge = max(64, min(maxEdge, 1920))
+		generator.maximumSize = CGSize(width: edge, height: edge)
+		let tolerance = CMTime(seconds: 0.1, preferredTimescale: 600)
+		generator.requestedTimeToleranceBefore = tolerance
+		generator.requestedTimeToleranceAfter = tolerance
+		let time = CMTime(seconds: max(0, timeSeconds), preferredTimescale: 600)
+		let cgImage = try await requestImage(generator: generator, at: time)
+		let data = NSMutableData()
+		guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
+			throw ThumbnailStripError.jpegEncodeFailed
+		}
+		CGImageDestinationAddImage(dest, cgImage, [kCGImageDestinationLossyCompressionQuality as String: 0.8] as CFDictionary)
+		guard CGImageDestinationFinalize(dest) else {
+			throw ThumbnailStripError.jpegEncodeFailed
+		}
+		return ((data as Data).base64EncodedString(), cgImage.width, cgImage.height)
+	}
+
 	private static func writeJPEG(cgImage: CGImage, to url: URL) throws {
 		guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
 			throw ThumbnailStripError.jpegEncodeFailed

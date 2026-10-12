@@ -89,7 +89,19 @@ export async function sampleVideoFrames({
 			const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
 			const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
 			if (base64) {
-				frames.push({ base64, mediaType: "image/jpeg", timeSeconds: t });
+				frames.push({
+					base64,
+					mediaType: "image/jpeg",
+					timeSeconds: t,
+					includesVideo: true,
+					trace: {
+						video: "yes",
+						videoDetail: "reference file decoded in the webview",
+						captured: [],
+						missed: [],
+						jpegChars: base64.length,
+					},
+				});
 			}
 		} catch {
 			// One unseekable timestamp must not abort the whole analysis — a
