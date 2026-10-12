@@ -97,6 +97,21 @@ export function salvageRelativeMediaPathFromStaleUrl(
 	return undefined;
 }
 
+/**
+ * Android's media handles are `file://` URIs (`Uri.fromFile`); iOS hands
+ * back a raw `URL.path`. Both have to relativize against the same custody
+ * root, or the original file is dropped and export falls back to the proxy.
+ */
+function asFilesystemPath(path: string): string {
+	if (!path.startsWith("file://")) return path;
+	const rest = path.slice("file://".length);
+	try {
+		return decodeURIComponent(rest);
+	} catch {
+		return rest;
+	}
+}
+
 /** Relativizes a RAW native filesystem path against the custody root
  *  (the raw-path sibling of `relativeMediaPathFromPlaybackUrl`). */
 export function relativeMediaPathFromRawPath({
@@ -108,8 +123,9 @@ export function relativeMediaPathFromRawPath({
 }): string | undefined {
 	if (!path || !root) return undefined;
 	const cleanRoot = root.replace(/\/+$/, "");
-	return path.startsWith(`${cleanRoot}/`)
-		? path.slice(cleanRoot.length + 1)
+	const filesystemPath = asFilesystemPath(path);
+	return filesystemPath.startsWith(`${cleanRoot}/`)
+		? filesystemPath.slice(cleanRoot.length + 1)
 		: undefined;
 }
 

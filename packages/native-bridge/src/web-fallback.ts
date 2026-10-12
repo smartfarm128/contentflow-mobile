@@ -236,6 +236,39 @@ export function createWebFallbackBridge(): NativeBridge {
 					"Voiceover rendering requires the iOS or Android app — the browser's speech API can play audio but cannot render it to a file for the timeline.",
 			});
 		},
+		/**
+		 * No sandbox in a browser. The bytes stay a blob URL so the web
+		 * preview can still play them; native export is already unsupported
+		 * on this bridge. Duration and hasAudio come from the media element,
+		 * same as a picked file.
+		 */
+		async importRemoteMedia(request) {
+			let response: Response;
+			try {
+				response = await fetch(request.url, {
+					method: request.method ?? "GET",
+					headers: request.headers,
+					body: request.method === "POST" ? request.body : undefined,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				throw new NativeBridgeError({
+					code: "IO_ERROR",
+					message: `Couldn't download media: ${message}`,
+				});
+			}
+			if (!response.ok) {
+				throw new NativeBridgeError({
+					code: "IO_ERROR",
+					message: `Couldn't download media: ${response.status}`,
+				});
+			}
+			const blob = await response.blob();
+			const file = new File([blob], request.fileName, {
+				type: blob.type || undefined,
+			});
+			return probeFile({ file, id: `web-remote-${nextHandleId++}` });
+		},
 		async *transcribe({
 			handle,
 		}: {

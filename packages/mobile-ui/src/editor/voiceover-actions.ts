@@ -22,10 +22,11 @@ import { relativeMediaPathFromPlaybackUrl } from "@kneecap/editor-core";
 import { getNativeBridge } from "@kneecap/native-bridge";
 import type { SpeechVoice } from "@kneecap/native-bridge";
 import {
+	elevenLabsSpeechRequest,
 	hasElevenLabsKey,
 	listElevenLabsVoices,
-	synthesizeElevenLabs,
 } from "./elevenlabs-voice";
+import { importRemoteMediaToTimeline } from "./custody-import";
 
 export interface VoiceoverResult {
 	ref: ElementRef | null;
@@ -121,55 +122,61 @@ export async function generateVoiceover({
 	const trimmed = text.trim();
 	if (!trimmed) throw new Error("Voiceover text is empty.");
 
-	let url: string;
-	let durationSec: number;
-	let mediaRoot: string | null = null;
-	let assetFile: File;
-
-	if (engine === "elevenlabs") {
-		if (!voiceId) throw new Error("Pick an ElevenLabs voice first.");
-		const mp3 = await synthesizeElevenLabs({ text: trimmed, voiceId });
-		assetFile = new File([mp3], "voiceover.mp3", { type: "audio/mpeg" });
-		url = URL.createObjectURL(mp3);
-		// ElevenLabs returns no duration header, and decoding the whole MP3 just
-		// to learn its length would stall the UI. Estimate from speech rate
-		// (~15 chars/sec at natural pace); the clip is trimmable either way, and
-		// the engine corrects it once the asset's real duration is probed.
-		durationSec = Math.max(1, trimmed.length / 15);
-	} else {
-		const bridge = await getNativeBridge();
-		const spoken = await bridge.speak({
-			text: trimmed,
-			voiceId,
-			languageHint,
-			rate,
-			pitch,
-		});
-		url = bridge.toPlaybackUri(spoken.audioUri);
-		durationSec = spoken.durationSec;
-		mediaRoot = await bridge.getMediaRoot().catch(() => null);
-		assetFile = new File([], "voiceover.wav", { type: "audio/wav" });
-	}
-
 	// A short, recognisable asset name so the media list doesn't fill with
 	// UUIDs — the first few words of what was actually said.
 	const label = trimmed.split(/\s+/).slice(0, 5).join(" ");
 	const name = `VO — ${label}${trimmed.length > label.length ? "…" : ""}`;
+
+	if (engine === "elevenlabs") {
+		if (!voiceId) throw new Error("Pick an ElevenLabs voice first.");
+		// Same custody import as Pexels: native POST, probe, relative path.
+		// The clip length is the probed MP3, not chars/15.
+		const request = elevenLabsSpeechRequest({ text: trimmed, voiceId });
+		const placed = await importRemoteMediaToTimeline({
+			editor,
+			request: {
+				url: request.url,
+				kind: "audio",
+				fileName: request.fileName,
+				method: request.method,
+				headers: request.headers,
+				body: request.body,
+			},
+			name,
+			startSeconds,
+		});
+		return {
+			ref: placed.ref,
+			durationSec: placed.durationSec,
+			assetId: placed.assetId,
+		};
+	}
+
+	const bridge = await getNativeBridge();
+	const spoken = await bridge.speak({
+		text: trimmed,
+		voiceId,
+		languageHint,
+		rate,
+		pitch,
+	});
+	const url = bridge.toPlaybackUri(spoken.audioUri);
+	const durationSec = spoken.durationSec;
+	const mediaRoot = await bridge.getMediaRoot().catch(() => null);
+	const assetFile = new File([], "voiceover.wav", { type: "audio/wav" });
 
 	const command = new AddMediaAssetCommand({
 		projectId: editor.project.getActive().metadata.id,
 		asset: {
 			name,
 			type: "audio",
-			// Device path: zero-byte stub, bytes live in native custody (see
-			// native-import.ts's `stubFile`). Cloud path: the real MP3 bytes,
-			// since there is no native file backing them.
+			// Zero-byte stub: the WAV already lives in native custody (see
+			// native-import.ts's `stubFile`). ElevenLabs takes the other
+			// branch above and never builds a blob asset.
 			file: assetFile,
 			url,
 			duration: durationSec,
 			hasAudio: true,
-			// Only meaningful for native-custody audio; a blob URL has no
-			// container-relative form to persist.
 			nativeRelativePath: mediaRoot
 				? relativeMediaPathFromPlaybackUrl({ url, root: mediaRoot })
 				: undefined,

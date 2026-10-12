@@ -9,6 +9,8 @@
  *   #/autotest       -> ./autotest.tsx      — headless end-to-end QA.
  *   #/autotest/export-honesty (or `<mediaRoot>/autotest-export-honesty.flag`
  *                    next to autotest.flag) -> the export-honesty phase.
+ *   #/autotest/custody-media (or `<mediaRoot>/autotest-custody-media.flag`)
+ *                    -> stock + voiceover files imported into native custody.
  *
  * Both are dynamic imports so the diagnostics path stays out of the
  * editor's startup graph and vice versa. A hash flip between modes does a
