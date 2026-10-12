@@ -631,10 +631,26 @@ class NativeBridgePlugin : Plugin() {
 		call.getArray("overlayFrames")?.let { array ->
 			for (index in 0 until array.length()) {
 				val entry = array.optJSONObject(index) ?: continue
+				val pngPath = entry.optString("pngPath", "")
 				val base64 = entry.optString("pngBase64", "")
 				val startTicks = entry.optLong("startTicks", -1)
 				val endTicks = entry.optLong("endTicks", -1)
-				if (base64.isEmpty() || endTicks <= startTicks) continue
+				if (endTicks <= startTicks) continue
+				val startUs = ticksToUs(startTicks, edl.meta.ticksPerSecond)
+				val endUs = ticksToUs(endTicks, edl.meta.ticksPerSecond)
+				// Path frames stay on disk. PrerenderedOverlay decodes the
+				// one file the compositor is sampling, not the whole timeline.
+				if (pngPath.isNotEmpty()) {
+					overlayFrames.add(
+						PrerenderedOverlay.Frame(
+							startUs = startUs,
+							endUs = endUs,
+							pngPath = pngPath,
+						),
+					)
+					continue
+				}
+				if (base64.isEmpty()) continue
 				val bytes = try {
 					android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
 				} catch (error: IllegalArgumentException) {
@@ -659,8 +675,8 @@ class NativeBridgePlugin : Plugin() {
 				}
 				overlayFrames.add(
 					PrerenderedOverlay.Frame(
-						startUs = ticksToUs(startTicks, edl.meta.ticksPerSecond),
-						endUs = ticksToUs(endTicks, edl.meta.ticksPerSecond),
+						startUs = startUs,
+						endUs = endUs,
 						bitmap = bitmap,
 					),
 				)
@@ -681,6 +697,48 @@ class NativeBridgePlugin : Plugin() {
 		) { event ->
 			notifyListeners("exportProgress", exportEventToJson(exportId, event))
 		}
+	}
+
+	/** One overlay PNG into `noBackupFilesDir/overlay-frames`. The returned
+	 *  path is absolute. `exportProject` passes it through; `PrerenderedOverlay`
+	 *  decodes the file for the sample it is drawing. */
+	@PluginMethod
+	fun writeOverlayPng(call: PluginCall) {
+		val base64 = call.getString("pngBase64")
+		if (base64.isNullOrEmpty()) {
+			call.reject("writeOverlayPng requires pngBase64", "IO_ERROR")
+			return
+		}
+		val bytes = try {
+			android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+		} catch (error: IllegalArgumentException) {
+			call.reject("writeOverlayPng could not decode png", "IO_ERROR")
+			return
+		}
+		val dir = File(context.noBackupFilesDir, "overlay-frames")
+		if (!dir.exists() && !dir.mkdirs()) {
+			call.reject("writeOverlayPng could not create overlay directory", "IO_ERROR")
+			return
+		}
+		val file = File(dir, "${UUID.randomUUID()}.png")
+		try {
+			file.writeBytes(bytes)
+		} catch (error: java.io.IOException) {
+			call.reject(error.message ?: "writeOverlayPng failed", "IO_ERROR")
+			return
+		}
+		val ack = JSObject()
+		ack.put("path", file.absolutePath)
+		call.resolve(ack)
+	}
+
+	@PluginMethod
+	fun clearOverlayPngs(call: PluginCall) {
+		val dir = File(context.noBackupFilesDir, "overlay-frames")
+		if (dir.exists()) {
+			dir.listFiles()?.forEach { file -> file.delete() }
+		}
+		call.resolve()
 	}
 
 	/** Not part of the `NativeBridge` TS interface (that abstraction expresses

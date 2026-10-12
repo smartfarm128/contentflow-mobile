@@ -18,6 +18,7 @@ import {
 	type OverlayFrame,
 } from "@kneecap/editor-core/export/overlay-frames";
 import { createHtmlOverlayPainter } from "../../motion-templates/rasterize-for-export";
+import { clearSpilledOverlayPngs, spillOverlayFrame } from "../../export/spill-overlay-frame";
 import {
 	buildNativeEdlAssetResolver, setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
 import type { FrameRate } from "opencut-wasm";
@@ -284,6 +285,7 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 					ticksPerSecond: edl.meta.ticksPerSecond,
 					extraHash: (args) => painter.hashAt(args),
 					paintExtras: (args) => painter.paint(args),
+					spillFrame: (frame) => spillOverlayFrame({ bridge, frame }),
 					onProgress: (fraction: number) =>
 						setProgress({ stage: "preparing", fraction: fraction * 0.2 }),
 				});
@@ -337,6 +339,10 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 			setExportError(error instanceof Error ? error.message : String(error));
 		} finally {
 			activeExportRef.current = null;
+			// The encoder has finished (or been cancelled) by the time the
+			// generator returns, so the sandbox PNGs can go.
+			const bridge = await getNativeBridge().catch(() => null);
+			if (bridge) await clearSpilledOverlayPngs({ bridge });
 		}
 	};
 

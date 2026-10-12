@@ -15,9 +15,9 @@
  *
  * A clip that produces no visible pixels is returned as uncaptured. The
  * omission list names it. One clip's failure does not abort the others.
- * Samples aim for 15 fps. The frame count grows with the time templates
- * are actually on screen, and stops when the PNG payload would pass the
- * bridge budget (see `htmlOverlayStepSeconds`).
+ * Samples stay at 15 fps for as long as a template is on screen. Each PNG
+ * is written to the sandbox as it is finished, so a long timeline does not
+ * freeze on the last image or ride in one base64 payload.
  */
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -31,40 +31,19 @@ import { getHtmlTemplate } from "./registry";
 import { isHtmlTemplateGraphic, templateIdFromDefinitionId } from "./engine-bridge";
 import type { EditingTemplatePrimitive, HtmlTemplateComponent } from "./types";
 
-/** Motion-graphics sample rate when the payload budget allows it. */
+/** Motion-graphics sample rate. Held for the whole on-screen span. */
 export const HTML_OVERLAY_TARGET_FPS = 15;
-
-/**
- * Base64 characters of overlay PNG we will hold for the native bridge.
- *
- * A 1920×1080 frame is about 0.05MB when it is mostly transparent text and
- * about 0.4–0.8MB when a noisy shader fills part of it. 36MB is ~90 sparse
- * 1080p frames (15 fps for 6s) or ~45 dense ones. Past that, the step
- * widens and `renderOverlayFrames` holds the last PNG instead of growing
- * the payload. 15 fps for a full minute would be ~180MB and is not viable
- * in the WKWebView bridge.
- */
-export const HTML_OVERLAY_PAYLOAD_CHARS = 36 * 1024 * 1024;
-
-const ESTIMATED_BYTES_PER_PIXEL = 0.2;
 
 export function htmlOverlayStepSeconds({
 	durationSeconds,
-	width = 1280,
-	height = 720,
 }: {
 	durationSeconds: number;
-	/** Export width, so the frame budget matches the PNG size. */
+	/** Accepted so callers can pass the export size; the step does not depend on it. */
 	width?: number;
-	/** Export height. */
 	height?: number;
 }): number {
-	const duration = Math.max(durationSeconds, 0.1);
-	const estimatedFrame = Math.max(32_000, Math.round(width * height * ESTIMATED_BYTES_PER_PIXEL));
-	const budgetFrames = Math.max(8, Math.floor(HTML_OVERLAY_PAYLOAD_CHARS / estimatedFrame));
-	const wantedFrames = Math.max(1, Math.ceil(duration * HTML_OVERLAY_TARGET_FPS));
-	const frames = Math.min(wantedFrames, budgetFrames);
-	return duration / frames;
+	void durationSeconds;
+	return 1 / HTML_OVERLAY_TARGET_FPS;
 }
 
 /**
@@ -552,8 +531,8 @@ export function createHtmlOverlayPainter({
 	let cachedCaptured: string[] = [];
 
 	// Empty when nothing is on screen, so a gap between templates does not
-	// force a new PNG. While a template is visible, the bucket is the sample
-	// key (about 15 fps, widened when the PNG budget would overflow).
+	// force a new PNG. While a template is visible, the bucket advances at
+	// 15 fps for the whole on-screen span.
 	const hashAt = ({ timeSeconds }: { timeSeconds: number }) =>
 		activeAt({ timeSeconds }) ? String(Math.floor(timeSeconds / step)) : "";
 

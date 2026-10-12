@@ -226,6 +226,10 @@ interface NativeBridgePluginSpec {
 		edl: Edl;
 		overlayFrames: ExportOverlayFrame[];
 	}): Promise<unknown>;
+	/** One PNG into the sandbox. Returns a raw filesystem path, not a
+	 *  playback URL — native export reads the file itself. */
+	writeOverlayPng(params: { pngBase64: string }): Promise<{ path: string }>;
+	clearOverlayPngs(): Promise<void>;
 	/** Plugin-private — NOT part of the public `NativeBridge` TS interface,
 	 * which expresses cancellation as the caller simply stopping iteration
 	 * of the `AsyncGenerator<ExportProgress>` `exportProject` returns. This
@@ -672,6 +676,34 @@ export function createCapacitorBridge({
 					// document a post-terminal cancel as a no-op.
 					await plugin.exportCancel({ exportId }).catch(() => {});
 				}
+			}
+		},
+
+		async writeOverlayPng({
+			pngBase64,
+		}: {
+			pngBase64: string;
+		}): Promise<{ path: string }> {
+			try {
+				const written = await plugin.writeOverlayPng({ pngBase64 });
+				if (!written.path) {
+					throw new NativeBridgeError({
+						code: "IO_ERROR",
+						message: "writeOverlayPng returned no path",
+					});
+				}
+				return { path: written.path };
+			} catch (err) {
+				if (err instanceof NativeBridgeError) throw err;
+				throw toNativeBridgeError({ err, method: "writeOverlayPng" });
+			}
+		},
+
+		async clearOverlayPngs(): Promise<void> {
+			try {
+				await plugin.clearOverlayPngs();
+			} catch (err) {
+				throw toNativeBridgeError({ err, method: "clearOverlayPngs" });
 			}
 		},
 

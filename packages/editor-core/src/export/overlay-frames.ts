@@ -57,9 +57,15 @@ export interface OverlayFrame {
 	/** Inclusive start / exclusive end on the OUTPUT timeline, in ticks. */
 	startTicks: number;
 	endTicks: number;
-	/** Base64 PNG (no data: prefix) at the export resolution, transparent
-	 *  everywhere the overlay does not paint. */
+	/**
+	 * Base64 PNG (no data: prefix) at the export resolution, transparent
+	 * everywhere the overlay does not paint. Empty when `pngPath` is set:
+	 * the bytes live in the sandbox so a long timeline does not sit in one
+	 * bridge payload.
+	 */
 	pngBase64: string;
+	/** Sandbox path of the same PNG, written one frame at a time. */
+	pngPath?: string;
 }
 
 export interface OverlayPaintArgs {
@@ -109,13 +115,6 @@ function createCanvas({
 	}
 	return null;
 }
-
-/**
- * Base64 characters of PNG this pass will hand to the native bridge.
- * Matches the HTML sampler's budget: past this, later samples keep the
- * last frame instead of allocating another full-resolution PNG.
- */
-const MAX_OVERLAY_PAYLOAD_CHARS = 36 * 1024 * 1024;
 
 function sourceIsReadable({ source }: { source: CanvasImageSource }): boolean {
 	if (typeof document === "undefined") return true;
@@ -389,6 +388,11 @@ export interface RenderOverlayFramesParams {
 		captured: readonly string[];
 		missed: readonly string[];
 	}>;
+	/**
+	 * Writes one finished PNG out of the JS heap (sandbox file) and returns
+	 * the frame to keep. Without it, every PNG stays inline as base64.
+	 */
+	spillFrame?: (frame: OverlayFrame) => Promise<OverlayFrame>;
 }
 
 export async function renderOverlayFrames({
@@ -401,6 +405,7 @@ export async function renderOverlayFrames({
 	onProgress,
 	extraHash,
 	paintExtras,
+	spillFrame,
 }: RenderOverlayFramesParams): Promise<OverlayRenderResult> {
 	const failedIds = new Set<string>();
 	// Every HTML template starts omitted. A sample that actually paints it
@@ -445,16 +450,16 @@ export async function renderOverlayFrames({
 
 	const frames: OverlayFrame[] = [];
 	let openFrame: { startTicks: number; hash: string; pngBase64: string } | null = null;
-	let payloadChars = 0;
 
-	const flush = (endTicks: number) => {
+	const flush = async (endTicks: number) => {
 		if (!openFrame || openFrame.hash === "" || openFrame.pngBase64 === "") return;
 		if (endTicks <= openFrame.startTicks) return;
-		frames.push({
+		const frame: OverlayFrame = {
 			startTicks: openFrame.startTicks,
 			endTicks,
 			pngBase64: openFrame.pngBase64,
-		});
+		};
+		frames.push(spillFrame ? await spillFrame(frame) : frame);
 	};
 
 	const noteUnencoded = () => {
@@ -485,17 +490,7 @@ export async function renderOverlayFrames({
 		const nodeHash = overlayHash(nodes);
 		const hash = nodeHash === "" && extra === "" ? "" : `${nodeHash}|${extra}`;
 
-		const holdForBudget =
-			openFrame !== null &&
-			openFrame.pngBase64 !== "" &&
-			payloadChars >= MAX_OVERLAY_PAYLOAD_CHARS &&
-			hash !== "" &&
-			hash !== openFrame.hash;
-		if (holdForBudget && openFrame) {
-			// Further unique frames would blow the bridge payload. The last
-			// PNG stays on screen for the rest of this run.
-			openFrame.hash = hash;
-		} else if (!openFrame || hash !== openFrame.hash) {
+		if (!openFrame || hash !== openFrame.hash) {
 			let pngBase64 = "";
 			let encodeFailed = false;
 			if (hash !== "") {
@@ -530,7 +525,7 @@ export async function renderOverlayFrames({
 					// never made it into a PNG stay on the omission list.
 					encodeFailed = true;
 					pngBase64 = "";
-					if (payloadChars === 0) noteUnencoded();
+					if (frames.length === 0) noteUnencoded();
 				}
 			}
 			// Identical pixels share one PNG, even when the sample bucket
@@ -541,14 +536,13 @@ export async function renderOverlayFrames({
 			} else if (openFrame && pngBase64 === openFrame.pngBase64) {
 				openFrame.hash = hash;
 			} else {
-				flush(timeTicks);
+				await flush(timeTicks);
 				openFrame = { startTicks: timeTicks, hash, pngBase64 };
-				if (pngBase64 !== "") payloadChars += pngBase64.length;
 			}
 		}
 		onProgress?.((index + 1) / frameCount);
 	}
-	flush(durationTicks);
+	await flush(durationTicks);
 
 	return { frames, uncapturedElementIds: [...failedIds] };
 }

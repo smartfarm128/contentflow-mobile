@@ -82,6 +82,8 @@ import {
 	createHtmlOverlayPainter,
 	insertHtmlTemplateElement,
 	insertStickerElement,
+	clearSpilledOverlayPngs,
+	spillOverlayFrame,
 	toEdlMediaAssets,
 } from "@kneecap/mobile-ui";
 import { getNativeBridge } from "@kneecap/native-bridge";
@@ -682,23 +684,29 @@ async function driveAndSample({
 		const { renderOverlayFrames } = await import(
 			"@kneecap/editor-core/export/overlay-frames"
 		);
-		const overlayFrames = (
-			await renderOverlayFrames({
-				tracks: editor.scenes.getActiveScene().tracks,
-				mediaAssets: editor.media.getAssets(),
-				canvasSize: {
-					width: edl.output.resolution.width,
-					height: edl.output.resolution.height,
-				},
-				fps: edl.output.fps,
-				durationTicks: edl.meta.durationTicks,
-				ticksPerSecond: edl.meta.ticksPerSecond,
-			})
-		).frames;
-		log(`overlay frames prerendered: ${overlayFrames.length}`);
-		for await (const p of bridge.exportProject({ edl, overlayFrames })) {
-			if (p.stage === "error") throw new Error(p.error ?? "export error");
-			if (p.stage === "done") outputUri = p.outputUri ?? null;
+		let overlayFrames: Awaited<ReturnType<typeof renderOverlayFrames>>["frames"] = [];
+		try {
+			overlayFrames = (
+				await renderOverlayFrames({
+					tracks: editor.scenes.getActiveScene().tracks,
+					mediaAssets: editor.media.getAssets(),
+					canvasSize: {
+						width: edl.output.resolution.width,
+						height: edl.output.resolution.height,
+					},
+					fps: edl.output.fps,
+					durationTicks: edl.meta.durationTicks,
+					ticksPerSecond: edl.meta.ticksPerSecond,
+					spillFrame: (frame) => spillOverlayFrame({ bridge, frame }),
+				})
+			).frames;
+			log(`overlay frames prerendered: ${overlayFrames.length}`);
+			for await (const p of bridge.exportProject({ edl, overlayFrames })) {
+				if (p.stage === "error") throw new Error(p.error ?? "export error");
+				if (p.stage === "done") outputUri = p.outputUri ?? null;
+			}
+		} finally {
+			await clearSpilledOverlayPngs({ bridge });
 		}
 		if (!outputUri) throw new Error("export finished without an outputUri");
 		// exportProject's outputUri is ALREADY a converted playback URL (the
@@ -771,9 +779,11 @@ async function runExportHonesty({
 	const fail = (detail: string) => {
 		log(`VERDICT phase=export-honesty FAIL ${detail}`);
 	};
+	let spilledBridge: Awaited<ReturnType<typeof getNativeBridge>> | null = null;
 	try {
 		await editor.project.createNewProject({ name: HONESTY_PROJECT });
 		const bridge = await getNativeBridge();
+		spilledBridge = bridge;
 		const source: NativeMediaSource = {
 			pickMedia: async () => [plantedHandle(root)],
 			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
@@ -890,6 +900,7 @@ async function runExportHonesty({
 			fps: edl.output.fps,
 			durationTicks: edl.meta.durationTicks,
 			ticksPerSecond: edl.meta.ticksPerSecond,
+			spillFrame: (frame) => spillOverlayFrame({ bridge, frame }),
 		});
 		const omissions = listNativeExportOmissions({
 			edl,
@@ -940,6 +951,8 @@ async function runExportHonesty({
 		);
 	} catch (error) {
 		fail(error instanceof Error ? error.message : String(error));
+	} finally {
+		if (spilledBridge) await clearSpilledOverlayPngs({ bridge: spilledBridge });
 	}
 }
 
@@ -1156,7 +1169,7 @@ async function exportEdlBytes({
 	overlayFrames,
 }: {
 	editor: EditorCore;
-	overlayFrames: Array<{ startTicks: number; endTicks: number; pngBase64: string }>;
+	overlayFrames: Array<{ startTicks: number; endTicks: number; pngBase64: string; pngPath?: string }>;
 }): Promise<ArrayBuffer> {
 	const bridge = await getNativeBridge();
 	const edl = buildEdl({
@@ -1430,6 +1443,7 @@ async function runOverlayPixels({
 				ticksPerSecond: edl.meta.ticksPerSecond,
 				extraHash: (args) => painter.hashAt(args),
 				paintExtras: (args) => painter.paint(args),
+				spillFrame: (frame) => spillOverlayFrame({ bridge, frame }),
 			});
 			const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
 			const omissions = listNativeExportOmissions({
@@ -1441,11 +1455,13 @@ async function runOverlayPixels({
 			const blocked = omissions.filter((item) =>
 				/Text Scramble|Kinetic Shader|Sticker "star"/i.test(item.message),
 			);
+			const spilled = rendered.frames.filter((frame) => frame.pngPath).length;
 			log(
 				"raster:",
 				`frames=${rendered.frames.length}`,
 				`uncaptured=${rendered.uncapturedElementIds.join(",") || "none"}`,
-				`payloadKB=${Math.round(rendered.frames.reduce((sum, frame) => sum + frame.pngBase64.length, 0) / 1024)}`,
+				`spilled=${spilled}`,
+				`inlineKB=${Math.round(rendered.frames.reduce((sum, frame) => sum + frame.pngBase64.length, 0) / 1024)}`,
 			);
 			if (blocked.length > 0 || rendered.uncapturedElementIds.length > 0) {
 				fail(
@@ -1458,6 +1474,7 @@ async function runOverlayPixels({
 			overlayBytes = await exportEdlBytes({ editor, overlayFrames: rendered.frames });
 		} finally {
 			painter.dispose();
+			await clearSpilledOverlayPngs({ bridge });
 		}
 
 		step = "sample baseline frame";

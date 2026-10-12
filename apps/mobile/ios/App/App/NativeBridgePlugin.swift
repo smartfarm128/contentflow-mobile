@@ -84,6 +84,10 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // events on).
         CAPPluginMethod(name: "exportProject", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exportCancel", returnType: CAPPluginReturnPromise),
+        // Overlay PNGs land in the sandbox one at a time so a long timeline
+        // is not one base64 payload. See NativeBridgePlugin+Export.swift.
+        CAPPluginMethod(name: "writeOverlayPng", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearOverlayPngs", returnType: CAPPluginReturnPromise),
         // M10 round 20: on-device captions via Apple Speech — see
         // NativeBridgePlugin+Transcribe.swift / NativeMedia/AppleSpeechTranscriber.swift.
         CAPPluginMethod(name: "transcribe", returnType: CAPPluginReturnPromise),

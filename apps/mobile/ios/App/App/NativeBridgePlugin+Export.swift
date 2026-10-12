@@ -47,13 +47,27 @@ extension NativeBridgePlugin {
         var overlayFrames: [PrerenderedOverlayFrame] = []
         for entry in call.getArray("overlayFrames") ?? [] {
             guard let dict = entry as? [String: Any],
-                  let base64 = dict["pngBase64"] as? String,
                   let startTicks = (dict["startTicks"] as? NSNumber)?.int64Value,
                   let endTicks = (dict["endTicks"] as? NSNumber)?.int64Value,
-                  endTicks > startTicks,
-                  let data = Data(base64Encoded: base64),
-                  let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                  endTicks > startTicks else {
+                print("[kneecap-export] overlay frame could not be decoded — skipped")
+                continue
+            }
+            let image: CIImage?
+            let pngPath = dict["pngPath"] as? String
+            if let pngPath, !pngPath.isEmpty {
+                // Lazy: Core Image reads the file when the frame is composited,
+                // so a 60s timeline does not decode every PNG up front.
+                image = CIImage(contentsOf: URL(fileURLWithPath: pngPath))
+            } else if let base64 = dict["pngBase64"] as? String,
+                      let data = Data(base64Encoded: base64),
+                      let source = CGImageSourceCreateWithData(data as CFData, nil),
+                      let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                image = CIImage(cgImage: cgImage)
+            } else {
+                image = nil
+            }
+            guard let image else {
                 print("[kneecap-export] overlay frame could not be decoded — skipped")
                 continue
             }
@@ -61,7 +75,7 @@ extension NativeBridgePlugin {
                 PrerenderedOverlayFrame(
                     startTicks: startTicks,
                     endTicks: endTicks,
-                    image: CIImage(cgImage: image)
+                    image: image
                 )
             )
         }
@@ -161,6 +175,29 @@ extension NativeBridgePlugin {
         }
         activeExportHandles[exportId]?.cancel()
         call.resolve(["accepted": true])
+    }
+
+    /// One overlay PNG into `Application Support/kneecap/OverlayFrames`.
+    /// The path is raw (no `file://`) — `exportProject` loads it with
+    /// `URL(fileURLWithPath:)`.
+    @objc func writeOverlayPng(_ call: CAPPluginCall) {
+        guard let base64 = call.getString("pngBase64"),
+              let data = Data(base64Encoded: base64),
+              !data.isEmpty else {
+            call.reject("writeOverlayPng requires pngBase64")
+            return
+        }
+        do {
+            let url = try MediaSandbox.writeOverlayPng(data: data)
+            call.resolve(["path": url.path])
+        } catch {
+            call.reject("writeOverlayPng failed: \(error.localizedDescription)")
+        }
+    }
+
+    @objc func clearOverlayPngs(_ call: CAPPluginCall) {
+        MediaSandbox.clearOverlayPngs()
+        call.resolve()
     }
 
     private func emitExportProgress(

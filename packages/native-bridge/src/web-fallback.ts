@@ -215,6 +215,16 @@ export function createWebFallbackBridge(): NativeBridge {
 			});
 		},
 
+		async writeOverlayPng(): Promise<{ path: string }> {
+			throw new NativeBridgeError({
+				code: "UNSUPPORTED",
+				message:
+					"Overlay PNG spill requires a native sandbox. Not available in the web-fallback bridge.",
+			});
+		},
+
+		async clearOverlayPngs(): Promise<void> {},
+
 		/**
 		 * `listVoices` still enumerates the browser's voices so a dev running
 		 * the web preview sees a realistic picker; `speak` is the honest
