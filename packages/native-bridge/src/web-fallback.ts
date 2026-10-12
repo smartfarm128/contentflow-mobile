@@ -225,6 +225,8 @@ export function createWebFallbackBridge(): NativeBridge {
 
 		async clearOverlayPngs(): Promise<void> {},
 
+		async removeAutotestFlag(): Promise<void> {},
+
 		/**
 		 * `listVoices` still enumerates the browser's voices so a dev running
 		 * the web preview sees a realistic picker; `speak` is the honest

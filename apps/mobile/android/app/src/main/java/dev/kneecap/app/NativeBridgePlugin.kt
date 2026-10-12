@@ -741,6 +741,28 @@ class NativeBridgePlugin : Plugin() {
 		call.resolve()
 	}
 
+	/** Deletes one planted `<mediaRoot>/autotest*.flag`. Basename only, and
+	 *  only a direct child of the media root. A missing file is success. */
+	@PluginMethod
+	fun removeAutotestFlag(call: PluginCall) {
+		val name = call.getString("name")
+		if (name == null || !Regex("""^autotest[\w.-]*\.flag$""").matches(name)) {
+			call.reject("removeAutotestFlag requires an autotest flag basename", "IO_ERROR")
+			return
+		}
+		val root = context.noBackupFilesDir.canonicalFile
+		val target = File(root, name).canonicalFile
+		if (target.parentFile != root) {
+			call.reject("removeAutotestFlag refused a path outside the media root", "IO_ERROR")
+			return
+		}
+		if (target.exists() && !target.delete()) {
+			call.reject("removeAutotestFlag could not delete $name", "IO_ERROR")
+			return
+		}
+		call.resolve()
+	}
+
 	/** Not part of the `NativeBridge` TS interface (that abstraction expresses
 	 * cancellation as the JS caller simply stopping iteration of the
 	 * `AsyncGenerator<ExportProgress>` `exportProject` returns) — this is the

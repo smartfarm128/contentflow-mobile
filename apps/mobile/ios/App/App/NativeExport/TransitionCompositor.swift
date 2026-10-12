@@ -1,5 +1,7 @@
 import AVFoundation
 import CoreImage
+import Foundation
+import ImageIO
 
 /// kneecap M9 — the custom `AVVideoCompositing` implementation (plan M9
 /// item 2, and plan §5 risk #4: "Build the transition compositor FIRST in
@@ -140,10 +142,81 @@ public struct OverlayVideoLayer {
 public struct OverlayBillboardState {
 	public let startSeconds: Double
 	public let image: CIImage
+	/// When set, draw time replaces `image` with a finite decode of this
+	/// sandbox PNG. One frame is cached. Missing or non-finite files are
+	/// skipped rather than composited.
+	public let pngPath: String?
 
-	public init(startSeconds: Double, image: CIImage) {
+	public init(startSeconds: Double, image: CIImage, pngPath: String? = nil) {
 		self.startSeconds = startSeconds
 		self.image = image
+		self.pngPath = pngPath
+	}
+}
+
+/// On-demand overlay PNG decode. `CIImage(contentsOf:)` stays lazy until
+/// the compositor renders it, and a file-backed image can report an
+/// infinite extent. Thumbnail decode via ImageIO matches the still-image
+/// path (`loadStillImage`) and keeps a single finite bitmap.
+enum OverlayPngLoader {
+	private static let lock = NSLock()
+	private static var cachedPath: String?
+	private static var cachedImage: CIImage?
+	private static var loggedFirst = false
+	private static var skipped = 0
+
+	static func image(atPath path: String) -> CIImage? {
+		lock.lock()
+		defer { lock.unlock() }
+		if path == cachedPath, let cachedImage { return cachedImage }
+		let url = URL(fileURLWithPath: path)
+		guard FileManager.default.fileExists(atPath: url.path) else {
+			noteSkip(detail: "missing path=\(url.path)")
+			return nil
+		}
+		guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+			noteSkip(detail: "unreadable path=\(url.path)")
+			return nil
+		}
+		let options: [CFString: Any] = [
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceThumbnailMaxPixelSize: 2160,
+		]
+		guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+			noteSkip(detail: "thumbnail failed path=\(url.path)")
+			return nil
+		}
+		var image = CIImage(cgImage: cgImage)
+		let extent = image.extent
+		let finite = extent.origin.x.isFinite && extent.origin.y.isFinite
+			&& extent.width.isFinite && extent.height.isFinite
+			&& extent.width > 0 && extent.height > 0
+			&& extent.width < 8000 && extent.height < 8000
+		guard finite else {
+			noteSkip(detail: "non-finite extent=\(extent) path=\(url.path)")
+			return nil
+		}
+		if extent.origin != .zero {
+			image = image.transformed(by: CGAffineTransform(
+				translationX: -extent.origin.x,
+				y: -extent.origin.y
+			))
+		}
+		if !loggedFirst {
+			loggedFirst = true
+			print("[kneecap-export] overlay png decoded path=\(url.path) extent=\(Int(extent.width))x\(Int(extent.height))")
+		}
+		cachedPath = path
+		cachedImage = image
+		return image
+	}
+
+	private static func noteSkip(detail: String) {
+		skipped += 1
+		if skipped <= 3 {
+			print("[kneecap-export] overlay png skipped #\(skipped) \(detail)")
+		}
 	}
 }
 
@@ -512,13 +585,22 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 			for billboard in instruction.overlayBillboards {
 				guard billboard.timeRange.containsTime(compositionTime) else { continue }
 				let seconds = compositionTime.seconds
-				var stateImage = billboard.states.first?.image
-				for state in billboard.states where state.startSeconds <= seconds {
-					stateImage = state.image
+				var state = billboard.states.first
+				for candidate in billboard.states where candidate.startSeconds <= seconds {
+					state = candidate
 				}
-				guard let stateImage else { continue }
+				guard let state else { continue }
+				var stateImage = state.image
+				if let path = state.pngPath, !path.isEmpty {
+					guard let decoded = OverlayPngLoader.image(atPath: path) else { continue }
+					stateImage = decoded
+				}
 				let extent = stateImage.extent
-				guard extent.width > 0, extent.height > 0 else { continue }
+				guard extent.origin.x.isFinite, extent.origin.y.isFinite,
+				      extent.width.isFinite, extent.height.isFinite,
+				      extent.width > 0, extent.height > 0 else {
+					continue
+				}
 				// rect is top-left/+Y-down (screen convention); CI is
 				// bottom-left/+Y-up — flip once here, same as `place`.
 				let scaleX = billboard.rect.width / extent.width

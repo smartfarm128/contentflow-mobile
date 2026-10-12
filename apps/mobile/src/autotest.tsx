@@ -44,8 +44,11 @@
  *      alone, then again with a CSS template, a WebGL template and a
  *      sticker. The second file's frames must differ from the baseline in
  *      each of those three regions, and none of them is an omission.
- *      Each stage logs `step: <name>`. A thrown failure logs
- *      `VERDICT phase=overlay-pixels FAIL step=<name>` plus the stack.
+ *      Each stage logs `step: <name>` and `diag:` lines for the sub-step
+ *      that produced it. The phase flag is deleted before any of that work,
+ *      so a webview crash cannot relaunch into the same phase. A thrown
+ *      failure, a window error, an unhandled rejection, or a 240s watchdog
+ *      logs `VERDICT phase=overlay-pixels FAIL`.
  *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
@@ -1194,60 +1197,218 @@ async function exportEdlBytes({
 	return fetchExportBytes(outputUri);
 }
 
+/** Long edge of a sampled export frame. Full-frame getImageData of a
+ *  second MP4 is what wedged WKWebView after the baseline sample. */
+const SAMPLE_MAX_EDGE = 640;
+
+/**
+ * Prints one FAIL verdict for a phase, including from window.onerror,
+ * an unhandled rejection, or a watchdog. `close` stops further verdicts
+ * so a later cleanup error cannot replace a line that already printed.
+ */
+function installPhaseGuard({ phase }: { phase: string }): {
+	note: (detail: string) => void;
+	claim: () => boolean;
+	close: () => void;
+} {
+	let printed = false;
+	const note = (detail: string) => {
+		if (printed) return;
+		printed = true;
+		log(`VERDICT phase=${phase} FAIL ${detail}`);
+	};
+	const onError = (event: ErrorEvent) => {
+		note(`window.onerror ${event.message} @ ${event.filename}:${event.lineno}`);
+	};
+	const onRejection = (event: PromiseRejectionEvent) => {
+		const reason: unknown = event.reason;
+		const message = reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason);
+		note(`unhandledrejection ${message}`);
+	};
+	window.addEventListener("error", onError);
+	window.addEventListener("unhandledrejection", onRejection);
+	const timer = window.setTimeout(() => {
+		note("watchdog: no verdict after 240s");
+	}, 240_000);
+	return {
+		note,
+		/** True when this caller should print the success verdict. A
+		 *  watchdog or window error that already printed a failure wins. */
+		claim(): boolean {
+			if (printed) return false;
+			printed = true;
+			return true;
+		},
+		close() {
+			window.clearTimeout(timer);
+			window.removeEventListener("error", onError);
+			window.removeEventListener("unhandledrejection", onRejection);
+			printed = true;
+		},
+	};
+}
+
+function withTimeout<T>({
+	promise,
+	ms,
+	label,
+}: {
+	promise: Promise<T>;
+	ms: number;
+	label: string;
+}): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const timer = window.setTimeout(() => {
+			reject(new Error(`${label} timed out after ${ms}ms`));
+		}, ms);
+		promise.then(
+			(value) => {
+				window.clearTimeout(timer);
+				resolve(value);
+			},
+			(error: unknown) => {
+				window.clearTimeout(timer);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			},
+		);
+	});
+}
+
+async function clearAutotestFlags({
+	names,
+}: {
+	names: string[];
+}): Promise<void> {
+	const bridge = await getNativeBridge();
+	for (const name of names) {
+		try {
+			await bridge.removeAutotestFlag({ name });
+			log("flag cleared", name);
+		} catch (error) {
+			log(
+				"flag clear failed",
+				name,
+				error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+			);
+		}
+	}
+}
+
 async function frameImageData({
 	bytes,
 	timeSeconds,
+	label,
 }: {
 	bytes: ArrayBuffer;
 	timeSeconds: number;
+	label: string;
 }): Promise<ImageData> {
+	log(`diag: ${label} blob bytes=${bytes.byteLength}`);
 	const url = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
 	const video = document.createElement("video");
 	video.muted = true;
+	video.defaultMuted = true;
 	video.playsInline = true;
-	video.src = url;
+	video.setAttribute("playsinline", "");
+	video.preload = "auto";
+	// WKWebView will not always fire loadeddata on a detached element, and
+	// it keeps the hardware decoder until src is cleared. Leaving the
+	// baseline element alive made the overlay file's loadeddata never
+	// arrive, so the phase sat past the runner's 300s cutoff with no
+	// verdict. The element stays in the document for the decode, then
+	// loses its src before the next sample.
+	video.style.cssText =
+		"position:fixed;left:0;top:0;width:8px;height:8px;opacity:0.02;pointer-events:none";
+	document.body.appendChild(video);
+	const diag = (detail: string) => log(`diag: ${label} ${detail}`);
 	try {
-		await new Promise<void>((resolve, reject) => {
+		const loaded = new Promise<void>((resolve, reject) => {
 			video.onloadeddata = () => resolve();
-			video.onerror = () => reject(new Error("could not decode the export"));
+			video.onerror = () => {
+				const mediaError = video.error;
+				reject(
+					new Error(
+						`could not decode the export code=${mediaError?.code ?? "none"} ${mediaError?.message ?? ""}`.trim(),
+					),
+				);
+			};
 		});
-		await new Promise<void>((resolve, reject) => {
-			const timer = window.setTimeout(() => reject(new Error("seek timed out")), 8000);
+		video.src = url;
+		await withTimeout({ promise: loaded, ms: 15_000, label: `${label} loadeddata` });
+		diag(`loadeddata ${video.videoWidth}x${video.videoHeight} ready=${video.readyState}`);
+		if (video.videoWidth < 2) {
+			diag("videoWidth empty, play()");
+			try {
+				await video.play();
+			} catch (error) {
+				diag(`play failed ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+			}
+		}
+		const sought = new Promise<void>((resolve, reject) => {
+			const timer = window.setTimeout(() => reject(new Error(`${label} seek timed out`)), 8_000);
 			video.onseeked = () => {
 				window.clearTimeout(timer);
 				resolve();
 			};
 			video.currentTime = timeSeconds;
 		});
-		const read = ({ source, width, height }: { source: CanvasImageSource; width: number; height: number }) => {
+		await sought;
+		diag(`seeked t=${video.currentTime.toFixed(3)} ${video.videoWidth}x${video.videoHeight}`);
+		const longEdge = Math.max(video.videoWidth, video.videoHeight, 1);
+		const scale = Math.min(1, SAMPLE_MAX_EDGE / longEdge);
+		const width = Math.max(2, Math.round(video.videoWidth * scale));
+		const height = Math.max(2, Math.round(video.videoHeight * scale));
+		const read = ({
+			source,
+			width: readWidth,
+			height: readHeight,
+		}: {
+			source: CanvasImageSource;
+			width: number;
+			height: number;
+		}) => {
 			const canvas = document.createElement("canvas");
-			canvas.width = width;
-			canvas.height = height;
-			const ctx = canvas.getContext("2d");
-			if (!ctx || width < 2 || height < 2) throw new Error("export frame has no pixels");
-			ctx.drawImage(source, 0, 0, width, height);
+			canvas.width = readWidth;
+			canvas.height = readHeight;
+			const ctx = canvas.getContext("2d", { willReadFrequently: true });
+			if (!ctx || readWidth < 2 || readHeight < 2) throw new Error("export frame has no pixels");
+			ctx.drawImage(source, 0, 0, readWidth, readHeight);
 			try {
-				return ctx.getImageData(0, 0, width, height);
+				return ctx.getImageData(0, 0, readWidth, readHeight);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				throw new Error(`getImageData failed (${message})`);
 			}
 		};
 		try {
-			return read({ source: video, width: video.videoWidth, height: video.videoHeight });
+			const pixels = read({ source: video, width, height });
+			diag(`getImageData ${width}x${height}`);
+			return pixels;
 		} catch (error) {
 			// WKWebView taints a canvas after drawing some video elements
 			// ("The operation is insecure."). A bitmap copied out of the
 			// element is same-origin and can be read from a fresh canvas.
+			const name = error instanceof Error ? error.name : "Error";
+			const message = error instanceof Error ? error.message : String(error);
+			diag(`getImageData threw ${name}: ${message}; bitmap fallback`);
 			if (typeof createImageBitmap !== "function") throw error;
 			const bitmap = await createImageBitmap(video);
 			try {
-				return read({ source: bitmap, width: bitmap.width, height: bitmap.height });
+				const bitmapScale = Math.min(1, SAMPLE_MAX_EDGE / Math.max(bitmap.width, bitmap.height, 1));
+				const bitmapWidth = Math.max(2, Math.round(bitmap.width * bitmapScale));
+				const bitmapHeight = Math.max(2, Math.round(bitmap.height * bitmapScale));
+				const pixels = read({ source: bitmap, width: bitmapWidth, height: bitmapHeight });
+				diag(`bitmap ${bitmapWidth}x${bitmapHeight}`);
+				return pixels;
 			} finally {
 				bitmap.close();
 			}
 		}
 	} finally {
+		video.pause();
+		video.removeAttribute("src");
+		video.load();
+		video.remove();
 		URL.revokeObjectURL(url);
 	}
 }
@@ -1294,16 +1455,20 @@ async function runOverlayPixels({
 	editor: EditorCore;
 	root: string;
 }): Promise<void> {
+	const guard = installPhaseGuard({ phase: "overlay-pixels" });
 	const fail = (detail: string, error?: unknown) => {
-		log(`VERDICT phase=overlay-pixels FAIL ${detail}`);
+		guard.note(detail);
 		if (error instanceof Error && error.stack) log(error.stack);
 	};
 	let step = "start";
+	let spilledBridge: Awaited<ReturnType<typeof getNativeBridge>> | null = null;
+	let spilled = false;
 	try {
 		step = "create project";
 		log("step:", step);
 		await editor.project.createNewProject({ name: OVERLAY_PROJECT });
 		const bridge = await getNativeBridge();
+		spilledBridge = bridge;
 		const source: NativeMediaSource = {
 			pickMedia: async () => [plantedHandle(root)],
 			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
@@ -1431,6 +1596,7 @@ async function runOverlayPixels({
 		let overlayBytes: ArrayBuffer;
 		try {
 			const { renderOverlayFrames } = await import("@kneecap/editor-core/export/overlay-frames");
+			spilled = true;
 			const rendered = await renderOverlayFrames({
 				tracks: editor.scenes.getActiveScene().tracks,
 				mediaAssets: editor.media.getAssets(),
@@ -1455,13 +1621,15 @@ async function runOverlayPixels({
 			const blocked = omissions.filter((item) =>
 				/Text Scramble|Kinetic Shader|Sticker "star"/i.test(item.message),
 			);
-			const spilled = rendered.frames.filter((frame) => frame.pngPath).length;
+			const spilledCount = rendered.frames.filter((frame) => frame.pngPath).length;
+			const firstPng = rendered.frames.find((frame) => frame.pngPath)?.pngPath ?? "none";
 			log(
 				"raster:",
 				`frames=${rendered.frames.length}`,
 				`uncaptured=${rendered.uncapturedElementIds.join(",") || "none"}`,
-				`spilled=${spilled}`,
+				`spilled=${spilledCount}`,
 				`inlineKB=${Math.round(rendered.frames.reduce((sum, frame) => sum + frame.pngBase64.length, 0) / 1024)}`,
+				`firstPng=${firstPng}`,
 			);
 			if (blocked.length > 0 || rendered.uncapturedElementIds.length > 0) {
 				fail(
@@ -1472,21 +1640,30 @@ async function runOverlayPixels({
 			step = "export with overlays";
 			log("step:", step);
 			overlayBytes = await exportEdlBytes({ editor, overlayFrames: rendered.frames });
+			log(`diag: export bytes=${overlayBytes.byteLength}`);
 		} finally {
 			painter.dispose();
-			await clearSpilledOverlayPngs({ bridge });
 		}
 
 		step = "sample baseline frame";
 		log("step:", step);
-		const baseFrame = await frameImageData({ bytes: baselineBytes, timeSeconds: 1 });
+		const baseFrame = await frameImageData({ bytes: baselineBytes, timeSeconds: 1, label: "baseline" });
+		// Let WKWebView drop the baseline decoder before the overlay file
+		// asks for one. A second <video> started while the first still owns
+		// the hardware decoder never fires loadeddata or error.
+		await new Promise((resolve) => setTimeout(resolve, 50));
 		step = "sample overlay frame";
 		log("step:", step);
-		const overFrame = await frameImageData({ bytes: overlayBytes, timeSeconds: 1 });
+		const overFrame = await frameImageData({ bytes: overlayBytes, timeSeconds: 1, label: "overlay" });
 		if (baseFrame.width !== overFrame.width || baseFrame.height !== overFrame.height) {
 			fail(`frame size ${baseFrame.width}x${baseFrame.height} vs ${overFrame.width}x${overFrame.height}`);
 			return;
 		}
+		const frameScaleX = canvas.width > 0 ? baseFrame.width / canvas.width : 1;
+		const frameScaleY = canvas.height > 0 ? baseFrame.height / canvas.height : 1;
+		log(
+			`diag: sample scale=${frameScaleX.toFixed(3)}x${frameScaleY.toFixed(3)} frame=${baseFrame.width}x${baseFrame.height} canvas=${canvas.width}x${canvas.height}`,
+		);
 		const box = ({
 			positionX,
 			positionY,
@@ -1499,8 +1676,8 @@ async function runOverlayPixels({
 			const w = baseFrame.width * scale;
 			const h = baseFrame.height * scale;
 			return {
-				x: baseFrame.width / 2 + positionX - w / 2,
-				y: baseFrame.height / 2 + positionY - h / 2,
+				x: baseFrame.width / 2 + positionX * frameScaleX - w / 2,
+				y: baseFrame.height / 2 + positionY * frameScaleY - h / 2,
 				w,
 				h,
 			};
@@ -1515,14 +1692,15 @@ async function runOverlayPixels({
 			over: overFrame,
 			box: box({ positionX: canvas.width * 0.28, positionY: canvas.height * 0.28, scale: 0.34 }),
 		});
+		const stickerSide = 180 * frameScaleX;
 		const stickerRatio = diffRatio({
 			base: baseFrame,
 			over: overFrame,
 			box: {
-				x: baseFrame.width / 2 - 90,
-				y: baseFrame.height / 2 - 90,
-				w: 180,
-				h: 180,
+				x: baseFrame.width / 2 - stickerSide / 2,
+				y: baseFrame.height / 2 - stickerSide / 2,
+				w: stickerSide,
+				h: stickerSide,
 			},
 		});
 		if (scrambleRatio < 0.01 || shaderRatio < 0.35 || stickerRatio < 0.05) {
@@ -1531,12 +1709,28 @@ async function runOverlayPixels({
 			);
 			return;
 		}
-		log(
-			`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} frames=${baseFrame.width}x${baseFrame.height}`,
-		);
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} frames=${baseFrame.width}x${baseFrame.height}`,
+			);
+		}
 	} catch (error) {
 		const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 		fail(`step=${step} ${message}`, error);
+	} finally {
+		if (spilled && spilledBridge) {
+			log("step: clear overlay pngs");
+			try {
+				await clearSpilledOverlayPngs({ bridge: spilledBridge });
+				log("diag: overlay pngs cleared after sampling");
+			} catch (error) {
+				log(
+					"diag: clear overlay pngs failed",
+					error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+				);
+			}
+		}
+		guard.close();
 	}
 }
 
@@ -1577,6 +1771,9 @@ export async function mountAutotest(): Promise<void> {
 	}
 	if (overlayPixels) {
 		log("phase: overlay-pixels");
+		await clearAutotestFlags({
+			names: ["autotest-overlay-pixels.flag", "autotest.flag"],
+		});
 		container.innerHTML = "";
 		createRoot(container).render(
 			<EditorShell

@@ -59,6 +59,7 @@ describe("createWebFallbackBridge", () => {
 
 	test("writeOverlayPng is unsupported without a sandbox, and clear is a no-op", async () => {
 		await expect(bridge.clearOverlayPngs()).resolves.toBeUndefined();
+		await expect(bridge.removeAutotestFlag({ name: "autotest.flag" })).resolves.toBeUndefined();
 		let caught: unknown;
 		try {
 			await bridge.writeOverlayPng({ pngBase64: "aaaa" });

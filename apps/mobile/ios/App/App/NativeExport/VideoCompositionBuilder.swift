@@ -17,11 +17,17 @@ public struct PrerenderedOverlayFrame {
 	public var startTicks: Int64
 	public var endTicks: Int64
 	public var image: CIImage
+	/// Sandbox PNG. The compositor decodes this one file at draw time into
+	/// a finite CGImage. A lazy `CIImage(contentsOf:)` is not used: its
+	/// extent can be infinite, and a zero-scale composite of that image
+	/// poisons the encoded frame.
+	public var pngPath: String?
 
-	public init(startTicks: Int64, endTicks: Int64, image: CIImage) {
+	public init(startTicks: Int64, endTicks: Int64, image: CIImage, pngPath: String? = nil) {
 		self.startTicks = startTicks
 		self.endTicks = endTicks
 		self.image = image
+		self.pngPath = pngPath
 	}
 }
 
@@ -183,7 +189,7 @@ public enum VideoCompositionBuilder {
 				? OverlayLayerBuilder.buildBillboards(edl: edl, renderSize: billboardRenderSize)
 				: overlayFrames.map { frame in
 					OverlayBillboard(
-						states: [OverlayBillboardState(startSeconds: 0, image: frame.image)],
+						states: [OverlayBillboardState(startSeconds: 0, image: frame.image, pngPath: frame.pngPath)],
 						// Full frame, 1:1 — the image IS the output-resolution
 						// overlay layer, so no placement math applies.
 						rect: CGRect(origin: .zero, size: billboardRenderSize),
