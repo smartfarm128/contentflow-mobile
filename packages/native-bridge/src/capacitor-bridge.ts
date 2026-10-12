@@ -231,6 +231,11 @@ interface NativeBridgePluginSpec {
 	writeOverlayPng(params: { pngBase64: string }): Promise<{ path: string }>;
 	clearOverlayPngs(): Promise<void>;
 	removeAutotestFlag(params: { name: string }): Promise<void>;
+	grabVideoFrame(params: {
+		path: string;
+		timeSeconds: number;
+		maxEdge?: number;
+	}): Promise<{ jpegBase64: string; width: number; height: number }>;
 	/** Plugin-private — NOT part of the public `NativeBridge` TS interface,
 	 * which expresses cancellation as the caller simply stopping iteration
 	 * of the `AsyncGenerator<ExportProgress>` `exportProject` returns. This
@@ -713,6 +718,64 @@ export function createCapacitorBridge({
 				await plugin.removeAutotestFlag({ name });
 			} catch (err) {
 				throw toNativeBridgeError({ err, method: "removeAutotestFlag" });
+			}
+		},
+
+		async grabVideoFrame({
+			path,
+			timeSeconds,
+			maxEdge,
+		}: {
+			path: string;
+			timeSeconds: number;
+			maxEdge?: number;
+		}): Promise<{ jpegBase64: string; width: number; height: number }> {
+			// Capacitor drops a call whose selector is missing on the plugin
+			// instance: it logs and returns without resolving or rejecting.
+			// Race a timeout so that miss becomes an error the caller can
+			// catch, instead of a promise that never settles.
+			const GRAB_TIMEOUT_MS = 12_000;
+			try {
+				const frame = await new Promise<{
+					jpegBase64: string;
+					width: number;
+					height: number;
+				}>((resolve, reject) => {
+					const timer = setTimeout(() => {
+						reject(
+							new NativeBridgeError({
+								code: "IO_ERROR",
+								message: `grabVideoFrame timed out after ${GRAB_TIMEOUT_MS}ms; native did not answer`,
+							}),
+						);
+					}, GRAB_TIMEOUT_MS);
+					plugin
+						.grabVideoFrame({ path, timeSeconds, maxEdge })
+						.then(
+							(value) => {
+								clearTimeout(timer);
+								resolve(value);
+							},
+							(err: unknown) => {
+								clearTimeout(timer);
+								reject(err);
+							},
+						);
+				});
+				if (!frame.jpegBase64) {
+					throw new NativeBridgeError({
+						code: "IO_ERROR",
+						message: "grabVideoFrame returned no jpeg",
+					});
+				}
+				return {
+					jpegBase64: frame.jpegBase64,
+					width: frame.width,
+					height: frame.height,
+				};
+			} catch (err) {
+				if (err instanceof NativeBridgeError) throw err;
+				throw toNativeBridgeError({ err, method: "grabVideoFrame" });
 			}
 		},
 

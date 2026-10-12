@@ -412,6 +412,18 @@ export interface NativeBridge {
 	 * resolves without touching the filesystem.
 	 */
 	removeAutotestFlag(params: { name: string }): Promise<void>;
+	/**
+	 * One JPEG of the video at `path` and `timeSeconds`, long edge at most
+	 * `maxEdge` (default 768). iOS uses `AVAssetImageGenerator` with the
+	 * track transform applied. Android uses `MediaMetadataRetriever`.
+	 * Web fallback rejects with UNSUPPORTED. `path` may be a raw sandbox
+	 * path or a `file://` / Capacitor playback URL.
+	 */
+	grabVideoFrame(params: {
+		path: string;
+		timeSeconds: number;
+		maxEdge?: number;
+	}): Promise<{ jpegBase64: string; width: number; height: number }>;
 	transcribe(params: {
 		handle: MediaHandle;
 		opts: TranscribeOptions;

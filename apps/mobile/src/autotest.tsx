@@ -50,6 +50,15 @@
  *      failure, a window error, an unhandled rejection, or a 240s watchdog
  *      logs `VERDICT phase=overlay-pixels FAIL`.
  *
+ *   8. FRAME-CAPTURE phase (`#/autotest/frame-capture`, or
+ *      `<mediaRoot>/autotest-frame-capture.flag`): imports the planted mp4,
+ *      inserts a CSS motion template, and captures one AI still. The JPEG
+ *      must include the proxy video (non-black) and the template's magenta.
+ *      The phase flag is deleted first. `diag:` lines name the grab and
+ *      paint sub-steps. The live preview canvas, when it can be read, must
+ *      be unchanged. A throw, window error, or the 240s watchdog logs
+ *      `VERDICT phase=frame-capture FAIL`.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -87,6 +96,7 @@ import {
 	insertStickerElement,
 	clearSpilledOverlayPngs,
 	spillOverlayFrame,
+	captureFrameAt,
 	toEdlMediaAssets,
 } from "@kneecap/mobile-ui";
 import { getNativeBridge } from "@kneecap/native-bridge";
@@ -1302,7 +1312,7 @@ async function frameImageData({
 	bytes: ArrayBuffer;
 	timeSeconds: number;
 	label: string;
-}): Promise<ImageData> {
+}): Promise<{ image: ImageData; decodedWidth: number; decodedHeight: number }> {
 	log(`diag: ${label} blob bytes=${bytes.byteLength}`);
 	const url = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
 	const video = document.createElement("video");
@@ -1354,10 +1364,12 @@ async function frameImageData({
 		});
 		await sought;
 		diag(`seeked t=${video.currentTime.toFixed(3)} ${video.videoWidth}x${video.videoHeight}`);
-		const longEdge = Math.max(video.videoWidth, video.videoHeight, 1);
+		const decodedWidth = video.videoWidth;
+		const decodedHeight = video.videoHeight;
+		const longEdge = Math.max(decodedWidth, decodedHeight, 1);
 		const scale = Math.min(1, SAMPLE_MAX_EDGE / longEdge);
-		const width = Math.max(2, Math.round(video.videoWidth * scale));
-		const height = Math.max(2, Math.round(video.videoHeight * scale));
+		const width = Math.max(2, Math.round(decodedWidth * scale));
+		const height = Math.max(2, Math.round(decodedHeight * scale));
 		const read = ({
 			source,
 			width: readWidth,
@@ -1382,8 +1394,8 @@ async function frameImageData({
 		};
 		try {
 			const pixels = read({ source: video, width, height });
-			diag(`getImageData ${width}x${height}`);
-			return pixels;
+			diag(`getImageData ${width}x${height} decoded=${decodedWidth}x${decodedHeight}`);
+			return { image: pixels, decodedWidth, decodedHeight };
 		} catch (error) {
 			// WKWebView taints a canvas after drawing some video elements
 			// ("The operation is insecure."). A bitmap copied out of the
@@ -1398,8 +1410,8 @@ async function frameImageData({
 				const bitmapWidth = Math.max(2, Math.round(bitmap.width * bitmapScale));
 				const bitmapHeight = Math.max(2, Math.round(bitmap.height * bitmapScale));
 				const pixels = read({ source: bitmap, width: bitmapWidth, height: bitmapHeight });
-				diag(`bitmap ${bitmapWidth}x${bitmapHeight}`);
-				return pixels;
+				diag(`bitmap ${bitmapWidth}x${bitmapHeight} decoded=${decodedWidth}x${decodedHeight}`);
+				return { image: pixels, decodedWidth, decodedHeight };
 			} finally {
 				bitmap.close();
 			}
@@ -1640,21 +1652,25 @@ async function runOverlayPixels({
 			step = "export with overlays";
 			log("step:", step);
 			overlayBytes = await exportEdlBytes({ editor, overlayFrames: rendered.frames });
-			log(`diag: export bytes=${overlayBytes.byteLength}`);
+			log(
+				`diag: export bytes=${overlayBytes.byteLength} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
+			);
 		} finally {
 			painter.dispose();
 		}
 
 		step = "sample baseline frame";
 		log("step:", step);
-		const baseFrame = await frameImageData({ bytes: baselineBytes, timeSeconds: 1, label: "baseline" });
+		const baseSample = await frameImageData({ bytes: baselineBytes, timeSeconds: 1, label: "baseline" });
+		const baseFrame = baseSample.image;
 		// Let WKWebView drop the baseline decoder before the overlay file
 		// asks for one. A second <video> started while the first still owns
 		// the hardware decoder never fires loadeddata or error.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		step = "sample overlay frame";
 		log("step:", step);
-		const overFrame = await frameImageData({ bytes: overlayBytes, timeSeconds: 1, label: "overlay" });
+		const overSample = await frameImageData({ bytes: overlayBytes, timeSeconds: 1, label: "overlay" });
+		const overFrame = overSample.image;
 		if (baseFrame.width !== overFrame.width || baseFrame.height !== overFrame.height) {
 			fail(`frame size ${baseFrame.width}x${baseFrame.height} vs ${overFrame.width}x${overFrame.height}`);
 			return;
@@ -1711,7 +1727,7 @@ async function runOverlayPixels({
 		}
 		if (guard.claim()) {
 			log(
-				`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} frames=${baseFrame.width}x${baseFrame.height}`,
+				`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} sampled=${baseFrame.width}x${baseFrame.height} decoded=${baseSample.decodedWidth}x${baseSample.decodedHeight} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
 			);
 		}
 	} catch (error) {
@@ -1730,6 +1746,190 @@ async function runOverlayPixels({
 				);
 			}
 		}
+		guard.close();
+	}
+}
+
+const FRAME_PROJECT = "Autotest Frame Capture";
+
+async function previewFingerprint(): Promise<string | null> {
+	try {
+		const { wasmCompositor } = await import(
+			"@kneecap/editor-core/services/renderer/compositor/wasm-compositor"
+		);
+		const source = wasmCompositor.getCanvas();
+		const canvas = document.createElement("canvas");
+		canvas.width = 8;
+		canvas.height = 8;
+		const ctx = canvas.getContext("2d");
+		if (!ctx || source.width < 2 || source.height < 2) return null;
+		ctx.drawImage(source, 0, 0, 8, 8);
+		return Array.from(ctx.getImageData(0, 0, 8, 8).data.slice(0, 16)).join(",");
+	} catch {
+		return null;
+	}
+}
+
+async function jpegPixels({ base64 }: { base64: string }): Promise<ImageData> {
+	const img = new Image();
+	const loaded = new Promise<void>((resolve, reject) => {
+		img.onload = () => resolve();
+		img.onerror = () => reject(new Error("jpeg decode failed"));
+	});
+	img.src = `data:image/jpeg;base64,${base64}`;
+	await loaded;
+	const canvas = document.createElement("canvas");
+	canvas.width = img.naturalWidth;
+	canvas.height = img.naturalHeight;
+	const ctx = canvas.getContext("2d");
+	if (!ctx || canvas.width < 2 || canvas.height < 2) throw new Error("jpeg has no pixels");
+	ctx.drawImage(img, 0, 0);
+	return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/**
+ * Imports the planted clip, inserts a magenta scramble template, and
+ * captures one AI still. PASS means the JPEG contains the proxy video
+ * (non-black) and that magenta, and the live preview canvas was not
+ * rewritten.
+ */
+async function runFrameCapture({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "frame-capture" });
+	const fail = (detail: string, error?: unknown) => {
+		guard.note(detail);
+		if (error instanceof Error && error.stack) log(error.stack);
+	};
+	let step = "start";
+	try {
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: FRAME_PROJECT });
+		const before = await previewFingerprint();
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		log(`diag: imported id=${video.id} proxy=${video.nativeRelativePath ?? "none"} source=${video.sourceNativeRelativePath ?? "none"}`);
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+		step = "insert template";
+		log("step:", step);
+		const scramble = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-text-scramble",
+			durationSec: 3,
+			startSeconds: 0,
+			values: {
+				text: "SCRAMBLE",
+				accent: "#ff2bd6",
+				"transform.scaleX": 0.8,
+				"transform.scaleY": 0.8,
+			},
+		});
+		if (!scramble) {
+			fail("could not insert template");
+			return;
+		}
+		step = "capture frame";
+		log("step:", step);
+		const frame = await captureFrameAt({
+			editor,
+			timeSeconds: 1,
+			onTrace: (line) => log("diag:", line),
+		});
+		if (!frame || frame.base64.length < 100) {
+			fail(`capture returned no jpeg video=${frame?.trace.video ?? "none"} ${frame?.trace.videoDetail ?? ""}`);
+			return;
+		}
+		log(
+			`diag: jpeg chars=${frame.base64.length} video=${frame.trace.video} detail=${frame.trace.videoDetail} captured=${frame.trace.captured.join(",") || "none"} missed=${frame.trace.missed.join(",") || "none"}`,
+		);
+		const after = await previewFingerprint();
+		if (before && after && before !== after) {
+			fail("capture drew into the live preview");
+			return;
+		}
+		if (!frame.includesVideo) {
+			fail(`video not composited ${frame.trace.videoDetail}`);
+			return;
+		}
+		step = "read jpeg";
+		log("step:", step);
+		const pixels = await withTimeout({
+			promise: jpegPixels({ base64: frame.base64 }),
+			ms: 10_000,
+			label: "jpeg decode",
+		});
+		let nonBlack = 0;
+		let magenta = 0;
+		const count = pixels.data.length / 4;
+		for (let i = 0; i < pixels.data.length; i += 4) {
+			const r = pixels.data[i] ?? 0;
+			const g = pixels.data[i + 1] ?? 0;
+			const b = pixels.data[i + 2] ?? 0;
+			if (r + g + b > 40) nonBlack += 1;
+			if (r > 160 && b > 120 && g < 120) magenta += 1;
+		}
+		const nonBlackRatio = nonBlack / count;
+		const templateRatio = magenta / count;
+		const preview = before && after ? "unchanged" : "unread";
+		log(
+			`capture nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview} video=${frame.trace.video}`,
+		);
+		if (nonBlackRatio < 0.2 || templateRatio < 0.0003) {
+			fail(
+				`frame missing video or template pixels nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)}`,
+			);
+			return;
+		}
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=frame-capture PASS nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview} video=${frame.trace.video}`,
+			);
+		}
+	} catch (error) {
+		fail(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+			error,
+		);
+	} finally {
 		guard.close();
 	}
 }
@@ -1761,6 +1961,29 @@ export async function mountAutotest(): Promise<void> {
 		},
 	});
 	log("media root", root);
+
+	let frameCapture = window.location.hash.includes("frame-capture");
+	try {
+		const frameFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-frame-capture.flag`));
+		if (frameFlag.ok || frameFlag.status === 0) frameCapture = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (frameCapture) {
+		log("phase: frame-capture");
+		await clearAutotestFlags({
+			names: ["autotest-frame-capture.flag", "autotest.flag"],
+		});
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runFrameCapture({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
 
 	let overlayPixels = window.location.hash.includes("overlay-pixels");
 	try {

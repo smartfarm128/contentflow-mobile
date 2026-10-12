@@ -792,9 +792,9 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet, prepar
 
 			{activeSheet === "transcript" && (
 				<PanelSheet onScrimClick={closeSheet} header={<SheetHeader onClose={closeSheet} />}>
-					<p className="cc-sheet-title">Transcript</p>
+					<p className="cc-sheet-title">Transcript — placeholder</p>
 					<p className="cc-panel-note">
-						Transcript editing: use Captions for on-device auto-captions, or ask AI Director to summarize and cut.
+						This sheet does not show or edit a transcript. Use Captions for on-device auto-captions, or ask AI Director to summarize and cut.
 					</p>
 				</PanelSheet>
 			)}

@@ -318,8 +318,13 @@ export async function executeTool(
 					text: "Could not render a frame — the preview compositor isn't running (no project open, or the GPU isn't available here). Judge from get_timeline instead, and say you could not look.",
 				};
 			}
+			const videoLine = frame.includesVideo
+				? `The ${frame.trace.videoDetail} video frame is underneath the overlays on a private canvas.`
+				: `The video frame was not composited (${frame.trace.videoDetail}). This still is overlays only.`;
 			return {
-				text: `Composited frame at ${frame.timeSeconds.toFixed(2)}s (this is exactly what will export):`,
+				text:
+					`Still at ${frame.timeSeconds.toFixed(2)}s. ${videoLine} ` +
+					`The live preview was not redrawn.`,
 				frames: [frame],
 			};
 		}
@@ -332,11 +337,17 @@ export async function executeTool(
 					text: "Could not render review frames — the timeline is empty or the compositor isn't running.",
 				};
 			}
+			const withVideo = frames.filter((frame) => frame.includesVideo).length;
+			const videoLine =
+				withVideo === frames.length
+					? "Each still composites the proxy video frame under the overlays and motion templates."
+					: `${withVideo} of ${frames.length} stills include the proxy video frame. The rest are overlays only — say so, and do not treat them as the full picture.`;
 			return {
 				text:
-					`Self-review: ${frames.length} composited frames across the video, at ` +
+					`Self-review: ${frames.length} frames across the video, at ` +
 					frames.map((f) => `${f.timeSeconds.toFixed(2)}s`).join(", ") +
-					". Check each for: text covering a face, captions clipped or unreadable, dead/black frames, overlapping graphics. Fix what is wrong before reporting done.",
+					`. ${videoLine} The live preview was not redrawn. ` +
+					"Check each for clipped or unreadable titles, dead/black frames, and overlapping graphics. Fix what is wrong before reporting done.",
 				frames,
 			};
 		}

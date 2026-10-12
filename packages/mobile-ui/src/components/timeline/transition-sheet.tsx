@@ -28,7 +28,7 @@ const TRANSITION_KINDS = [
  * cross-fade) and the native export (buildEdl -> MainTrackPlacement.swift).
  * "None" removes the transition. v1 renders every kind as a cross-fade in
  * preview and export alike (the native compositor's documented fallback);
- * the kind is stored so richer renders slot in later.
+ * the sheet says so. The kind is stored so richer renders slot in later.
  */
 export function TransitionSheet({
 	afterClipId,
@@ -87,6 +87,9 @@ export function TransitionSheet({
 					aria-label="Transition style"
 				/>
 			</div>
+			<p className="cc-panel-note" style={{ padding: "var(--cc-space-2) var(--cc-space-4) 0" }}>
+				Fade, slide, and zoom all play as a cross-fade in preview and export.
+			</p>
 			<div style={{ padding: "var(--cc-space-4)", display: "flex", flexDirection: "column", gap: "var(--cc-space-2)" }}>
 				<span style={{ fontSize: "var(--cc-text-label)", color: "var(--cc-text-secondary)" }}>
 					Duration — {formatClipDuration({ durationSec })}

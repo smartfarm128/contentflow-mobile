@@ -546,3 +546,54 @@ export async function renderOverlayFrames({
 
 	return { frames, uncapturedElementIds: [...failedIds] };
 }
+
+/**
+ * Paints one overlay still onto `ctx`. Text, captions, stickers and shapes
+ * use the same 2D path as export. `paintExtras` is the HTML/WebGL template
+ * layer. Nothing here touches the live preview compositor.
+ */
+export async function paintOverlaySnapshot({
+	tracks,
+	mediaAssets,
+	canvasSize,
+	fps,
+	timeSeconds,
+	ticksPerSecond,
+	durationTicks,
+	ctx,
+	paintExtras,
+}: {
+	tracks: SceneTracks;
+	mediaAssets: MediaAsset[];
+	canvasSize: TCanvasSize;
+	fps: FrameRate;
+	timeSeconds: number;
+	ticksPerSecond: number;
+	durationTicks: number;
+	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+	paintExtras?: RenderOverlayFramesParams["paintExtras"];
+}): Promise<{ captured: readonly string[]; missed: readonly string[] }> {
+	const renderer = new CanvasRenderer({
+		width: canvasSize.width,
+		height: canvasSize.height,
+		fps,
+	});
+	const overlayOnlyTracks = canvasOverlayTracks({ tracks });
+	const tree = buildScene({
+		tracks: overlayOnlyTracks,
+		mediaAssets,
+		duration: durationTicks,
+		canvasSize,
+		background: { type: "color", color: "#000000" },
+		isPreview: false,
+	});
+	const timeTicks = Math.round(Math.max(0, timeSeconds) * ticksPerSecond);
+	await resolveRenderTree({ node: tree, renderer, time: timeTicks });
+	const nodes = collectOverlayNodes(tree).filter((node) => node.resolved);
+	const failedIds = new Set<string>();
+	for (const node of nodes) {
+		drawCanvasOverlayNode({ node, ctx, canvasSize, failedIds });
+	}
+	if (!paintExtras) return { captured: [], missed: [] };
+	return paintExtras({ ctx, timeSeconds, canvasSize });
+}

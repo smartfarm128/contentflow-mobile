@@ -13,6 +13,7 @@
  * both; response parsing adapts to each provider's envelope.
  */
 import { useAIDirectorStore } from "./ai-store";
+import { modelForRequest, type AIProvider } from "./director-models";
 import { AI_TOOLS } from "./ai-tools";
 import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
 import { CREATIVE_DIRECTION } from "./creative-direction";
@@ -24,7 +25,7 @@ export type ExecutionContext = ToolContext;
 
 /** Provider routing. "anthropic" → Anthropic Messages API; "anselabs" →
  *  OpenAI-compatible endpoint (e.g. api.ananselabs.org). */
-export type AIProvider = "anthropic" | "anselabs";
+export type { AIProvider } from "./director-models";
 
 const ANSELABS_BASE = "https://api.ananselabs.org/v1";
 
@@ -172,6 +173,7 @@ async function driveAgentLoop({
 	// vault while this function is awaiting the network; this snapshot is what
 	// those later turns send.
 	const provider: AIProvider = store.selectedProvider || "anthropic";
+	const model = modelForRequest({ provider, model: store.selectedModel });
 	const apiKey = directorKey(provider);
 
 	try {
@@ -186,7 +188,7 @@ async function driveAgentLoop({
 						"anthropic-dangerous-direct-browser-access": "true",
 					},
 					body: JSON.stringify({
-						model: store.selectedModel || "claude-sonnet-5-5",
+						model,
 						max_tokens: MAX_TOKENS,
 						system: buildSystemPrompt(),
 						tools: AI_TOOLS,
@@ -200,7 +202,7 @@ async function driveAgentLoop({
 						"Authorization": `Bearer ${apiKey}`,
 					},
 					body: JSON.stringify({
-						model: store.selectedModel || "hst-coding-beta",
+						model,
 						max_tokens: MAX_TOKENS,
 						messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
 						tools: AI_TOOLS.map((t) => ({

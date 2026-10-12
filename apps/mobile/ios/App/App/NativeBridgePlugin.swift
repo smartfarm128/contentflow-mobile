@@ -91,6 +91,10 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // Deletes one planted `<mediaRoot>/autotest*.flag` so a crashed
         // autotest phase cannot relaunch into itself. Basename only.
         CAPPluginMethod(name: "removeAutotestFlag", returnType: CAPPluginReturnPromise),
+        // One JPEG of a sandbox video at time t, for the AI still. The
+        // webview composites it under the overlay raster. See
+        // NativeBridgePlugin+Media.swift.
+        CAPPluginMethod(name: "grabVideoFrame", returnType: CAPPluginReturnPromise),
         // M10 round 20: on-device captions via Apple Speech — see
         // NativeBridgePlugin+Transcribe.swift / NativeMedia/AppleSpeechTranscriber.swift.
         CAPPluginMethod(name: "transcribe", returnType: CAPPluginReturnPromise),

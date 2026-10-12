@@ -227,6 +227,14 @@ export function createWebFallbackBridge(): NativeBridge {
 
 		async removeAutotestFlag(): Promise<void> {},
 
+		async grabVideoFrame(): Promise<{ jpegBase64: string; width: number; height: number }> {
+			throw new NativeBridgeError({
+				code: "UNSUPPORTED",
+				message:
+					"Reading a video frame requires a native shell (AVAssetImageGenerator / MediaMetadataRetriever). Not available in the web-fallback bridge.",
+			});
+		},
+
 		/**
 		 * `listVoices` still enumerates the browser's voices so a dev running
 		 * the web preview sees a realistic picker; `speak` is the honest
