@@ -91,6 +91,9 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // NativeBridgePlugin+Speak.swift / NativeMedia/AppleSpeechSynthesizer.swift.
         CAPPluginMethod(name: "speak", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listVoices", returnType: CAPPluginReturnPromise),
+        // Pexels / ElevenLabs: download (or copy a file:// fixture) into
+        // media custody and probe it. See NativeBridgePlugin+RemoteMedia.swift.
+        CAPPluginMethod(name: "importRemoteMedia", returnType: CAPPluginReturnPromise),
     ]
 
     /// Retains the `PHPickerViewControllerDelegate` for the duration of an

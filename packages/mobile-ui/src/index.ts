@@ -60,6 +60,8 @@ export {
 	type CreateProjectFromMediaOutcome,
 } from "./editor/actions";
 export { generateCaptions, getAllCaptions } from "./editor/captions-actions";
+export { importRemoteMediaToTimeline } from "./editor/custody-import";
+export { importPexelsMediaToTimeline } from "./editor/stock-media-actions";
 export { PreviewRenderer, ensurePreviewGpu } from "./components/editor/preview-renderer";
 export { TopBar } from "./components/editor/top-bar";
 export { PlaybackBar } from "./components/editor/playback-bar";

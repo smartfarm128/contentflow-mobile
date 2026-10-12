@@ -76,6 +76,18 @@ export interface PickMediaOptions {
 	onProgress?: (progress: PickProgress) => void;
 }
 
+/** A remote file to copy into media custody. GET for a stock URL;
+ *  POST (headers + JSON body) for ElevenLabs. `file://` copies a file
+ *  the app can already read — the device harness uses that for fixtures. */
+export interface ImportRemoteMediaRequest {
+	url: string;
+	kind: MediaKind;
+	fileName: string;
+	method?: "GET" | "POST";
+	headers?: Record<string, string>;
+	body?: string;
+}
+
 /**
  * What native custody hands back after an import. `uri` is a native handle
  * (an app-sandbox path or a persisted `content://`/`ph://`-style URI) — NEVER
@@ -398,5 +410,13 @@ export interface NativeBridge {
 	 * handle. Rejects with UNSUPPORTED where no offline voice exists.
 	 */
 	speak(opts: SpeakOptions): Promise<SpeechResult>;
+	/**
+	 * Download (or copy a `file://` URL) into the same media-custody
+	 * directory `pickMedia` uses, then probe it. Pexels B-roll and
+	 * ElevenLabs voiceovers go through this so the file, its real
+	 * duration, and `hasAudio` survive export and a project reopen.
+	 * `uri` on the result is a sandbox path, never a `blob:` URL.
+	 */
+	importRemoteMedia(request: ImportRemoteMediaRequest): Promise<MediaHandle>;
 	capabilities(): Promise<DeviceCapabilities>;
 }

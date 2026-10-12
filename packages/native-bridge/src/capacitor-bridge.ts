@@ -97,6 +97,7 @@ import type {
 	Platform,
 	ProxyProgress,
 	ProxySpec,
+	ImportRemoteMediaRequest,
 	SpeakOptions,
 	SpeechResult,
 	SpeechVoice,
@@ -262,6 +263,14 @@ interface NativeBridgePluginSpec {
 		rate: number;
 		pitch: number;
 	}): Promise<{ audioUri: string; durationSec?: number }>;
+	importRemoteMedia(params: {
+		url: string;
+		kind: MediaKind;
+		fileName: string;
+		method?: string;
+		headers?: Record<string, string>;
+		body?: string;
+	}): Promise<WireMediaHandle>;
 }
 
 /** `generateProxy` filters its event stream on `handle.id` — a domain
@@ -691,6 +700,21 @@ export function createCapacitorBridge({
 				return { audioUri: res.audioUri, durationSec: res.durationSec ?? 0 };
 			} catch (error) {
 				throw toNativeBridgeError({ err: error, method: "speak" });
+			}
+		},
+		async importRemoteMedia(request: ImportRemoteMediaRequest): Promise<MediaHandle> {
+			try {
+				const wire = await plugin.importRemoteMedia({
+					url: request.url,
+					kind: request.kind,
+					fileName: request.fileName,
+					method: request.method,
+					headers: request.headers,
+					body: request.body,
+				});
+				return fromWireMediaHandle(wire);
+			} catch (error) {
+				throw toNativeBridgeError({ err: error, method: "importRemoteMedia" });
 			}
 		},
 		async *transcribe({

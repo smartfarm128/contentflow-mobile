@@ -33,6 +33,12 @@
  *      the omission list to name all three. It does not run the playback
  *      phases.
  *
+ *   6. CUSTODY-MEDIA phase (`#/autotest/custody-media`, or
+ *      `<mediaRoot>/autotest-custody-media.flag`): imports the planted mp4
+ *      and a planted mp3 through the same `importRemoteMedia` path Pexels
+ *      and ElevenLabs use, reloads the project, exports, and requires both
+ *      files in the output with no omissions.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -63,6 +69,8 @@ import {
 	EditorShell,
 	buildNativeEdlAssetResolver,
 	ensurePreviewGpu,
+	importPexelsMediaToTimeline,
+	importRemoteMediaToTimeline,
 	insertHtmlTemplateElement,
 	toEdlMediaAssets,
 } from "@kneecap/mobile-ui";
@@ -727,6 +735,13 @@ async function driveAndSample({
 }
 
 const HONESTY_PROJECT = "Autotest Export Honesty";
+const CUSTODY_PROJECT = "Autotest Custody Media";
+const VOICE_RELATIVE = "Media/autotest-voice.mp3";
+
+/** Spaces in the iOS container path must be percent-encoded for URL(string:). */
+function fixtureFileUrl({ root, relative }: { root: string; relative: string }): string {
+	return `file://${encodeURI(`${root}/${relative}`)}`;
+}
 
 /**
  * Exports a project that contains one real planted clip plus the three
@@ -898,6 +913,196 @@ async function runExportHonesty({
 	}
 }
 
+/**
+ * Imports a planted stock clip and a planted MP3 through the same custody
+ * path Pexels and ElevenLabs use, reloads the project, and exports. PASS
+ * means both files were probed (real duration, video hasAudio), survived
+ * the reload, were not listed as omissions, and the encoded file has a
+ * video track about as long as the stock clip plus an audio track.
+ *
+ * The voice fixture is a 2-second MP3 (`autotest-voice.mp3`). The stock
+ * fixture is the existing 6-second `autotest-source.mp4`.
+ */
+async function runCustodyMedia({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const fail = (detail: string) => {
+		log(`VERDICT phase=custody-media FAIL ${detail}`);
+	};
+	try {
+		await editor.project.createNewProject({ name: CUSTODY_PROJECT });
+		const bridge = await getNativeBridge();
+		const stockRef = await importPexelsMediaToTimeline({
+			editor,
+			downloadUrl: fixtureFileUrl({ root, relative: SOURCE_RELATIVE }),
+			name: "Stock b-roll",
+			type: "video",
+		});
+		if (!stockRef) {
+			fail("stock clip did not land on the timeline");
+			return;
+		}
+		const voice = await importRemoteMediaToTimeline({
+			editor,
+			request: {
+				url: fixtureFileUrl({ root, relative: VOICE_RELATIVE }),
+				kind: "audio",
+				fileName: "voiceover.mp3",
+			},
+			name: "VO fixture",
+		});
+		if (!voice.ref) {
+			fail("voiceover did not land on the timeline");
+			return;
+		}
+
+		const assets = editor.media.getAssets();
+		const stockAsset = assets.find((asset) => asset.name.includes("Stock b-roll"));
+		const voiceAsset = assets.find((asset) => asset.name === "voiceover.mp3");
+		if (!stockAsset || !voiceAsset) {
+			fail(`assets missing stock=${Boolean(stockAsset)} voice=${Boolean(voiceAsset)}`);
+			return;
+		}
+		const stockDuration = stockAsset.duration ?? 0;
+		if (!(stockDuration > 5 && stockDuration < 7)) {
+			fail(`stock duration ${stockDuration}s (expected the 6s planted mp4)`);
+			return;
+		}
+		if (stockAsset.hasAudio !== true) {
+			fail("stock hasAudio is not true — probe was ignored");
+			return;
+		}
+		const voiceDuration = voiceAsset.duration ?? 0;
+		if (!(voiceDuration > 1.5 && voiceDuration < 2.5)) {
+			fail(`voice duration ${voiceDuration}s (expected the 2s planted mp3)`);
+			return;
+		}
+		if (voiceAsset.hasAudio !== true) {
+			fail("voiceover hasAudio is not true");
+			return;
+		}
+		if (!stockAsset.sourceNativeRelativePath || !voiceAsset.sourceNativeRelativePath) {
+			fail(
+				`relative path missing stock=${stockAsset.sourceNativeRelativePath ?? "none"} voice=${voiceAsset.sourceNativeRelativePath ?? "none"}`,
+			);
+			return;
+		}
+		if (stockAsset.url?.startsWith("blob:") || voiceAsset.url?.startsWith("blob:")) {
+			fail("custody import stored a blob URL");
+			return;
+		}
+
+		const projectId = editor.project.getActive().metadata.id;
+		await editor.project.saveCurrentProject();
+		await new Promise((resolve) => setTimeout(resolve, 800));
+		await editor.project.loadProject({ id: projectId });
+		const reloaded = editor.media.getAssets();
+		const stockAgain = reloaded.find((asset) => asset.id === stockAsset.id);
+		const voiceAgain = reloaded.find((asset) => asset.id === voiceAsset.id);
+		if (!stockAgain?.sourceNativeRelativePath || !voiceAgain?.sourceNativeRelativePath) {
+			fail("reload dropped a custody asset or its relative path");
+			return;
+		}
+		const stockDurationAgain = stockAgain.duration ?? 0;
+		const voiceDurationAgain = voiceAgain.duration ?? 0;
+		if (!(stockDurationAgain > 5 && stockDurationAgain < 7)) {
+			fail(`reloaded stock duration ${stockDurationAgain}`);
+			return;
+		}
+		if (stockAgain.hasAudio !== true || voiceAgain.hasAudio !== true) {
+			fail("reload lost hasAudio");
+			return;
+		}
+		const scene = editor.scenes.getActiveScene();
+		const hasStockClip = scene.tracks.main.elements.some((element) => element.name === "Stock b-roll");
+		const hasVoiceClip = scene.tracks.audio.some((track) =>
+			track.elements.some((element) => element.name === "VO fixture"),
+		);
+		if (!hasStockClip || !hasVoiceClip) {
+			fail(`reload lost a clip stock=${hasStockClip} voice=${hasVoiceClip}`);
+			return;
+		}
+
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 4_000_000,
+				includeAudio: true,
+			},
+		});
+		const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+		const omissions = listNativeExportOmissions({ edl, platform });
+		for (const item of omissions) log("omission:", item.message);
+		if (omissions.length > 0) {
+			fail(`expected no omissions, got ${omissions.length}`);
+			return;
+		}
+		const stockEdl = edl.assets.find((asset) => asset.assetId === stockAgain.id);
+		const voiceEdl = edl.assets.find((asset) => asset.assetId === voiceAgain.id);
+		const stockUri = stockEdl?.sourceUri ?? "";
+		const voiceUri = voiceEdl?.sourceUri ?? "";
+		if (!stockUri || stockUri.startsWith("blob:") || !stockUri.includes(stockAgain.sourceNativeRelativePath)) {
+			fail(`stock sourceUri not in custody: ${stockUri || "none"}`);
+			return;
+		}
+		if (!voiceUri || voiceUri.startsWith("blob:") || !voiceUri.includes(voiceAgain.sourceNativeRelativePath)) {
+			fail(`voice sourceUri not in custody: ${voiceUri || "none"}`);
+			return;
+		}
+
+		let outputUri: string | null = null;
+		for await (const event of bridge.exportProject({ edl, overlayFrames: [] })) {
+			if (event.stage === "error") throw new Error(event.error ?? "export error");
+			if (event.stage === "done") outputUri = event.outputUri ?? null;
+		}
+		if (!outputUri) throw new Error("export finished without an outputUri");
+		let bytes: ArrayBuffer | null = null;
+		for (let attempt = 0; attempt < 4; attempt++) {
+			try {
+				bytes = await fetch(outputUri).then((response) => response.arrayBuffer());
+				break;
+			} catch {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+		if (!bytes || bytes.byteLength < 10_000) {
+			throw new Error(`suspiciously small output (${bytes?.byteLength ?? 0}B)`);
+		}
+		const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
+		const probe = new Input({
+			source: new BlobSource(new Blob([bytes])),
+			formats: ALL_FORMATS,
+		});
+		const videoTrack = await probe.getPrimaryVideoTrack();
+		const audioTrack = await probe.getPrimaryAudioTrack();
+		if (!videoTrack) throw new Error("output has no video track");
+		if (!audioTrack) throw new Error("output has no audio track");
+		const videoDuration = await videoTrack.computeDuration();
+		const audioDuration = await audioTrack.computeDuration();
+		if (!(videoDuration > 5 && videoDuration < 7)) {
+			throw new Error(`output video duration ${videoDuration.toFixed(2)}s (expected ~6s stock clip)`);
+		}
+		if (!(audioDuration > 0.5)) {
+			throw new Error(`output audio duration ${audioDuration.toFixed(2)}s`);
+		}
+		log(
+			`VERDICT phase=custody-media PASS export=${Math.round(bytes.byteLength / 1024)}KB omitted=0 stock=${stockDurationAgain.toFixed(2)}s hasAudio=yes voice=${voiceDurationAgain.toFixed(2)}s videoOut=${videoDuration.toFixed(2)}s audioOut=${audioDuration.toFixed(2)}s`,
+		);
+	} catch (error) {
+		fail(error instanceof Error ? error.message : String(error));
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -925,6 +1130,26 @@ export async function mountAutotest(): Promise<void> {
 		},
 	});
 	log("media root", root);
+
+	let custodyMedia = window.location.hash.includes("custody-media");
+	try {
+		const custodyFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-custody-media.flag`));
+		if (custodyFlag.ok || custodyFlag.status === 0) custodyMedia = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (custodyMedia) {
+		log("phase: custody-media");
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runCustodyMedia({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
 
 	let exportHonesty = window.location.hash.includes("export-honesty");
 	try {

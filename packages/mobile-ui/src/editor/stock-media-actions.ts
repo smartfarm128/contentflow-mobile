@@ -9,10 +9,8 @@
  */
 import type { EditorCore } from "@kneecap/editor-core";
 import type { ElementRef } from "@kneecap/editor-core/timeline";
-import { mediaTimeFromSeconds } from "@kneecap/editor-core/wasm";
-import { AddMediaAssetCommand, InsertElementCommand } from "@kneecap/editor-core/commands";
-import { buildElementFromMedia } from "@kneecap/editor-core/timeline";
 import { getActivePexelsKey } from "../vault/vault-store";
+import { importRemoteMediaToTimeline } from "./custody-import";
 
 export interface PexelsMediaItem {
 	id: string;
@@ -138,58 +136,30 @@ export async function importPexelsMediaToTimeline({
 	durationSec?: number;
 	startSeconds?: number;
 }): Promise<ElementRef | null> {
-	// Fetch media bytes into blob. A network-level failure (offline, or a host
-	// the app's CSP `connect-src` doesn't allow) rejects with a bare TypeError
-	// ("Load failed" in WKWebView) — name the host instead of surfacing that.
-	let res: Response;
+	// The native side downloads into media custody and probes the file.
+	// Duration and hasAudio come from that probe — a search listing's
+	// duration is only a trim hint, and Pexels videos do have audio.
+	const ext = type === "video" ? "mp4" : "jpg";
 	try {
-		res = await fetch(downloadUrl);
-	} catch {
-		throw new Error(
-			`Couldn't download from ${hostOf(downloadUrl)}. Check your connection and try again.`,
-		);
-	}
-	if (!res.ok) throw new Error(`Failed to download media: ${res.status}`);
-	const blob = await res.blob();
-	const mime = type === "video" ? "video/mp4" : "image/jpeg";
-	const file = new File([blob], `${name}.${type === "video" ? "mp4" : "jpg"}`, { type: mime });
-	const playbackUrl = URL.createObjectURL(blob);
-
-	const clipDur = durationSec ?? (type === "video" ? 4 : 3);
-
-	const command = new AddMediaAssetCommand({
-		projectId: editor.project.getActive().metadata.id,
-		asset: {
+		const placed = await importRemoteMediaToTimeline({
+			editor,
+			request: {
+				url: downloadUrl,
+				kind: type,
+				fileName: `${name}.${ext}`,
+			},
 			name,
-			type,
-			file,
-			url: playbackUrl,
-			duration: clipDur,
-			hasAudio: false,
-		} as any,
-	});
-	editor.command.execute({ command });
-	const assetId = command.getAssetId();
-
-	const start =
-		startSeconds !== undefined
-			? mediaTimeFromSeconds({ seconds: Math.max(0, startSeconds) })
-			: editor.playback.getCurrentTime();
-
-	const element = buildElementFromMedia({
-		mediaId: assetId,
-		mediaType: type,
-		name,
-		duration: mediaTimeFromSeconds({ seconds: Math.max(0.1, clipDur) }),
-		startTime: start,
-	});
-
-	const insert = new InsertElementCommand({
-		element,
-		placement: { mode: "auto", trackType: "video" },
-	});
-	editor.command.execute({ command: insert });
-
-	const trackId = insert.getTrackId();
-	return trackId ? { trackId, elementId: insert.getElementId() } : null;
+			startSeconds,
+			clipDurationSec: durationSec,
+		});
+		return placed.ref;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		if (message === "Load failed" || message.includes("Couldn't download")) {
+			throw new Error(
+				`Couldn't download from ${hostOf(downloadUrl)}. Check your connection and try again.`,
+			);
+		}
+		throw error instanceof Error ? error : new Error(message);
+	}
 }

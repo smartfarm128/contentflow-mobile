@@ -179,6 +179,89 @@ class NativeBridgePlugin : Plugin() {
 		)
 	}
 
+	/**
+	 * Pexels GET / ElevenLabs POST / a `file://` fixture. The file lands in
+	 * the same custody directory as a picked clip and comes back probed
+	 * (`durationMicros`, `hasAudio`), never as a blob URL.
+	 */
+	@PluginMethod
+	fun importRemoteMedia(call: PluginCall) {
+		val urlString = call.getString("url")
+		if (urlString.isNullOrBlank()) {
+			call.reject("importRemoteMedia requires a url", "IO_ERROR")
+			return
+		}
+		val kind = call.getString("kind") ?: "video"
+		val fileName = call.getString("fileName") ?: "media"
+		val method = (call.getString("method") ?: "GET").uppercase()
+		val body = call.getString("body")
+		if (method != "GET" && method != "POST") {
+			call.reject("importRemoteMedia method must be GET or POST", "IO_ERROR")
+			return
+		}
+		val uri = Uri.parse(urlString)
+		val scheme = uri.scheme?.lowercase()
+		if (scheme != "https" && scheme != "http" && scheme != "file") {
+			call.reject("importRemoteMedia only accepts https, http, or file URLs", "IO_ERROR")
+			return
+		}
+		val headers = linkedMapOf<String, String>()
+		val headerObj = call.getObject("headers")
+		if (headerObj != null) {
+			val keys = headerObj.keys()
+			while (keys.hasNext()) {
+				val key = keys.next()
+				val value = headerObj.optString(key, "")
+				if (value.isNotEmpty()) headers[key] = value
+			}
+		}
+		val mimeHint = when (kind) {
+			"audio" -> "audio/mpeg"
+			"image" -> "image/jpeg"
+			else -> "video/mp4"
+		}
+		Thread {
+			var imported: MediaImporter.ImportedFile? = null
+			try {
+				val file = if (scheme == "file") {
+					val path = uri.path
+					if (path.isNullOrBlank()) throw IllegalStateException("file URL has no path")
+					MediaImporter.copyLocalFile(context, File(path), fileName, mimeHint)
+				} else {
+					MediaImporter.downloadInto(
+						context,
+						urlString,
+						method,
+						headers,
+						body,
+						fileName,
+						mimeHint,
+					)
+				}
+				imported = file
+				val probed = try {
+					MediaProbe.probe(file.file, file.mimeType)
+				} catch (error: Exception) {
+					if (kind != "image") throw error
+					MediaProbe.ProbedMedia(
+						kind = "image",
+						durationMicros = 0L,
+						width = 0,
+						height = 0,
+						rotationDegrees = 0,
+						hasAudio = false,
+						codec = "image",
+						frameRate = null,
+					)
+				}
+				call.resolve(mediaHandleToJson(file, probed))
+			} catch (error: Exception) {
+				imported?.file?.let { MediaImporter.delete(it) }
+				call.reject(error.message ?: "import failed", "IO_ERROR")
+			}
+		}.start()
+	}
+
 	@PluginMethod
 	fun getMediaRoot(call: PluginCall) {
 		val result = JSObject()
