@@ -12,6 +12,8 @@ import {
 } from "./visual-node";
 
 export interface GraphicNodeParams extends VisualNodeParams {
+	/** Timeline element id, so a failed raster can be named in the omission list. */
+	elementId?: string;
 	definitionId: string;
 	params: ParamValues;
 }

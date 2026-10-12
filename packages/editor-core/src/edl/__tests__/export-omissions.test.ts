@@ -110,7 +110,15 @@ describe("listNativeExportOmissions", () => {
 		graded.masks.push({ maskId: "m1", type: "ellipse", params: {} });
 		graded.params = { ...graded.params, reversed: true };
 
-		const messages = listNativeExportOmissions({ edl, platform: "ios" }).map((item) => item.message);
+		const included = listNativeExportOmissions({ edl, platform: "ios" }).map((item) => item.message);
+		expect(included.some((message) => message.includes("Text Scramble"))).toBe(false);
+		expect(included.some((message) => message.includes("Square"))).toBe(false);
+		expect(included.some((message) => message.includes("Star sticker"))).toBe(false);
+		const messages = listNativeExportOmissions({
+			edl,
+			platform: "ios",
+			uncapturedClipIds: new Set(["template-clip", "shape-clip", "sticker-clip"]),
+		}).map((item) => item.message);
 		expect(messages.some((message) => message.includes('Motion template "Text Scramble"'))).toBe(true);
 		expect(messages.some((message) => message.includes('Shape "Square"'))).toBe(true);
 		expect(messages.some((message) => message.includes('Sticker "Star sticker"'))).toBe(true);
@@ -124,7 +132,7 @@ describe("listNativeExportOmissions", () => {
 		expect(messages.some((message) => message.includes("brightness"))).toBe(false);
 	});
 
-	test("iOS keeps a graphic that already has text content", () => {
+	test("a captured template is not listed on either platform", () => {
 		const edl = buildFixtureEdl();
 		const overlay = edl.tracks.find((track) => track.kind === "overlay");
 		if (!overlay) throw new Error("fixture has no overlay track");
@@ -139,6 +147,12 @@ describe("listNativeExportOmissions", () => {
 		const ios = listNativeExportOmissions({ edl, platform: "ios" }).map((item) => item.message);
 		const android = listNativeExportOmissions({ edl, platform: "android" }).map((item) => item.message);
 		expect(ios.some((message) => message.includes("Title card"))).toBe(false);
-		expect(android.some((message) => message.includes('Motion template "Title card"'))).toBe(true);
+		expect(android.some((message) => message.includes("Title card"))).toBe(false);
+		const missed = listNativeExportOmissions({
+			edl,
+			platform: "android",
+			uncapturedClipIds: new Set(["titled"]),
+		}).map((item) => item.message);
+		expect(missed.some((message) => message.includes('Motion template "Title card"'))).toBe(true);
 	});
 });

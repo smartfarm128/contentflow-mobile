@@ -8,14 +8,15 @@ import { validateEdl } from "./validate";
  * aspirational v1 effect list). This is the honesty layer on top of it: the
  * export sheet shows these sentences before export, and both native mappers
  * skip the same items instead of failing the whole file. It does not promise
- * that a later PR will render them — templates, blob media, filters, masks,
- * stickers, shapes and reverse are preview-only until a mapper actually
- * implements them.
+ * that a later PR will render them — filters, masks and reverse are still
+ * preview-only. Motion templates, stickers and shapes are rasterized into
+ * the overlay frames both exporters already composite. They are listed only
+ * when `uncapturedClipIds` names them (the rasterizer could not capture
+ * that clip).
  *
- * Platform split that exists today: iOS composites `adjust` and `brightness`,
- * and it rasterizes overlay text (a graphic or sticker that carries
- * `params.content`). Android composites none of those yet, so on Android and
- * on the web fallback every effect is listed.
+ * Platform split that exists today: iOS composites `adjust` and `brightness`.
+ * Android composites none of those yet, so on Android and on the web
+ * fallback every effect is listed.
  */
 export type NativeExportPlatform = "ios" | "android" | "web";
 
@@ -49,9 +50,16 @@ function clipLabel({ clip }: { clip: EdlClip }): string {
 export function listNativeExportOmissions({
 	edl,
 	platform,
+	uncapturedClipIds,
 }: {
 	edl: Edl;
 	platform: NativeExportPlatform;
+	/**
+	 * Graphic and sticker clip ids the overlay rasterizer could not paint.
+	 * Omit the set and those clips are treated as included. Pass the ids
+	 * `renderOverlayFrames` returns when a template or sticker capture failed.
+	 */
+	uncapturedClipIds?: ReadonlySet<string>;
 }): NativeExportOmission[] {
 	// Same checker the exporters' contract tests use. Source-uri and mask
 	// findings are rephrased as omissions below; other errors (bad ticks,
@@ -98,24 +106,23 @@ export function listNativeExportOmissions({
 							"(it only exists as a temporary in-memory clip).",
 					});
 				}
-			} else if (clip.kind === "graphic" || clip.kind === "sticker") {
-				const content = stringParam({ clip, key: "content" });
+			} else if (
+				(clip.kind === "graphic" || clip.kind === "sticker") &&
+				uncapturedClipIds?.has(clip.clipId)
+			) {
 				const definitionId = stringParam({ clip, key: "definitionId" }) ?? "";
-				const iosDrawsIt = platform === "ios" && content !== null;
-				if (!iosDrawsIt) {
-					const what =
-						clip.kind === "sticker"
-							? "Sticker"
-							: definitionId.startsWith("html:")
-								? "Motion template"
-								: SHAPE_DEFINITION_IDS.has(definitionId)
-									? "Shape"
-									: "Motion graphic";
-					push({
-						path,
-						message: `${what} "${label}" will be left out of the export.`,
-					});
-				}
+				const what =
+					clip.kind === "sticker"
+						? "Sticker"
+						: definitionId.startsWith("html:")
+							? "Motion template"
+							: SHAPE_DEFINITION_IDS.has(definitionId)
+								? "Shape"
+								: "Motion graphic";
+				push({
+					path,
+					message: `${what} "${label}" will be left out of the export.`,
+				});
 			} else if (clip.kind === "effect") {
 				push({
 					path,

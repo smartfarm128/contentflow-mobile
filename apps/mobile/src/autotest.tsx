@@ -39,6 +39,12 @@
  *      and ElevenLabs use, reloads the project, exports, and requires both
  *      files in the output with no omissions.
  *
+ *   7. OVERLAY-PIXELS phase (`#/autotest/overlay-pixels`, or
+ *      `<mediaRoot>/autotest-overlay-pixels.flag`): exports the planted mp4
+ *      alone, then again with a CSS template, a WebGL template and a
+ *      sticker. The second file's frames must differ from the baseline in
+ *      each of those three regions, and none of them is an omission.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -71,7 +77,9 @@ import {
 	ensurePreviewGpu,
 	importPexelsMediaToTimeline,
 	importRemoteMediaToTimeline,
+	createHtmlOverlayPainter,
 	insertHtmlTemplateElement,
+	insertStickerElement,
 	toEdlMediaAssets,
 } from "@kneecap/mobile-ui";
 import { getNativeBridge } from "@kneecap/native-bridge";
@@ -672,17 +680,19 @@ async function driveAndSample({
 		const { renderOverlayFrames } = await import(
 			"@kneecap/editor-core/export/overlay-frames"
 		);
-		const overlayFrames = await renderOverlayFrames({
-			tracks: editor.scenes.getActiveScene().tracks,
-			mediaAssets: editor.media.getAssets(),
-			canvasSize: {
-				width: edl.output.resolution.width,
-				height: edl.output.resolution.height,
-			},
-			fps: edl.output.fps,
-			durationTicks: edl.meta.durationTicks,
-			ticksPerSecond: edl.meta.ticksPerSecond,
-		});
+		const overlayFrames = (
+			await renderOverlayFrames({
+				tracks: editor.scenes.getActiveScene().tracks,
+				mediaAssets: editor.media.getAssets(),
+				canvasSize: {
+					width: edl.output.resolution.width,
+					height: edl.output.resolution.height,
+				},
+				fps: edl.output.fps,
+				durationTicks: edl.meta.durationTicks,
+				ticksPerSecond: edl.meta.ticksPerSecond,
+			})
+		).frames;
 		log(`overlay frames prerendered: ${overlayFrames.length}`);
 		for await (const p of bridge.exportProject({ edl, overlayFrames })) {
 			if (p.stage === "error") throw new Error(p.error ?? "export error");
@@ -865,7 +875,25 @@ async function runExportHonesty({
 			},
 		});
 		const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
-		const omissions = listNativeExportOmissions({ edl, platform });
+		// No HTML painter here: the template stays uncaptured, so the omission
+		// list must still name it. The overlay-pixels phase is what paints it.
+		const { renderOverlayFrames } = await import("@kneecap/editor-core/export/overlay-frames");
+		const rendered = await renderOverlayFrames({
+			tracks: editor.scenes.getActiveScene().tracks,
+			mediaAssets: editor.media.getAssets(),
+			canvasSize: {
+				width: edl.output.resolution.width,
+				height: edl.output.resolution.height,
+			},
+			fps: edl.output.fps,
+			durationTicks: edl.meta.durationTicks,
+			ticksPerSecond: edl.meta.ticksPerSecond,
+		});
+		const omissions = listNativeExportOmissions({
+			edl,
+			platform,
+			uncapturedClipIds: new Set(rendered.uncapturedElementIds),
+		});
 		const messages = omissions.map((item) => item.message);
 		for (const message of messages) log("omission:", message);
 		const reportedTemplate = messages.some((message) => /motion template/i.test(message));
@@ -881,7 +909,7 @@ async function runExportHonesty({
 		}
 
 		let outputUri: string | null = null;
-		for await (const event of bridge.exportProject({ edl, overlayFrames: [] })) {
+		for await (const event of bridge.exportProject({ edl, overlayFrames: rendered.frames })) {
 			if (event.stage === "error") throw new Error(event.error ?? "export error");
 			if (event.stage === "done") outputUri = event.outputUri ?? null;
 		}
@@ -1103,6 +1131,348 @@ async function runCustodyMedia({
 	}
 }
 
+const OVERLAY_PROJECT = "Autotest Overlay Pixels";
+
+async function fetchExportBytes(outputUri: string): Promise<ArrayBuffer> {
+	let bytes: ArrayBuffer | null = null;
+	for (let attempt = 0; attempt < 4; attempt++) {
+		try {
+			bytes = await fetch(outputUri).then((response) => response.arrayBuffer());
+			break;
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+		}
+	}
+	if (!bytes || bytes.byteLength < 10_000) {
+		throw new Error(`suspiciously small output (${bytes?.byteLength ?? 0}B)`);
+	}
+	return bytes;
+}
+
+async function exportEdlBytes({
+	editor,
+	overlayFrames,
+}: {
+	editor: EditorCore;
+	overlayFrames: Array<{ startTicks: number; endTicks: number; pngBase64: string }>;
+}): Promise<ArrayBuffer> {
+	const bridge = await getNativeBridge();
+	const edl = buildEdl({
+		project: editor.project.getActive(),
+		scene: editor.scenes.getActiveScene(),
+		mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+		resolveAsset: buildNativeEdlAssetResolver(),
+		output: {
+			container: "mp4",
+			videoCodec: "h264",
+			audioCodec: "aac",
+			bitrate: 4_000_000,
+			includeAudio: true,
+		},
+	});
+	let outputUri: string | null = null;
+	for await (const event of bridge.exportProject({ edl, overlayFrames })) {
+		if (event.stage === "error") throw new Error(event.error ?? "export error");
+		if (event.stage === "done") outputUri = event.outputUri ?? null;
+	}
+	if (!outputUri) throw new Error("export finished without an outputUri");
+	return fetchExportBytes(outputUri);
+}
+
+async function frameImageData({
+	bytes,
+	timeSeconds,
+}: {
+	bytes: ArrayBuffer;
+	timeSeconds: number;
+}): Promise<ImageData> {
+	const url = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
+	const video = document.createElement("video");
+	video.muted = true;
+	video.playsInline = true;
+	video.src = url;
+	try {
+		await new Promise<void>((resolve, reject) => {
+			video.onloadeddata = () => resolve();
+			video.onerror = () => reject(new Error("could not decode the export"));
+		});
+		await new Promise<void>((resolve, reject) => {
+			const timer = window.setTimeout(() => reject(new Error("seek timed out")), 8000);
+			video.onseeked = () => {
+				window.clearTimeout(timer);
+				resolve();
+			};
+			video.currentTime = timeSeconds;
+		});
+		const canvas = document.createElement("canvas");
+		canvas.width = video.videoWidth;
+		canvas.height = video.videoHeight;
+		const ctx = canvas.getContext("2d");
+		if (!ctx || canvas.width < 2) throw new Error("export frame has no pixels");
+		ctx.drawImage(video, 0, 0);
+		return ctx.getImageData(0, 0, canvas.width, canvas.height);
+	} finally {
+		URL.revokeObjectURL(url);
+	}
+}
+
+function diffRatio({
+	base,
+	over,
+	box,
+}: {
+	base: ImageData;
+	over: ImageData;
+	box: { x: number; y: number; w: number; h: number };
+}): number {
+	const x0 = Math.max(0, Math.round(box.x));
+	const y0 = Math.max(0, Math.round(box.y));
+	const x1 = Math.min(base.width, Math.round(box.x + box.w));
+	const y1 = Math.min(base.height, Math.round(box.y + box.h));
+	const step = Math.max(1, Math.floor(Math.min(Math.max(1, x1 - x0), Math.max(1, y1 - y0)) / 28));
+	let total = 0;
+	let differ = 0;
+	for (let y = y0; y < y1; y += step) {
+		for (let x = x0; x < x1; x += step) {
+			const i = (y * base.width + x) * 4;
+			const delta =
+				Math.abs((base.data[i] ?? 0) - (over.data[i] ?? 0)) +
+				Math.abs((base.data[i + 1] ?? 0) - (over.data[i + 1] ?? 0)) +
+				Math.abs((base.data[i + 2] ?? 0) - (over.data[i + 2] ?? 0));
+			total += 1;
+			if (delta > 60) differ += 1;
+		}
+	}
+	return total === 0 ? 0 : differ / total;
+}
+
+/**
+ * Baseline export of the planted clip, then the same clip with a CSS
+ * template, a WebGL template and a sticker. Each region of the second
+ * file must differ from the baseline.
+ */
+async function runOverlayPixels({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const fail = (detail: string) => {
+		log(`VERDICT phase=overlay-pixels FAIL ${detail}`);
+	};
+	try {
+		await editor.project.createNewProject({ name: OVERLAY_PROJECT });
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+
+		const baselineBytes = await exportEdlBytes({ editor, overlayFrames: [] });
+
+		const canvas = editor.project.getActive().settings.canvasSize;
+		const scramble = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-text-scramble",
+			durationSec: 3,
+			startSeconds: 0,
+			values: {
+				text: "SCRAMBLE",
+				accent: "#ff2bd6",
+				"transform.scaleX": 0.34,
+				"transform.scaleY": 0.34,
+				"transform.positionX": -canvas.width * 0.28,
+				"transform.positionY": -canvas.height * 0.28,
+			},
+		});
+		const shader = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-shader-animation",
+			durationSec: 4,
+			startSeconds: 0,
+			values: {
+				text: "SHADER",
+				textColor: "#ffe14a",
+				"transform.scaleX": 0.34,
+				"transform.scaleY": 0.34,
+				"transform.positionX": canvas.width * 0.28,
+				"transform.positionY": canvas.height * 0.28,
+			},
+		});
+		const stickerRef = insertStickerElement({ editor, stickerId: "shapes:star" });
+		if (!scramble || !shader || !stickerRef) {
+			fail("could not insert template, shader, or sticker");
+			return;
+		}
+		const stickerTrack = editor.scenes
+			.getActiveScene()
+			.tracks.overlay.find((track) => track.type === "graphic" && track.id === stickerRef.trackId);
+		const stickerElement = stickerTrack?.elements.find((element) => element.id === stickerRef.elementId);
+		if (!stickerElement) {
+			fail("sticker element missing after insert");
+			return;
+		}
+		editor.command.execute({
+			command: new UpdateElementsCommand({
+				updates: [
+					{
+						trackId: stickerRef.trackId,
+						elementId: stickerRef.elementId,
+						patch: {
+							params: {
+								...stickerElement.params,
+								"transform.scaleX": 0.18,
+								"transform.scaleY": 0.18,
+							},
+						},
+					},
+				],
+			}),
+		});
+
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 4_000_000,
+				includeAudio: true,
+			},
+		});
+		const painter = createHtmlOverlayPainter({
+			tracks: editor.scenes.getActiveScene().tracks,
+			durationSeconds: edl.meta.durationTicks / edl.meta.ticksPerSecond,
+		});
+		let overlayBytes: ArrayBuffer;
+		try {
+			const { renderOverlayFrames } = await import("@kneecap/editor-core/export/overlay-frames");
+			const rendered = await renderOverlayFrames({
+				tracks: editor.scenes.getActiveScene().tracks,
+				mediaAssets: editor.media.getAssets(),
+				canvasSize: {
+					width: edl.output.resolution.width,
+					height: edl.output.resolution.height,
+				},
+				fps: edl.output.fps,
+				durationTicks: edl.meta.durationTicks,
+				ticksPerSecond: edl.meta.ticksPerSecond,
+				extraHash: (args) => painter.hashAt(args),
+				paintExtras: (args) => painter.paint(args),
+			});
+			const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+			const omissions = listNativeExportOmissions({
+				edl,
+				platform,
+				uncapturedClipIds: new Set(rendered.uncapturedElementIds),
+			});
+			for (const item of omissions) log("omission:", item.message);
+			const blocked = omissions.filter((item) =>
+				/Text Scramble|Kinetic Shader|Sticker "star"/i.test(item.message),
+			);
+			if (blocked.length > 0 || rendered.uncapturedElementIds.length > 0) {
+				fail(
+					`capture missed ids=${rendered.uncapturedElementIds.join(",") || "none"} omissions=${blocked.map((item) => item.message).join(" | ")}`,
+				);
+				return;
+			}
+			overlayBytes = await exportEdlBytes({ editor, overlayFrames: rendered.frames });
+		} finally {
+			painter.dispose();
+		}
+
+		const baseFrame = await frameImageData({ bytes: baselineBytes, timeSeconds: 1 });
+		const overFrame = await frameImageData({ bytes: overlayBytes, timeSeconds: 1 });
+		if (baseFrame.width !== overFrame.width || baseFrame.height !== overFrame.height) {
+			fail(`frame size ${baseFrame.width}x${baseFrame.height} vs ${overFrame.width}x${overFrame.height}`);
+			return;
+		}
+		const box = ({
+			positionX,
+			positionY,
+			scale,
+		}: {
+			positionX: number;
+			positionY: number;
+			scale: number;
+		}) => {
+			const w = baseFrame.width * scale;
+			const h = baseFrame.height * scale;
+			return {
+				x: baseFrame.width / 2 + positionX - w / 2,
+				y: baseFrame.height / 2 + positionY - h / 2,
+				w,
+				h,
+			};
+		};
+		const scrambleRatio = diffRatio({
+			base: baseFrame,
+			over: overFrame,
+			box: box({ positionX: -canvas.width * 0.28, positionY: -canvas.height * 0.28, scale: 0.34 }),
+		});
+		const shaderRatio = diffRatio({
+			base: baseFrame,
+			over: overFrame,
+			box: box({ positionX: canvas.width * 0.28, positionY: canvas.height * 0.28, scale: 0.34 }),
+		});
+		const stickerRatio = diffRatio({
+			base: baseFrame,
+			over: overFrame,
+			box: {
+				x: baseFrame.width / 2 - 90,
+				y: baseFrame.height / 2 - 90,
+				w: 180,
+				h: 180,
+			},
+		});
+		if (scrambleRatio < 0.01 || shaderRatio < 0.35 || stickerRatio < 0.05) {
+			fail(
+				`pixels scramble=${scrambleRatio.toFixed(3)} shader=${shaderRatio.toFixed(3)} sticker=${stickerRatio.toFixed(3)}`,
+			);
+			return;
+		}
+		log(
+			`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} frames=${baseFrame.width}x${baseFrame.height}`,
+		);
+	} catch (error) {
+		fail(error instanceof Error ? error.message : String(error));
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -1130,6 +1500,26 @@ export async function mountAutotest(): Promise<void> {
 		},
 	});
 	log("media root", root);
+
+	let overlayPixels = window.location.hash.includes("overlay-pixels");
+	try {
+		const overlayFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-overlay-pixels.flag`));
+		if (overlayFlag.ok || overlayFlag.status === 0) overlayPixels = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (overlayPixels) {
+		log("phase: overlay-pixels");
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runOverlayPixels({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
 
 	let custodyMedia = window.location.hash.includes("custody-media");
 	try {

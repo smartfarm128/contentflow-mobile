@@ -17,6 +17,7 @@ import {
 	renderOverlayFrames,
 	type OverlayFrame,
 } from "@kneecap/editor-core/export/overlay-frames";
+import { createHtmlOverlayPainter } from "../../motion-templates/rasterize-for-export";
 import {
 	buildNativeEdlAssetResolver, setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
 import type { FrameRate } from "opencut-wasm";
@@ -257,10 +258,20 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 			// here degrades to the native text path rather than blocking the
 			// export.
 			let overlayFrames: OverlayFrame[] = [];
+			const sceneTracks = editor.scenes.getActiveScene().tracks;
+			const painter = createHtmlOverlayPainter({
+				tracks: sceneTracks,
+				durationSeconds: edl.meta.durationTicks / edl.meta.ticksPerSecond,
+			});
+			const platform: NativeExportPlatform =
+				bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+			// Optimistic list: templates and stickers are included until the
+			// rasterizer reports ones it could not capture.
+			setOmissions(listNativeExportOmissions({ edl, platform }));
 			try {
 				setProgress({ stage: "preparing", fraction: 0 });
-				overlayFrames = await renderOverlayFrames({
-					tracks: editor.scenes.getActiveScene().tracks,
+				const rendered = await renderOverlayFrames({
+					tracks: sceneTracks,
 					mediaAssets: editor.media.getAssets(),
 					canvasSize: {
 						width: edl.output.resolution.width,
@@ -269,11 +280,34 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 					fps: edl.output.fps,
 					durationTicks: edl.meta.durationTicks,
 					ticksPerSecond: edl.meta.ticksPerSecond,
+					extraHash: (args) => painter.hashAt(args),
+					paintExtras: (args) => painter.paint(args),
 					onProgress: (fraction: number) =>
 						setProgress({ stage: "preparing", fraction: fraction * 0.2 }),
 				});
+				overlayFrames = rendered.frames;
+				if (rendered.uncapturedElementIds.length > 0) {
+					setOmissions(
+						listNativeExportOmissions({
+							edl,
+							platform,
+							uncapturedClipIds: new Set(rendered.uncapturedElementIds),
+						}),
+					);
+				}
 			} catch (error) {
 				console.warn("overlay prerender failed — native text path:", error);
+				const missed = new Set<string>();
+				for (const track of sceneTracks.overlay) {
+					for (const element of track.elements) {
+						if (element.type === "graphic" || element.type === "sticker") missed.add(element.id);
+					}
+				}
+				if (missed.size > 0) {
+					setOmissions(listNativeExportOmissions({ edl, platform, uncapturedClipIds: missed }));
+				}
+			} finally {
+				painter.dispose();
 			}
 			const generator = bridge.exportProject({ edl, overlayFrames });
 			activeExportRef.current = generator;
