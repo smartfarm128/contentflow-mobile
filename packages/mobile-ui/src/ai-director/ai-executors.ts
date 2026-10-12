@@ -319,7 +319,9 @@ export async function executeTool(
 				};
 			}
 			return {
-				text: `Composited frame at ${frame.timeSeconds.toFixed(2)}s (this is exactly what will export):`,
+				text:
+					`Overlays and motion templates at ${frame.timeSeconds.toFixed(2)}s, painted on a private canvas. ` +
+					`The live preview was not redrawn. Video pixels are not in this still:`,
 				frames: [frame],
 			};
 		}
@@ -334,9 +336,10 @@ export async function executeTool(
 			}
 			return {
 				text:
-					`Self-review: ${frames.length} composited frames across the video, at ` +
+					`Self-review: ${frames.length} overlay frames across the video, at ` +
 					frames.map((f) => `${f.timeSeconds.toFixed(2)}s`).join(", ") +
-					". Check each for: text covering a face, captions clipped or unreadable, dead/black frames, overlapping graphics. Fix what is wrong before reporting done.",
+					". These include motion templates and canvas graphics. They do not include the video layer, and the live preview was not redrawn. " +
+					"Check each for clipped or unreadable titles, dead/black frames, and overlapping graphics. Fix what is wrong before reporting done.",
 				frames,
 			};
 		}

@@ -47,6 +47,12 @@
  *      Each stage logs `step: <name>`. A thrown failure logs
  *      `VERDICT phase=overlay-pixels FAIL step=<name>` plus the stack.
  *
+ *   8. FRAME-CAPTURE phase (`#/autotest/frame-capture`, or
+ *      `<mediaRoot>/autotest-frame-capture.flag`): inserts a CSS motion
+ *      template and captures one AI still. The JPEG must be non-black and
+ *      contain the template's magenta. The live preview canvas, when it
+ *      can be read, must be unchanged.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -84,6 +90,7 @@ import {
 	insertStickerElement,
 	clearSpilledOverlayPngs,
 	spillOverlayFrame,
+	captureFrameAt,
 	toEdlMediaAssets,
 } from "@kneecap/mobile-ui";
 import { getNativeBridge } from "@kneecap/native-bridge";
@@ -1540,6 +1547,125 @@ async function runOverlayPixels({
 	}
 }
 
+const FRAME_PROJECT = "Autotest Frame Capture";
+
+async function previewFingerprint(): Promise<string | null> {
+	try {
+		const { wasmCompositor } = await import(
+			"@kneecap/editor-core/services/renderer/compositor/wasm-compositor"
+		);
+		const source = wasmCompositor.getCanvas();
+		const canvas = document.createElement("canvas");
+		canvas.width = 8;
+		canvas.height = 8;
+		const ctx = canvas.getContext("2d");
+		if (!ctx || source.width < 2 || source.height < 2) return null;
+		ctx.drawImage(source, 0, 0, 8, 8);
+		return Array.from(ctx.getImageData(0, 0, 8, 8).data.slice(0, 16)).join(",");
+	} catch {
+		return null;
+	}
+}
+
+async function jpegPixels({ base64 }: { base64: string }): Promise<ImageData> {
+	const img = new Image();
+	const loaded = new Promise<void>((resolve, reject) => {
+		img.onload = () => resolve();
+		img.onerror = () => reject(new Error("jpeg decode failed"));
+	});
+	img.src = `data:image/jpeg;base64,${base64}`;
+	await loaded;
+	const canvas = document.createElement("canvas");
+	canvas.width = img.naturalWidth;
+	canvas.height = img.naturalHeight;
+	const ctx = canvas.getContext("2d");
+	if (!ctx || canvas.width < 2 || canvas.height < 2) throw new Error("jpeg has no pixels");
+	ctx.drawImage(img, 0, 0);
+	return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/**
+ * Captures one AI still of a magenta scramble template. PASS means the JPEG
+ * is non-black, contains that magenta, and the live preview canvas was not
+ * rewritten.
+ */
+async function runFrameCapture({ editor }: { editor: EditorCore }): Promise<void> {
+	const fail = (detail: string, error?: unknown) => {
+		log(`VERDICT phase=frame-capture FAIL ${detail}`);
+		if (error instanceof Error && error.stack) log(error.stack);
+	};
+	let step = "start";
+	try {
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: FRAME_PROJECT });
+		const before = await previewFingerprint();
+		step = "insert template";
+		log("step:", step);
+		const scramble = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-text-scramble",
+			durationSec: 3,
+			startSeconds: 0,
+			values: {
+				text: "SCRAMBLE",
+				accent: "#ff2bd6",
+				"transform.scaleX": 0.8,
+				"transform.scaleY": 0.8,
+			},
+		});
+		if (!scramble) {
+			fail("could not insert template");
+			return;
+		}
+		step = "capture frame";
+		log("step:", step);
+		const frame = await captureFrameAt({ editor, timeSeconds: 1 });
+		if (!frame || frame.base64.length < 100) {
+			fail("capture returned no jpeg");
+			return;
+		}
+		const after = await previewFingerprint();
+		if (before && after && before !== after) {
+			fail("capture drew into the live preview");
+			return;
+		}
+		step = "read jpeg";
+		log("step:", step);
+		const pixels = await jpegPixels({ base64: frame.base64 });
+		let nonBlack = 0;
+		let magenta = 0;
+		const count = pixels.data.length / 4;
+		for (let i = 0; i < pixels.data.length; i += 4) {
+			const r = pixels.data[i] ?? 0;
+			const g = pixels.data[i + 1] ?? 0;
+			const b = pixels.data[i + 2] ?? 0;
+			if (r + g + b > 40) nonBlack += 1;
+			if (r > 160 && b > 120 && g < 120) magenta += 1;
+		}
+		const nonBlackRatio = nonBlack / count;
+		const templateRatio = magenta / count;
+		const preview = before && after ? "unchanged" : "unread";
+		log(
+			`capture nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview}`,
+		);
+		if (nonBlackRatio < 0.01 || templateRatio < 0.0005) {
+			fail(
+				`frame missing template pixels nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)}`,
+			);
+			return;
+		}
+		log(
+			`VERDICT phase=frame-capture PASS nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview}`,
+		);
+	} catch (error) {
+		fail(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+			error,
+		);
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -1567,6 +1693,26 @@ export async function mountAutotest(): Promise<void> {
 		},
 	});
 	log("media root", root);
+
+	let frameCapture = window.location.hash.includes("frame-capture");
+	try {
+		const frameFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-frame-capture.flag`));
+		if (frameFlag.ok || frameFlag.status === 0) frameCapture = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (frameCapture) {
+		log("phase: frame-capture");
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runFrameCapture({ editor });
+				}}
+			/>,
+		);
+		return;
+	}
 
 	let overlayPixels = window.location.hash.includes("overlay-pixels");
 	try {

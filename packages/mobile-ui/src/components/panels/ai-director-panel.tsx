@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { useAIDirectorStore } from "../../ai-director/ai-store";
+import { modelsForProvider } from "../../ai-director/director-models";
 import { askAIDirector, executeApprovedPlan } from "../../ai-director/ai-agent";
 import { PlanCard } from "./plan-card";
 import type { EditorCore } from "@kneecap/editor-core";
@@ -168,10 +169,11 @@ export function AIDirectorPanel({
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="cc-select"
               >
-                <option value="claude-sonnet-5-5">Claude Sonnet 5 (Recommended)</option>
-                <option value="claude-opus-5-5">Claude Opus 5.5 (Deep Creative Direction)</option>
-                <option value="claude-fable-5-1">Claude Fable 5.1 (Highest Intelligence)</option>
-                <option value="hst-coding-beta">Anselabs Beta (hst-coding-beta)</option>
+                {modelsForProvider(selectedProvider).map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
