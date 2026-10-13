@@ -113,11 +113,10 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     /// `NativeBridgePlugin+Media.swift`.
     var activePickerCoordinator: AnyObject?
 
-    /// In-flight proxy transcode + thumbnail generator. Import #2 cancels
-    /// this before starting: an `AVAssetReader` or `AVAssetImageGenerator`
-    /// left by import #1 (never `cancel()` / `cancelAllCGImageGeneration()`)
-    /// makes the next generator's completion handler never fire, and the
-    /// UI sits on the last progress event — 95%, the thumbnail step.
+    /// The decode session of the import that currently holds
+    /// `ImportDecodeQueue`. Cleared in that job's defer after
+    /// `cancelAll()`, which is the release — a later import waits for the
+    /// queue instead of cancelling this session.
     var liveImportSession: LiveImportSession?
 
     /// kneecap M9 — one `EdlExportHandle` per in-flight `exportProject`

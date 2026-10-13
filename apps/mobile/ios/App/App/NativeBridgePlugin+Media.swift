@@ -13,10 +13,64 @@ import UniformTypeIdentifiers
 /// `apps/mobile/ios/verify-media-pipeline` — this file's own job is just
 /// PHPickerViewController presentation and Capacitor call/event plumbing.
 
-/// One import's AVFoundation decode session. Import #2 calls `cancelAll()`
-/// before creating its own reader and image generator. Without that, the
-/// first import's uncancelled `AVAssetImageGenerator` keeps the hardware
-/// decoder and the second import's thumbnail callback never runs.
+/// One AVFoundation decode session at a time. A new import waits here
+/// instead of cancelling the job that is already reading.
+final class ImportDecodeQueue: @unchecked Sendable {
+	static let shared = ImportDecodeQueue()
+
+	private let lock = NSLock()
+	private var busy = false
+	private var waiters: [CheckedContinuation<Bool, Never>] = []
+
+	/// `true` when this caller waited for an in-flight job.
+	func acquire() async -> Bool {
+		await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+			lock.lock()
+			if !busy {
+				busy = true
+				lock.unlock()
+				cont.resume(returning: false)
+			} else {
+				waiters.append(cont)
+				lock.unlock()
+			}
+		}
+	}
+
+	func release() {
+		lock.lock()
+		let next = waiters.isEmpty ? nil : waiters.removeFirst()
+		if next == nil {
+			busy = false
+		}
+		lock.unlock()
+		next?.resume(returning: true)
+	}
+}
+
+/// Keeps a queued import's progress stream alive while it waits for the
+/// decode queue. The JS silence budget is 60s with no events; a long
+/// in-flight transcode would otherwise look like a stall.
+final class ImportQueuePulse: @unchecked Sendable {
+	private let lock = NSLock()
+	private var active = true
+
+	func stop() {
+		lock.lock()
+		active = false
+		lock.unlock()
+	}
+
+	var isActive: Bool {
+		lock.lock()
+		defer { lock.unlock() }
+		return active
+	}
+}
+
+/// One import's AVFoundation decode session. `cancelAll()` runs when that
+/// job finishes (the defer on the way out). It is not how a later import
+/// preempts this one — that import waits on `ImportDecodeQueue`.
 final class LiveImportSession: @unchecked Sendable {
 	private let lock = NSLock()
 	private var reader: AVAssetReader?
@@ -39,7 +93,7 @@ final class LiveImportSession: @unchecked Sendable {
 		let reader = self.reader
 		let generator = self.generator
 		lock.unlock()
-		reader?.cancel()
+		reader?.cancelReading()
 		generator?.cancelAllCGImageGeneration()
 	}
 }
@@ -137,14 +191,29 @@ extension NativeBridgePlugin {
         // "proxyProgress" events keyed by `assetId`.
         call.resolve(["accepted": true])
 
-        let session = LiveImportSession()
-        // Import #1's reader/generator is still the thing import #2 blocks on.
-        // Cancel it before this task touches AVFoundation.
-        liveImportSession?.cancelAll()
-        liveImportSession = session
-
         Task { [weak self] in
+            let pulse = ImportQueuePulse()
+            let beater = Task { [weak self] in
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(nanoseconds: 5_000_000_000)
+                    } catch {
+                        break
+                    }
+                    if Task.isCancelled || !pulse.isActive { break }
+                    self?.emitProxyProgress(assetId: assetId, stage: "transcoding", fraction: 0)
+                }
+            }
+            let waited = await ImportDecodeQueue.shared.acquire()
+            pulse.stop()
+            beater.cancel()
+            defer { ImportDecodeQueue.shared.release() }
             guard let self else { return }
+            if waited {
+                print("[import] waited asset=\(assetId)")
+            }
+            let session = LiveImportSession()
+            self.liveImportSession = session
             defer {
                 session.cancelAll()
                 if self.liveImportSession === session {
@@ -203,9 +272,12 @@ extension NativeBridgePlugin {
                     thumbnailUris: thumbURLs.map { $0.path }
                 )
             } catch {
+                self.discardFailedProxyArtifacts(assetId: assetId)
                 let message = String(describing: error)
-                if message.contains("Import failed at ") {
+                if message.contains("no progress") || message.contains("timed out") {
                     print("[import] stalled asset=\(assetId): \(message)")
+                } else {
+                    print("[import] failed asset=\(assetId): \(message)")
                 }
                 self.emitProxyProgress(
                     assetId: assetId,
@@ -215,6 +287,25 @@ extension NativeBridgePlugin {
                 )
             }
         }
+    }
+
+    /// Removes a failed import's proxy mp4 and thumbnail strip. The custody
+    /// original under `Media/` is left in place so Retry can transcode it
+    /// again without another Photos copy.
+    private func discardFailedProxyArtifacts(assetId: String) {
+        guard !assetId.contains("/") && !assetId.contains("..") else { return }
+        guard let root = try? MediaSandbox.rootDirectory() else { return }
+        let proxy = root
+            .appendingPathComponent("Proxies", isDirectory: true)
+            .appendingPathComponent("\(assetId).mp4")
+        let thumbs = root
+            .appendingPathComponent("Thumbnails", isDirectory: true)
+            .appendingPathComponent(assetId, isDirectory: true)
+        for url in [proxy, thumbs] {
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            try? FileManager.default.removeItem(at: url)
+        }
+        print("[import] discarded partial proxy artifacts asset=\(assetId)")
     }
 
     // MARK: - generateThumbnails
@@ -249,6 +340,11 @@ extension NativeBridgePlugin {
         let durationMicros = (handle["durationMicros"] as? Int) ?? 0
 
         Task {
+            let waited = await ImportDecodeQueue.shared.acquire()
+            defer { ImportDecodeQueue.shared.release() }
+            if waited {
+                print("[import] waited thumbnails asset=\(assetId)")
+            }
             do {
                 let thumbDir = try MediaSandbox.thumbnailDirectory(assetId: assetId)
                 let urls = try await ThumbnailStripGenerator.generate(

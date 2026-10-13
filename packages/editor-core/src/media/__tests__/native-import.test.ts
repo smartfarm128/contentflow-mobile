@@ -391,6 +391,12 @@ describe("post-copy import step timeouts", () => {
 				detail: "Import failed at thumbnails: timed out after 8s",
 			}),
 		).toBe("Import failed at thumbnails: timed out after 8s");
+		expect(
+			formatImportFailure({
+				step: "thumbnails",
+				detail: "Import failed at proxy: cancelled",
+			}),
+		).toBe("Import failed at proxy: cancelled");
 	});
 
 	test("a proxy stream that never emits again fails at proxy", async () => {

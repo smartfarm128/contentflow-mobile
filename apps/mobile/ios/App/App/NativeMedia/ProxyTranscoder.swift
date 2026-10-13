@@ -46,9 +46,12 @@ public enum ProxyTranscodeError: Error, CustomStringConvertible {
 	case writerSetupFailed(String)
 	case readerFailed(String)
 	case writerFailed(String)
-	/// No transcode progress for the silence window. The reader is cancelled
-	/// so the hardware decoder is released instead of wedging the next import.
+	/// No transcode progress for the silence window. Only the watchdog
+	/// produces this, after it cancels the reader itself.
 	case stalled
+	/// The reader was cancelled by something other than the silence
+	/// watchdog (release on the way out, or a caller). This is not a stall.
+	case cancelled
 
 	public var description: String {
 		switch self {
@@ -58,25 +61,55 @@ public enum ProxyTranscodeError: Error, CustomStringConvertible {
 		case .readerFailed(let m): return "reader failed: \(m)"
 		case .writerFailed(let m): return "writer failed: \(m)"
 		case .stalled: return "Import failed at proxy: no progress for 45s"
+		case .cancelled: return "Import failed at proxy: cancelled"
 		}
 	}
 }
 
-/// Holds the live `AVAssetReader` so a silence watchdog (and a later import)
-/// can `cancel()` it. Deinit without `cancel()` keeps the hardware decoder.
+/// Holds the live `AVAssetReader`. `cancelForStall()` is the silence
+/// watchdog. `cancel()` is the release on the way out and does not mark
+/// the job stalled. Deinit without `cancelReading()` keeps the hardware
+/// decoder.
 final class ProxyReaderBox: @unchecked Sendable {
 	private let lock = NSLock()
 	private var reader: AVAssetReader?
+	private var stallCancel = false
+
 	func set(_ reader: AVAssetReader) {
 		lock.lock()
 		self.reader = reader
 		lock.unlock()
 	}
+
+	/// Watchdog only. A later `stopError` reports `stalled`.
+	func cancelForStall() {
+		lock.lock()
+		stallCancel = true
+		let reader = self.reader
+		lock.unlock()
+		reader?.cancelReading()
+	}
+
+	/// Release. A reader still `.reading` then reports `cancelled`.
 	func cancel() {
 		lock.lock()
 		let reader = self.reader
 		lock.unlock()
-		reader?.cancel()
+		reader?.cancelReading()
+	}
+
+	func stopError(for reader: AVAssetReader) -> Error? {
+		switch reader.status {
+		case .cancelled:
+			lock.lock()
+			let stalled = stallCancel
+			lock.unlock()
+			return stalled ? ProxyTranscodeError.stalled : ProxyTranscodeError.cancelled
+		case .failed:
+			return ProxyTranscodeError.readerFailed(reader.error?.localizedDescription ?? "unknown")
+		default:
+			return nil
+		}
 	}
 }
 
@@ -148,7 +181,7 @@ public enum ProxyTranscoder {
 					if Task.isCancelled { break }
 					if stall.isStale(seconds: 45) {
 						print("[import] stalled at proxy")
-						box.cancel()
+						box.cancelForStall()
 						throw ProxyTranscodeError.stalled
 					}
 				}
@@ -365,12 +398,14 @@ public enum ProxyTranscoder {
 				writerInput: videoWriterInput,
 				adaptor: adaptor,
 				durationSeconds: durationSeconds,
-				onProgress: onProgress
+				onProgress: onProgress,
+				readerBox: readerBox
 			)
 			async let audioDone: Void = runAudioPhase(
 				reader: reader,
 				readerOutput: audioReaderOutput,
-				writerInput: audioWriterInput
+				writerInput: audioWriterInput,
+				readerBox: readerBox
 			)
 			try await videoDone
 			try await audioDone
@@ -381,7 +416,8 @@ public enum ProxyTranscoder {
 				writerInput: videoWriterInput,
 				adaptor: adaptor,
 				durationSeconds: durationSeconds,
-				onProgress: onProgress
+				onProgress: onProgress,
+				readerBox: readerBox
 			)
 		}
 
@@ -422,7 +458,8 @@ public enum ProxyTranscoder {
 		writerInput: AVAssetWriterInput,
 		adaptor: AVAssetWriterInputPixelBufferAdaptor,
 		durationSeconds: Double,
-		onProgress: (@Sendable (Double) -> Void)?
+		onProgress: (@Sendable (Double) -> Void)?,
+		readerBox: ProxyReaderBox
 	) async throws {
 		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
 			var finished = false
@@ -441,12 +478,12 @@ public enum ProxyTranscoder {
 				while writerInput.isReadyForMoreMediaData {
 					if reader.status != .reading {
 						writerInput.markAsFinished()
-						finish(readerStopError(reader))
+						finish(readerBox.stopError(for: reader))
 						return
 					}
 					guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
 						writerInput.markAsFinished()
-						finish(readerStopError(reader))
+						finish(readerBox.stopError(for: reader))
 						return
 					}
 					// Frames arrive from AVAssetReaderVideoCompositionOutput
@@ -469,7 +506,8 @@ public enum ProxyTranscoder {
 	private static func runAudioPhase(
 		reader: AVAssetReader,
 		readerOutput: AVAssetReaderTrackOutput,
-		writerInput: AVAssetWriterInput
+		writerInput: AVAssetWriterInput,
+		readerBox: ProxyReaderBox
 	) async throws {
 		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
 			var finished = false
@@ -488,30 +526,17 @@ public enum ProxyTranscoder {
 				while writerInput.isReadyForMoreMediaData {
 					if reader.status != .reading {
 						writerInput.markAsFinished()
-						finish(readerStopError(reader))
+						finish(readerBox.stopError(for: reader))
 						return
 					}
 					guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
 						writerInput.markAsFinished()
-						finish(readerStopError(reader))
+						finish(readerBox.stopError(for: reader))
 						return
 					}
 					_ = writerInput.append(sampleBuffer)
 				}
 			}
-		}
-	}
-
-	/// `.cancelled` is the silence watchdog (or a newer import) releasing the
-	/// decoder. Treat that as a stall, not as a clean end-of-stream.
-	private static func readerStopError(_ reader: AVAssetReader) -> Error? {
-		switch reader.status {
-		case .cancelled:
-			return ProxyTranscodeError.stalled
-		case .failed:
-			return ProxyTranscodeError.readerFailed(reader.error?.localizedDescription ?? "unknown")
-		default:
-			return nil
 		}
 	}
 

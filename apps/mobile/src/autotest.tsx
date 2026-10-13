@@ -88,9 +88,12 @@
  *      planted mp4 copied into custody as `.mov`. The second is
  *      `Media/autotest-source.mp4`, started only after the first reaches
  *      100% and is on the timeline. A second pair repeats that with a
- *      preview frame requested (editor open) before the mp4 import. Each
- *      import has a 90s budget. The phase flag is deleted first. The
- *      verdict is `VERDICT phase=double-import`.
+ *      preview frame requested (editor open) before the mp4 import. A
+ *      third pair is a multi-select: both files are copied into custody,
+ *      then both proxy streams start together and each must reach 100%.
+ *      Each single import has a 90s budget. The multi-select pair has
+ *      180s because one decode session runs at a time. The phase flag is
+ *      deleted first. The verdict is `VERDICT phase=double-import`.
  *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
@@ -107,6 +110,8 @@ import { createRoot } from "react-dom/client";
 import {
 	EditorCore,
 	importMediaFromNative,
+	prepareNativeMedia,
+	commitPreparedMedia,
 	registerNativeMediaPathResolver,
 	registerNativeAudioRouter,
 	mediaTimeFromSeconds,
@@ -2669,6 +2674,129 @@ async function importDoubleVideo({
 	return elapsed;
 }
 
+/**
+ * Multi-select: both custody copies exist, then both `generateProxy`
+ * streams are started together. The native decode queue runs one session
+ * at a time, so the second waits and both still reach 100%.
+ */
+async function importDoublePairTogether({
+	editor,
+	bridge,
+	movPath,
+	mp4Path,
+}: {
+	editor: EditorCore;
+	bridge: Awaited<ReturnType<typeof getNativeBridge>>;
+	movPath: string;
+	mp4Path: string;
+}): Promise<{ mov: number; mp4: number }> {
+	await editor.project.createNewProject({ name: "Autotest Double Multi" });
+	videoCache.clearAll();
+	const movCopied = await bridge.importRemoteMedia({
+		url: absoluteFileUrl(movPath),
+		kind: "video",
+		fileName: "multi-a.mov",
+	});
+	const mp4Copied = await bridge.importRemoteMedia({
+		url: absoluteFileUrl(mp4Path),
+		kind: "video",
+		fileName: "multi-b.mp4",
+	});
+	const toHandle = (
+		copied: typeof movCopied,
+		fileName: string,
+	): NativeMediaHandle => ({
+		id: copied.id,
+		uri: copied.uri,
+		kind: copied.kind,
+		fileName,
+		sizeBytes: copied.sizeBytes,
+		durationMicros: copied.durationMicros,
+		width: copied.width,
+		height: copied.height,
+		hasAudio: copied.hasAudio,
+		codec: copied.codec,
+		frameRate: copied.frameRate,
+		rotationDegrees: copied.rotationDegrees,
+	});
+	const sourceFor = (handle: NativeMediaHandle): NativeMediaSource => ({
+		pickMedia: async () => [handle],
+		generateProxy: (params) => proxyPlantedMedia({ bridge, params }),
+		toPlaybackUri: bridge.toPlaybackUri,
+		getMediaRoot: () => bridge.getMediaRoot(),
+	});
+	const movHandle = toHandle(movCopied, "multi-a.mov");
+	const mp4Handle = toHandle(mp4Copied, "multi-b.mp4");
+	const started = Date.now();
+	const peaks = { mov: 0, mp4: 0 };
+	const doneAt = { mov: 0, mp4: 0 };
+	log("double-import multi-select starting both");
+	const [movPrepared, mp4Prepared] = await Promise.all([
+		prepareNativeMedia({
+			source: sourceFor(movHandle),
+			handles: [movHandle],
+			onProgress: (progress) => {
+				const fraction = Math.min(1, Math.max(0, progress.fraction));
+				const percent = Math.round(fraction * 100);
+				peaks.mov = Math.max(peaks.mov, progress.stage === "done" ? 100 : percent);
+				if (progress.stage === "done") doneAt.mov = Date.now() - started;
+				log(`double-import multi-a.mov ${progress.stage} ${percent}%`);
+			},
+		}),
+		prepareNativeMedia({
+			source: sourceFor(mp4Handle),
+			handles: [mp4Handle],
+			onProgress: (progress) => {
+				const fraction = Math.min(1, Math.max(0, progress.fraction));
+				const percent = Math.round(fraction * 100);
+				peaks.mp4 = Math.max(peaks.mp4, progress.stage === "done" ? 100 : percent);
+				if (progress.stage === "done") doneAt.mp4 = Date.now() - started;
+				log(`double-import multi-b.mp4 ${progress.stage} ${percent}%`);
+			},
+		}),
+	]);
+	const budget = DOUBLE_IMPORT_BUDGET_MS * 2;
+	const movFailed = movPrepared.failed[0]?.error;
+	const mp4Failed = mp4Prepared.failed[0]?.error;
+	if (movFailed || mp4Failed || movPrepared.prepared.length !== 1 || mp4Prepared.prepared.length !== 1) {
+		throw new Error(`multi-select: ${movFailed ?? mp4Failed ?? "missing proxy"}`);
+	}
+	if (peaks.mov < 100 || peaks.mp4 < 100) {
+		throw new Error(`multi-select peaked at mov=${peaks.mov}% mp4=${peaks.mp4}%`);
+	}
+	if (doneAt.mov > budget || doneAt.mp4 > budget) {
+		throw new Error(
+			`multi-select took mov=${doneAt.mov}ms mp4=${doneAt.mp4}ms (budget ${budget}ms)`,
+		);
+	}
+	const imported = commitPreparedMedia({
+		editor,
+		projectId: editor.project.getActive().metadata.id,
+		prepared: [...movPrepared.prepared, ...mp4Prepared.prepared],
+		toPlaybackUri: bridge.toPlaybackUri,
+		mediaRoot: movPrepared.mediaRoot,
+	});
+	if (imported.length !== 2) throw new Error(`multi-select committed ${imported.length}`);
+	for (const asset of imported) {
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: asset.id,
+					mediaType: asset.type,
+					name: asset.name,
+					duration: mediaTimeFromSeconds({ seconds: asset.duration || 3 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+	}
+	const timeline = timelineVideoCount(editor);
+	if (timeline !== 2) throw new Error(`multi-select timeline=${timeline}`);
+	log(`double-import multi-select landed mov=${doneAt.mov}ms mp4=${doneAt.mp4}ms timeline=${timeline}`);
+	return { mov: doneAt.mov, mp4: doneAt.mp4 };
+}
+
 async function runDoubleImport({
 	editor,
 	root,
@@ -2676,7 +2804,7 @@ async function runDoubleImport({
 	editor: EditorCore;
 	root: string;
 }): Promise<void> {
-	const guard = installPhaseGuard({ phase: "double-import", watchdogMs: 420_000 });
+	const guard = installPhaseGuard({ phase: "double-import", watchdogMs: 720_000 });
 	const bridge = await getNativeBridge();
 	let step = "start";
 	try {
@@ -2743,9 +2871,17 @@ async function runDoubleImport({
 			fileName: "double-b.mp4",
 		});
 		if (timelineVideoCount(editor) < 2) throw new Error("editor pair did not leave two timeline videos");
+
+		step = "multi-select";
+		const multi = await importDoublePairTogether({
+			editor,
+			bridge,
+			movPath,
+			mp4Path,
+		});
 		if (guard.claim()) {
 			log(
-				`VERDICT phase=double-import PASS movSource=${movSource} blank=${blankMov}+${blankMp4}ms editor=${editorMov}+${editorMp4}ms timeline=2`,
+				`VERDICT phase=double-import PASS movSource=${movSource} blank=${blankMov}+${blankMp4}ms editor=${editorMov}+${editorMp4}ms multi=${multi.mov}+${multi.mp4}ms timeline=2`,
 			);
 		}
 	} catch (error) {
