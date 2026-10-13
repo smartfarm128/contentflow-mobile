@@ -2310,6 +2310,8 @@ async function runNvidiaDirector({ root }: { root: string }): Promise<void> {
 		const failed =
 			reply.startsWith("Couldn't reach") ||
 			reply.startsWith("NVIDIA timed out") ||
+			reply.startsWith("NVIDIA never answered") ||
+			reply.startsWith("NVIDIA rejected") ||
 			reply.startsWith("No NVIDIA") ||
 			reply.startsWith("The Key Vault");
 		if (failed) throw new Error(reply);

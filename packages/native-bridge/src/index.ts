@@ -15,6 +15,14 @@
  */
 export * from "./types";
 export * from "./dev-fixtures/sample-transcript";
+export {
+	nativeHttpRequest,
+	responseFromNativeHttp,
+	transportFailureKind,
+	NativeHttpError,
+	type NativeHttpResult,
+	type NativeHttpTransport,
+} from "./native-http";
 
 import type { NativeBridge } from "./types";
 

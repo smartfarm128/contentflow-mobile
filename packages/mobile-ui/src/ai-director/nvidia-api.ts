@@ -1,3 +1,4 @@
+import { nativeHttpRequest, NativeHttpError } from "@kneecap/native-bridge";
 import {
 	NVIDIA_FAST_MODEL,
 	nvidiaModelsFromCatalog,
@@ -5,7 +6,14 @@ import {
 } from "./director-models";
 
 /** OpenAI-compatible NVIDIA NIM. GET /v1/models is public; a key is checked
- *  with POST /v1/chat/completions, which returns 401 or 403 for a bad key. */
+ *  with POST /v1/chat/completions, which returns 401 or 403 for a bad key.
+ *
+ *  integrate.api.nvidia.com does not send Access-Control-Allow-Origin, so
+ *  WKWebView fetch throws "Load failed" and hides the status. Requests go
+ *  through native HTTP (CapacitorHttp / URLSession / HttpURLConnection).
+ *  Probed 2026-10-13: api.anthropic.com, api.ananselabs.org, api.openai.com,
+ *  api.pexels.com, and api.elevenlabs.io all send allow-origin *, so those
+ *  stay on fetch. */
 export const NVIDIA_API_BASE = "https://integrate.api.nvidia.com/v1";
 
 /** Nemotron Ultra often takes longer than a minute. Each Director turn waits this long. */
@@ -34,6 +42,41 @@ export class NvidiaTimeoutError extends Error {
 	}
 }
 
+/** fetch() threw before any HTTP status. WKWebView reports that as "Load failed". */
+export class NvidiaNetworkError extends Error {
+	constructor({ detail }: { detail: string }) {
+		super(
+			`NVIDIA never answered (network or CORS). This is not a rejected key and not a timeout. ${detail}`,
+		);
+		this.name = "NvidiaNetworkError";
+	}
+}
+
+function headersRecord(headers: HeadersInit | undefined): Record<string, string> {
+	if (!headers) return {};
+	if (headers instanceof Headers) {
+		const out: Record<string, string> = {};
+		headers.forEach((value, key) => {
+			out[key] = value;
+		});
+		return out;
+	}
+	if (Array.isArray(headers)) {
+		const out: Record<string, string> = {};
+		for (const pair of headers) {
+			const key = pair[0];
+			const value = pair[1];
+			if (typeof key === "string" && typeof value === "string") out[key] = value;
+		}
+		return out;
+	}
+	const out: Record<string, string> = {};
+	for (const [key, value] of Object.entries(headers)) {
+		if (typeof value === "string") out[key] = value;
+	}
+	return out;
+}
+
 export async function fetchNvidia({
 	path,
 	init,
@@ -43,15 +86,22 @@ export async function fetchNvidia({
 	init: RequestInit;
 	timeoutMs: number;
 }): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	try {
-		return await fetch(`${NVIDIA_API_BASE}${path}`, { ...init, signal: controller.signal });
+		return await nativeHttpRequest({
+			url: `${NVIDIA_API_BASE}${path}`,
+			method: init.method,
+			headers: headersRecord(init.headers),
+			body: typeof init.body === "string" ? init.body : undefined,
+			timeoutMs,
+		});
 	} catch (error) {
-		if (controller.signal.aborted) throw new NvidiaTimeoutError({ timeoutMs });
+		if (error instanceof NativeHttpError && error.kind === "timeout") {
+			throw new NvidiaTimeoutError({ timeoutMs });
+		}
+		if (error instanceof NativeHttpError && error.kind === "network") {
+			throw new NvidiaNetworkError({ detail: error.message });
+		}
 		throw error;
-	} finally {
-		clearTimeout(timer);
 	}
 }
 
@@ -109,7 +159,7 @@ export async function validateNvidiaApiKey({
 			},
 		});
 	} catch (error) {
-		if (error instanceof NvidiaTimeoutError) {
+		if (error instanceof NvidiaTimeoutError || error instanceof NvidiaNetworkError) {
 			return { ok: false, error: error.message };
 		}
 		return { ok: false, error: "Could not reach NVIDIA to check this key." };
@@ -134,7 +184,11 @@ export async function validateNvidiaApiKey({
 /** Tool-calling chat models from GET /v1/models. Falls back when the catalog is unreachable. */
 export async function fetchNvidiaToolModels(): Promise<readonly DirectorModel[]> {
 	try {
-		const response = await fetch(`${NVIDIA_API_BASE}/models`);
+		const response = await nativeHttpRequest({
+			url: `${NVIDIA_API_BASE}/models`,
+			method: "GET",
+			timeoutMs: 20_000,
+		});
 		if (!response.ok) return nvidiaModelsFromCatalog([]);
 		const data: unknown = await response.json();
 		return nvidiaModelsFromCatalog(readModelIds(data));

@@ -14,7 +14,14 @@
  */
 import { useAIDirectorStore } from "./ai-store";
 import { modelForRequest, providerLabel, type AIProvider } from "./director-models";
-import { fetchNvidia, NVIDIA_API_BASE, NvidiaTimeoutError, nvidiaTimeouts } from "./nvidia-api";
+import { transportFailureKind } from "@kneecap/native-bridge";
+import {
+	fetchNvidia,
+	NVIDIA_API_BASE,
+	NvidiaNetworkError,
+	NvidiaTimeoutError,
+	nvidiaTimeouts,
+} from "./nvidia-api";
 import { AI_TOOLS } from "./ai-tools";
 import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
 import { CREATIVE_DIRECTION } from "./creative-direction";
@@ -221,6 +228,10 @@ async function driveAgentLoop({
 				},
 				body: openAIBody,
 			};
+			// NVIDIA has no CORS headers for capacitor://localhost, so that
+			// branch uses native HTTP. Anselabs and Anthropic send
+			// Access-Control-Allow-Origin: * (probed 2026-10-13), including
+			// Anthropic's browser-access header below.
 			const res = provider === "nvidia"
 				? await fetchNvidia({
 					path: "/chat/completions",
@@ -248,6 +259,13 @@ async function driveAgentLoop({
 
 			if (!res.ok) {
 				const body = await res.text();
+				if (res.status === 401 || res.status === 403) {
+					throw new DirectorAuthError({
+						provider,
+						status: res.status,
+						detail: body.slice(0, 180),
+					});
+				}
 				throw new Error(
 					`${providerLabel(provider)} API ${res.status}: ${body.slice(0, 200)}`,
 				);
@@ -340,13 +358,56 @@ async function driveAgentLoop({
 		return finalText || "Done.";
 	} catch (error) {
 		console.error("[AIDirector]", error);
-		const msg = error instanceof NvidiaTimeoutError
-			? error.message
-			: `Couldn't reach the AI Director: ${error instanceof Error ? error.message : String(error)}. Check your connection and API key, then try again.`;
+		const msg = directorFailureMessage({ error, provider });
 		store.addMessage({ role: "assistant", content: msg, local: true });
 		store.setIsStreaming(false);
 		return msg;
 	}
+}
+
+class DirectorAuthError extends Error {
+	constructor({
+		provider,
+		status,
+		detail,
+	}: {
+		provider: AIProvider;
+		status: number;
+		detail: string;
+	}) {
+		const extra = detail.trim();
+		super(
+			extra
+				? `${providerLabel(provider)} rejected this API key (${status}). ${extra}`
+				: `${providerLabel(provider)} rejected this API key (${status}).`,
+		);
+		this.name = "DirectorAuthError";
+	}
+}
+
+function directorFailureMessage({
+	error,
+	provider,
+}: {
+	error: unknown;
+	provider: AIProvider;
+}): string {
+	if (
+		error instanceof NvidiaTimeoutError ||
+		error instanceof NvidiaNetworkError ||
+		error instanceof DirectorAuthError
+	) {
+		return error.message;
+	}
+	const detail = error instanceof Error ? error.message : String(error);
+	const kind = transportFailureKind(error);
+	if (kind === "network") {
+		return `${providerLabel(provider)} never answered (network or CORS). This is not a rejected key and not a timeout. ${detail}`;
+	}
+	if (kind === "timeout") {
+		return `${providerLabel(provider)} timed out. ${detail}`;
+	}
+	return `Couldn't reach the AI Director: ${detail}. Check your connection and API key, then try again.`;
 }
 
 /* ------------------------------------------------------------------ */

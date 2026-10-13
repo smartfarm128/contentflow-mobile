@@ -53,7 +53,13 @@ describe("NVIDIA key check", () => {
 		};
 		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
 		const result = await validateNvidiaApiKey({ apiKey: "nvapi-offline" });
-		expect(result).toEqual({ ok: false, error: "Could not reach NVIDIA to check this key." });
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.error).toContain("network or CORS");
+			expect(result.error).toContain("Failed to fetch");
+			expect(result.error).not.toContain("rejected this API key");
+			expect(result.error).not.toContain("timed out");
+		}
 	});
 
 	test("a 200 from the one-token call accepts the key", async () => {

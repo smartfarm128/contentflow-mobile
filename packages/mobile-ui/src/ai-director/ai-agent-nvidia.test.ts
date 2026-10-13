@@ -137,4 +137,39 @@ describe("NVIDIA Director tool calling", () => {
 		expect(useAIDirectorStore.getState().isStreaming).toBe(false);
 		nvidiaTimeouts.requestMs = NVIDIA_REQUEST_TIMEOUT_MS;
 	});
+
+	it("names a WKWebView Load failed as network or CORS, not a bad key", async () => {
+		await useVaultStore.getState().setupVault("2468", { nvidia: "nvapi-ok" });
+		disarmIdleTimer();
+		const fetchMock = async (): Promise<Response> => {
+			throw new TypeError("Load failed");
+		};
+		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
+
+		const reply = await askAIDirector("Say ready", context);
+		expect(reply).toContain("network or CORS");
+		expect(reply).toContain("Load failed");
+		expect(reply).not.toContain("rejected this API key");
+		expect(reply).not.toContain("timed out");
+		expect(reply).not.toContain("Couldn't reach");
+		expect(useAIDirectorStore.getState().isStreaming).toBe(false);
+	});
+
+	it("names a 401 as a rejected key", async () => {
+		await useVaultStore.getState().setupVault("2468", { nvidia: "nvapi-bad" });
+		disarmIdleTimer();
+		const fetchMock = async (): Promise<Response> =>
+			new Response(JSON.stringify({ detail: "Authorization failed" }), {
+				status: 401,
+				headers: { "Content-Type": "application/json" },
+			});
+		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
+
+		const reply = await askAIDirector("Say ready", context);
+		expect(reply).toContain("NVIDIA rejected this API key (401)");
+		expect(reply).toContain("Authorization failed");
+		expect(reply).not.toContain("network or CORS");
+		expect(reply).not.toContain("timed out");
+		expect(useAIDirectorStore.getState().isStreaming).toBe(false);
+	});
 });
