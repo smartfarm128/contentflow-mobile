@@ -140,6 +140,24 @@ describe("subscribeToEvents", () => {
 		expect(removed()).toBe(true);
 	});
 
+	test("cancel unblocks a generator waiting on the next event and removes the listener", async () => {
+		const { source, removed } = createFakeSource();
+		const gen = await subscribeToEvents({
+			source,
+			eventName: "proxyProgress",
+			filter: (e) => e.assetId === "a1",
+			isTerminal,
+		});
+		const pending = gen.next();
+		(gen as AsyncGenerator<FakeEvent> & { cancel?: () => void }).cancel?.();
+		const outcome = await Promise.race([
+			pending.then(() => "closed"),
+			new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 300)),
+		]);
+		expect(outcome).toBe("closed");
+		expect(removed()).toBe(true);
+	});
+
 	test("an error-stage event is still yielded (not thrown) — the caller decides how to surface it", async () => {
 		const { source, emit } = createFakeSource();
 		const gen = await subscribeToEvents({

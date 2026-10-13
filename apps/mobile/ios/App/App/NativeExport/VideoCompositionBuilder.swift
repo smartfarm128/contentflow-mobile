@@ -17,11 +17,17 @@ public struct PrerenderedOverlayFrame {
 	public var startTicks: Int64
 	public var endTicks: Int64
 	public var image: CIImage
+	/// Sandbox PNG. The compositor decodes this one file at draw time into
+	/// a finite CGImage. A lazy `CIImage(contentsOf:)` is not used: its
+	/// extent can be infinite, and a zero-scale composite of that image
+	/// poisons the encoded frame.
+	public var pngPath: String?
 
-	public init(startTicks: Int64, endTicks: Int64, image: CIImage) {
+	public init(startTicks: Int64, endTicks: Int64, image: CIImage, pngPath: String? = nil) {
 		self.startTicks = startTicks
 		self.endTicks = endTicks
 		self.image = image
+		self.pngPath = pngPath
 	}
 }
 
@@ -57,20 +63,21 @@ public enum VideoCompositionBuilder {
 		var assetById: [String: EdlAsset] = [:]
 		for a in edl.assets { assetById[a.assetId] = a }
 
-		func enabledAdjust(_ clipId: String) -> AdjustSettings? {
-			guard let clip = clipById[clipId] else { return nil }
-			guard let fx = clip.effects.first(where: { $0.type == "adjust" && $0.enabled }) else { return nil }
-			let value = { (key: String) -> Double in fx.params[key]?.asDouble ?? 0 }
-			let settings = AdjustSettings(
-				brightness: value("brightness"),
-				contrast: value("contrast"),
-				saturation: value("saturation"),
-				temperature: value("temperature"),
-				tint: value("tint"),
-				sharpen: value("sharpen"),
-				vignette: value("vignette")
-			)
-			return settings.isNeutral ? nil : settings
+		func grades(for clip: EdlClip) -> [ShaderGrade] {
+			var out: [ShaderGrade] = []
+			for fx in clip.effects where fx.enabled {
+				if fx.type == "filter", let grade = ShaderGrade.fromFilter(fx.params) {
+					out.append(grade)
+				} else if fx.type == "adjust", let grade = ShaderGrade.fromAdjust(fx.params) {
+					out.append(grade)
+				}
+			}
+			return out
+		}
+
+		func blurIntensity(for clip: EdlClip) -> Double {
+			guard let fx = clip.effects.first(where: { $0.enabled && $0.type == "blur" }) else { return 0 }
+			return max(0, fx.params["intensity"]?.asDouble ?? 0)
 		}
 
 		func enabledBrightness(_ clipId: String) -> Double? {
@@ -120,6 +127,7 @@ public enum VideoCompositionBuilder {
 		var pipLayers: [OverlayVideoLayer] = []
 		for track in edl.tracks where track.kind == "overlay" && track.trackType == "video" {
 			for clip in track.clips where !clip.hidden {
+				Self.logLeftOut(clip)
 				guard let assetId = clip.assetId else { continue }
 				let rotation = assetById[assetId]?.rotationDegrees ?? 0
 				let placement = SourcePlacement(
@@ -154,7 +162,10 @@ public enum VideoCompositionBuilder {
 					source: source,
 					placement: placement,
 					timeRange: range,
-					zIndex: track.zIndex ?? 0
+					zIndex: track.zIndex ?? 0,
+					grades: grades(for: clip),
+					blurIntensity: blurIntensity(for: clip),
+					mask: ExportMask.fromClip(clip)
 				))
 			}
 		}
@@ -182,7 +193,7 @@ public enum VideoCompositionBuilder {
 				? OverlayLayerBuilder.buildBillboards(edl: edl, renderSize: billboardRenderSize)
 				: overlayFrames.map { frame in
 					OverlayBillboard(
-						states: [OverlayBillboardState(startSeconds: 0, image: frame.image)],
+						states: [OverlayBillboardState(startSeconds: 0, image: frame.image, pngPath: frame.pngPath)],
 						// Full frame, 1:1 — the image IS the output-resolution
 						// overlay layer, so no placement math applies.
 						rect: CGRect(origin: .zero, size: billboardRenderSize),
@@ -237,19 +248,26 @@ public enum VideoCompositionBuilder {
 		for placement in built.mainPlacements {
 			let solo = placement.soloRange
 			guard solo.end > solo.start else { continue }
+			if let clip = clipById[placement.clipId] { Self.logLeftOut(clip) }
 			let trackID = built.mainTrackIDs[placement.clipId]
 			let still = trackID == nil ? mainStill(placement.clipId) : nil
 			let range = EdlTime.cmTimeRange(startTicks: solo.start, durationTicks: solo.end - solo.start, ticksPerSecond: tps)
+			// No composition lane (a still, or a clip whose file was left
+			// out) is only scheduled while a required track has samples.
+			// The pacer lane is that clock; without it the segment is skipped
+			// and a later gap can fail the whole composition (-11841).
 			let instruction = EdlVideoCompositionInstruction(
 				timeRange: range,
 				primaryTrackID: trackID ?? kCMPersistentTrackID_Invalid,
 				primaryStill: still,
 				pacerTrackID:
-					still != nil
+					trackID == nil
 						? (built.stillPacerTrackID ?? kCMPersistentTrackID_Invalid)
 						: kCMPersistentTrackID_Invalid,
 				primaryBrightness: enabledBrightness(placement.clipId),
-				primaryAdjust: enabledAdjust(placement.clipId),
+				primaryGrades: clipById[placement.clipId].map { grades(for: $0) } ?? [],
+				primaryBlurIntensity: clipById[placement.clipId].map { blurIntensity(for: $0) } ?? 0,
+				primaryMask: clipById[placement.clipId].flatMap(ExportMask.fromClip),
 				primaryPlacement: sourcePlacement(placement.clipId),
 				backgroundColor: backgroundColor,
 				overlayVideoLayers: pipLayersIntersecting(range),
@@ -272,6 +290,7 @@ public enum VideoCompositionBuilder {
 			let primaryStill = primaryTrackID == nil ? mainStill(outgoingId) : nil
 			let secondaryStill = secondaryTrackID == nil ? mainStill(incomingId) : nil
 			let range = EdlTime.cmTimeRange(startTicks: window.startTicks, durationTicks: window.durationTicks, ticksPerSecond: tps)
+			let needsPacer = primaryTrackID == nil || secondaryTrackID == nil
 			let instruction = EdlVideoCompositionInstruction(
 				timeRange: range,
 				primaryTrackID: primaryTrackID ?? kCMPersistentTrackID_Invalid,
@@ -279,7 +298,7 @@ public enum VideoCompositionBuilder {
 				primaryStill: primaryStill,
 				secondaryStill: secondaryStill,
 				pacerTrackID:
-					primaryStill != nil || secondaryStill != nil
+					needsPacer
 						? (built.stillPacerTrackID ?? kCMPersistentTrackID_Invalid)
 						: kCMPersistentTrackID_Invalid,
 				transitionWindowStart: range.start,
@@ -287,8 +306,12 @@ public enum VideoCompositionBuilder {
 				transitionKind: window.kind,
 				primaryBrightness: enabledBrightness(outgoingId),
 				secondaryBrightness: enabledBrightness(incomingId),
-				primaryAdjust: enabledAdjust(outgoingId),
-				secondaryAdjust: enabledAdjust(incomingId),
+				primaryGrades: clipById[outgoingId].map { grades(for: $0) } ?? [],
+				secondaryGrades: clipById[incomingId].map { grades(for: $0) } ?? [],
+				primaryBlurIntensity: clipById[outgoingId].map { blurIntensity(for: $0) } ?? 0,
+				secondaryBlurIntensity: clipById[incomingId].map { blurIntensity(for: $0) } ?? 0,
+				primaryMask: clipById[outgoingId].flatMap(ExportMask.fromClip),
+				secondaryMask: clipById[incomingId].flatMap(ExportMask.fromClip),
 				primaryPlacement: sourcePlacement(outgoingId),
 				secondaryPlacement: sourcePlacement(incomingId),
 				backgroundColor: backgroundColor,
@@ -335,6 +358,26 @@ public enum VideoCompositionBuilder {
 		// Overlays ride the instructions as `overlayBillboards` instead.
 
 		return composition
+	}
+
+	/// Effects and masks the compositor does not draw. The export sheet is
+	/// what the user reads; the clip itself still exports.
+	private static let renderedEffects: Set<String> = ["adjust", "brightness", "filter", "blur"]
+
+	private static func logLeftOut(_ clip: EdlClip) {
+		let skipped = clip.effects.filter { $0.enabled && !Self.renderedEffects.contains($0.type) }
+		if !skipped.isEmpty {
+			let names = skipped.map(\.type).joined(separator: ", ")
+			print("[kneecap-export] clip \(clip.clipId): leaving out effects \(names)")
+		}
+		let unsupportedMasks = clip.masks.filter { !ExportMask.renderedTypes.contains($0.type) }
+		if !unsupportedMasks.isEmpty {
+			let names = unsupportedMasks.map(\.type).joined(separator: ", ")
+			print("[kneecap-export] clip \(clip.clipId): leaving out masks \(names)")
+		}
+		if clip.params["reversed"]?.asBool == true {
+			print("[kneecap-export] clip \(clip.clipId): reverse plays forward")
+		}
 	}
 
 	/// Decode an image asset once, at build time, for a `.still` PiP layer.

@@ -1,5 +1,7 @@
 import AVFoundation
 import CoreImage
+import Foundation
+import ImageIO
 
 /// kneecap M9 — the custom `AVVideoCompositing` implementation (plan M9
 /// item 2, and plan §5 risk #4: "Build the transition compositor FIRST in
@@ -121,12 +123,26 @@ public struct OverlayVideoLayer {
 	/// EDL track zIndex — layers composite in ascending order (higher = on
 	/// top), matching OverlayLayerBuilder's CALayer ordering.
 	public let zIndex: Int
+	public let grades: [ShaderGrade]
+	public let blurIntensity: Double
+	public let mask: ExportMask?
 
-	public init(source: Source, placement: SourcePlacement, timeRange: CMTimeRange, zIndex: Int) {
+	public init(
+		source: Source,
+		placement: SourcePlacement,
+		timeRange: CMTimeRange,
+		zIndex: Int,
+		grades: [ShaderGrade] = [],
+		blurIntensity: Double = 0,
+		mask: ExportMask? = nil
+	) {
 		self.source = source
 		self.placement = placement
 		self.timeRange = timeRange
 		self.zIndex = zIndex
+		self.grades = grades
+		self.blurIntensity = blurIntensity
+		self.mask = mask
 	}
 
 	var trackID: CMPersistentTrackID? {
@@ -140,10 +156,81 @@ public struct OverlayVideoLayer {
 public struct OverlayBillboardState {
 	public let startSeconds: Double
 	public let image: CIImage
+	/// When set, draw time replaces `image` with a finite decode of this
+	/// sandbox PNG. One frame is cached. Missing or non-finite files are
+	/// skipped rather than composited.
+	public let pngPath: String?
 
-	public init(startSeconds: Double, image: CIImage) {
+	public init(startSeconds: Double, image: CIImage, pngPath: String? = nil) {
 		self.startSeconds = startSeconds
 		self.image = image
+		self.pngPath = pngPath
+	}
+}
+
+/// On-demand overlay PNG decode. `CIImage(contentsOf:)` stays lazy until
+/// the compositor renders it, and a file-backed image can report an
+/// infinite extent. Thumbnail decode via ImageIO matches the still-image
+/// path (`loadStillImage`) and keeps a single finite bitmap.
+enum OverlayPngLoader {
+	private static let lock = NSLock()
+	private static var cachedPath: String?
+	private static var cachedImage: CIImage?
+	private static var loggedFirst = false
+	private static var skipped = 0
+
+	static func image(atPath path: String) -> CIImage? {
+		lock.lock()
+		defer { lock.unlock() }
+		if path == cachedPath, let cachedImage { return cachedImage }
+		let url = URL(fileURLWithPath: path)
+		guard FileManager.default.fileExists(atPath: url.path) else {
+			noteSkip(detail: "missing path=\(url.path)")
+			return nil
+		}
+		guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+			noteSkip(detail: "unreadable path=\(url.path)")
+			return nil
+		}
+		let options: [CFString: Any] = [
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceThumbnailMaxPixelSize: 2160,
+		]
+		guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+			noteSkip(detail: "thumbnail failed path=\(url.path)")
+			return nil
+		}
+		var image = CIImage(cgImage: cgImage)
+		let extent = image.extent
+		let finite = extent.origin.x.isFinite && extent.origin.y.isFinite
+			&& extent.width.isFinite && extent.height.isFinite
+			&& extent.width > 0 && extent.height > 0
+			&& extent.width < 8000 && extent.height < 8000
+		guard finite else {
+			noteSkip(detail: "non-finite extent=\(extent) path=\(url.path)")
+			return nil
+		}
+		if extent.origin != .zero {
+			image = image.transformed(by: CGAffineTransform(
+				translationX: -extent.origin.x,
+				y: -extent.origin.y
+			))
+		}
+		if !loggedFirst {
+			loggedFirst = true
+			print("[kneecap-export] overlay png decoded path=\(url.path) extent=\(Int(extent.width))x\(Int(extent.height))")
+		}
+		cachedPath = path
+		cachedImage = image
+		return image
+	}
+
+	private static func noteSkip(detail: String) {
+		skipped += 1
+		if skipped <= 3 {
+			print("[kneecap-export] overlay png skipped #\(skipped) \(detail)")
+		}
 	}
 }
 
@@ -173,6 +260,181 @@ public struct OverlayBillboard {
 		self.opacity = opacity
 		self.timeRange = timeRange
 		self.zIndex = zIndex
+	}
+}
+
+/// Shader units for `color-adjust` (`packages/editor-core/src/effects/grade.ts`
+/// and `color_adjust.wgsl`). Filter presets and the Adjust panel both become
+/// one of these. The matrix is the WGSL color section; sharpen and vignette
+/// stay spatial.
+public struct ShaderGrade {
+	public var brightness: Double
+	public var contrast: Double
+	public var saturation: Double
+	public var temperature: Double
+	public var tint: Double
+	public var sharpen: Double
+	public var vignette: Double
+
+	public init(brightness: Double, contrast: Double, saturation: Double, temperature: Double, tint: Double, sharpen: Double, vignette: Double) {
+		self.brightness = brightness
+		self.contrast = contrast
+		self.saturation = saturation
+		self.temperature = temperature
+		self.tint = tint
+		self.sharpen = sharpen
+		self.vignette = vignette
+	}
+
+	public var affectsColor: Bool {
+		brightness != 0 || abs(contrast - 1) > 0.000_001 || abs(saturation - 1) > 0.000_001 || temperature != 0 || tint != 0
+	}
+
+	func apply(to input: CIImage, renderSize: CGSize) -> CIImage {
+		var image = input
+		if sharpen > 0 {
+			image = image.applyingFilter("CISharpenLuminance", parameters: [
+				"inputSharpness": sharpen * 0.9,
+			])
+		}
+		if affectsColor {
+			image = Self.applyMatrix(to: image, grade: self)
+		}
+		if vignette > 0 {
+			image = image.applyingFilter("CIVignette", parameters: [
+				"inputIntensity": vignette * 1.6,
+				"inputRadius": min(renderSize.width, renderSize.height) / 200.0,
+			])
+		}
+		return image
+	}
+
+	static func fromAdjust(_ params: [String: AnyCodableValue]) -> ShaderGrade? {
+		func value(_ key: String) -> Double { params[key]?.asDouble ?? 0 }
+		let grade = ShaderGrade(
+			brightness: (value("brightness") / 100) * 0.35,
+			contrast: 1 + (value("contrast") / 100) * 0.6,
+			saturation: max(0, 1 + value("saturation") / 100),
+			temperature: value("temperature") / 100,
+			tint: value("tint") / 100,
+			sharpen: value("sharpen") / 100,
+			vignette: value("vignette") / 100
+		)
+		let neutral = grade.brightness == 0 && grade.contrast == 1 && grade.saturation == 1
+			&& grade.temperature == 0 && grade.tint == 0 && grade.sharpen == 0 && grade.vignette == 0
+		return neutral ? nil : grade
+	}
+
+	static func fromFilter(_ params: [String: AnyCodableValue]) -> ShaderGrade? {
+		let preset = params["preset"]?.asString ?? "none"
+		let targets: [String: (Double, Double, Double, Double, Double)] = [
+			"vivid": (0.03, 1.15, 1.35, 0.08, 0),
+			"mono": (0, 1.08, 0, 0, 0),
+			"vintage": (0.04, 0.92, 0.62, 0.55, 0.12),
+			"cool": (0, 1.06, 0.92, -0.72, 0.08),
+			"warm": (0.03, 1.05, 1.08, 0.62, -0.06),
+			"cinematic": (-0.03, 1.2, 0.78, -0.22, 0.1),
+		]
+		guard let target = targets[preset] else { return nil }
+		let mix = min(1, max(0, (params["intensity"]?.asDouble ?? 100) / 100))
+		if mix == 0 { return nil }
+		let grade = ShaderGrade(
+			brightness: target.0 * mix,
+			contrast: 1 + (target.1 - 1) * mix,
+			saturation: 1 + (target.2 - 1) * mix,
+			temperature: target.3 * mix,
+			tint: target.4 * mix,
+			sharpen: 0,
+			vignette: 0
+		)
+		return grade.affectsColor ? grade : nil
+	}
+
+	/// Column-major 4×4, same product as `shaderGradeMatrix` in grade.ts.
+	static func matrix(_ grade: ShaderGrade) -> [Double] {
+		let temperature = translation(grade.temperature * 0.12 + grade.tint * 0.05, -grade.tint * 0.10, -grade.temperature * 0.12 + grade.tint * 0.05)
+		let brightness = translation(grade.brightness, grade.brightness, grade.brightness)
+		let bias = 0.5 - 0.5 * grade.contrast
+		let contrast = [
+			grade.contrast, 0, 0, 0,
+			0, grade.contrast, 0, 0,
+			0, 0, grade.contrast, 0,
+			bias, bias, bias, 1,
+		]
+		let inv = 1 - grade.saturation
+		let sat = grade.saturation
+		let rw = 0.2126, gw = 0.7152, bw = 0.0722
+		let saturation = [
+			sat + inv * rw, inv * rw, inv * rw, 0,
+			inv * gw, sat + inv * gw, inv * gw, 0,
+			inv * bw, inv * bw, sat + inv * bw, 0,
+			0, 0, 0, 1,
+		]
+		return matMul(saturation, matMul(contrast, matMul(brightness, temperature)))
+	}
+
+	private static func translation(_ x: Double, _ y: Double, _ z: Double) -> [Double] {
+		[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1]
+	}
+
+	private static func matMul(_ a: [Double], _ b: [Double]) -> [Double] {
+		var out = [Double](repeating: 0, count: 16)
+		for col in 0..<4 {
+			for row in 0..<4 {
+				var sum = 0.0
+				for k in 0..<4 {
+					sum += a[k * 4 + row] * b[col * 4 + k]
+				}
+				out[col * 4 + row] = sum
+			}
+		}
+		return out
+	}
+
+	private static func applyMatrix(to image: CIImage, grade: ShaderGrade) -> CIImage {
+		let m = matrix(grade)
+		func at(_ row: Int, _ col: Int) -> CGFloat { CGFloat(m[col * 4 + row]) }
+		let filtered = image.applyingFilter("CIColorMatrix", parameters: [
+			"inputRVector": CIVector(x: at(0, 0), y: at(0, 1), z: at(0, 2), w: 0),
+			"inputGVector": CIVector(x: at(1, 0), y: at(1, 1), z: at(1, 2), w: 0),
+			"inputBVector": CIVector(x: at(2, 0), y: at(2, 1), z: at(2, 2), w: 0),
+			"inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+			"inputBiasVector": CIVector(x: at(0, 3), y: at(1, 3), z: at(2, 3), w: 0),
+		])
+		return filtered.applyingFilter("CIColorClamp", parameters: [
+			"inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+			"inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1),
+		])
+	}
+}
+
+/// Ellipse, rectangle, and diamond in the preview's box-mask space
+/// (`getBoxLikeGeometry`: fractions of the placed frame, Y down).
+public struct ExportMask {
+	public var type: String
+	public var centerX: Double
+	public var centerY: Double
+	public var width: Double
+	public var height: Double
+	public var rotation: Double
+	public var inverted: Bool
+	public var feather: Double
+
+	public static let renderedTypes: Set<String> = ["ellipse", "rectangle", "diamond"]
+
+	public static func fromClip(_ clip: EdlClip) -> ExportMask? {
+		guard let mask = clip.masks.first, renderedTypes.contains(mask.type) else { return nil }
+		let params = mask.params
+		return ExportMask(
+			type: mask.type,
+			centerX: params["centerX"]?.asDouble ?? 0,
+			centerY: params["centerY"]?.asDouble ?? 0,
+			width: params["width"]?.asDouble ?? 0.6,
+			height: params["height"]?.asDouble ?? 0.6,
+			rotation: params["rotation"]?.asDouble ?? 0,
+			inverted: params["inverted"]?.asBool ?? false,
+			feather: params["feather"]?.asDouble ?? 0
+		)
 	}
 }
 
@@ -283,6 +545,16 @@ public final class EdlVideoCompositionInstruction: NSObject, AVVideoCompositionI
 	/// Full Adjust set per source (round 22); nil == no adjust effect.
 	public let primaryAdjust: AdjustSettings?
 	public let secondaryAdjust: AdjustSettings?
+	/// Filter and adjust grades, in effect-list order. Applied after the
+	/// legacy brightness effect and before blur.
+	public let primaryGrades: [ShaderGrade]
+	public let secondaryGrades: [ShaderGrade]
+	/// Blur effect intensity (0...100). Sigma is resolved from the source
+	/// frame size at draw time so it matches `intensityToSigma`.
+	public let primaryBlurIntensity: Double
+	public let secondaryBlurIntensity: Double
+	public let primaryMask: ExportMask?
+	public let secondaryMask: ExportMask?
 	/// Placement of each source into the render frame (preview-parity fit +
 	/// clip transform). Defaults to `.identity` (center, contain-fit only)
 	/// so a caller that has no EDL context still gets a full-frame result.
@@ -319,6 +591,12 @@ public final class EdlVideoCompositionInstruction: NSObject, AVVideoCompositionI
 		secondaryBrightness: Double? = nil,
 		primaryAdjust: AdjustSettings? = nil,
 		secondaryAdjust: AdjustSettings? = nil,
+		primaryGrades: [ShaderGrade] = [],
+		secondaryGrades: [ShaderGrade] = [],
+		primaryBlurIntensity: Double = 0,
+		secondaryBlurIntensity: Double = 0,
+		primaryMask: ExportMask? = nil,
+		secondaryMask: ExportMask? = nil,
 		primaryPlacement: SourcePlacement = .identity,
 		secondaryPlacement: SourcePlacement = .identity,
 		backgroundColor: CIColor = CIColor(red: 0, green: 0, blue: 0, alpha: 1),
@@ -338,6 +616,12 @@ public final class EdlVideoCompositionInstruction: NSObject, AVVideoCompositionI
 		self.secondaryBrightness = secondaryBrightness
 		self.primaryAdjust = primaryAdjust
 		self.secondaryAdjust = secondaryAdjust
+		self.primaryGrades = primaryGrades
+		self.secondaryGrades = secondaryGrades
+		self.primaryBlurIntensity = primaryBlurIntensity
+		self.secondaryBlurIntensity = secondaryBlurIntensity
+		self.primaryMask = primaryMask
+		self.secondaryMask = secondaryMask
 		self.primaryPlacement = primaryPlacement
 		self.secondaryPlacement = secondaryPlacement
 		self.backgroundColor = backgroundColor
@@ -441,11 +725,16 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 				if let adjust = instruction.primaryAdjust {
 					primaryImage = adjust.apply(to: primaryImage, renderSize: renderSize)
 				}
-				image = Self.place(
+				primaryImage = Self.grade(primaryImage, grades: instruction.primaryGrades, blurIntensity: instruction.primaryBlurIntensity, renderSize: renderSize)
+				primaryImage = Self.place(
 					image: primaryImage,
 					placement: instruction.primaryPlacement.resolved(atCompositionTicks: compositionTicks),
 					renderSize: renderSize
-				).composited(over: background)
+				)
+				if let mask = instruction.primaryMask {
+					primaryImage = Self.applyExportMask(mask, to: primaryImage, renderSize: renderSize)
+				}
+				image = primaryImage.composited(over: background)
 			} else {
 				image = background
 			}
@@ -465,11 +754,16 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 				if let adjust = instruction.secondaryAdjust {
 					secondaryImage = adjust.apply(to: secondaryImage, renderSize: renderSize)
 				}
+				secondaryImage = Self.grade(secondaryImage, grades: instruction.secondaryGrades, blurIntensity: instruction.secondaryBlurIntensity, renderSize: renderSize)
 				secondaryImage = Self.place(
 					image: secondaryImage,
 					placement: instruction.secondaryPlacement.resolved(atCompositionTicks: compositionTicks),
 					renderSize: renderSize
-				).composited(over: background)
+				)
+				if let mask = instruction.secondaryMask {
+					secondaryImage = Self.applyExportMask(mask, to: secondaryImage, renderSize: renderSize)
+				}
+				secondaryImage = secondaryImage.composited(over: background)
 				let progress = Self.progress(
 					at: asyncVideoCompositionRequest.compositionTime,
 					windowStart: instruction.transitionWindowStart ?? .zero,
@@ -499,11 +793,15 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 				case .still(let stillImage):
 					layerImage = stillImage
 				}
+				layerImage = Self.grade(layerImage, grades: layer.grades, blurIntensity: layer.blurIntensity, renderSize: renderSize)
 				layerImage = Self.place(
 					image: layerImage,
 					placement: layer.placement.resolved(atCompositionTicks: compositionTicks),
 					renderSize: renderSize
 				)
+				if let mask = layer.mask {
+					layerImage = Self.applyExportMask(mask, to: layerImage, renderSize: renderSize)
+				}
 				image = layerImage.composited(over: image)
 			}
 
@@ -512,13 +810,22 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 			for billboard in instruction.overlayBillboards {
 				guard billboard.timeRange.containsTime(compositionTime) else { continue }
 				let seconds = compositionTime.seconds
-				var stateImage = billboard.states.first?.image
-				for state in billboard.states where state.startSeconds <= seconds {
-					stateImage = state.image
+				var state = billboard.states.first
+				for candidate in billboard.states where candidate.startSeconds <= seconds {
+					state = candidate
 				}
-				guard let stateImage else { continue }
+				guard let state else { continue }
+				var stateImage = state.image
+				if let path = state.pngPath, !path.isEmpty {
+					guard let decoded = OverlayPngLoader.image(atPath: path) else { continue }
+					stateImage = decoded
+				}
 				let extent = stateImage.extent
-				guard extent.width > 0, extent.height > 0 else { continue }
+				guard extent.origin.x.isFinite, extent.origin.y.isFinite,
+				      extent.width.isFinite, extent.height.isFinite,
+				      extent.width > 0, extent.height > 0 else {
+					continue
+				}
 				// rect is top-left/+Y-down (screen convention); CI is
 				// bottom-left/+Y-up — flip once here, same as `place`.
 				let scaleX = billboard.rect.width / extent.width
@@ -542,6 +849,96 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 			ciContext.render(image.cropped(to: renderRect), to: outputBuffer)
 			asyncVideoCompositionRequest.finish(withComposedVideoFrame: outputBuffer)
 		}
+	}
+
+	static func grade(_ image: CIImage, grades: [ShaderGrade], blurIntensity: Double, renderSize: CGSize) -> CIImage {
+		var result = image
+		for grade in grades {
+			result = grade.apply(to: result, renderSize: renderSize)
+		}
+		guard blurIntensity > 0.001 else { return result }
+		let extent = result.extent
+		guard extent.width > 1, extent.height > 1, extent.width.isFinite, extent.height.isFinite else { return result }
+		let sigmaX = (blurIntensity / 5.0) * (extent.width / 1920.0)
+		let sigmaY = (blurIntensity / 5.0) * (extent.height / 1080.0)
+		let radius = max(sigmaX, sigmaY)
+		guard radius > 0.05 else { return result }
+		let blurred = result.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: ["inputRadius": radius])
+		return blurred.cropped(to: extent)
+	}
+
+	static func applyExportMask(_ mask: ExportMask, to image: CIImage, renderSize: CGSize) -> CIImage {
+		guard let maskImage = maskBitmap(mask, renderSize: renderSize) else { return image }
+		let renderRect = CGRect(origin: .zero, size: renderSize)
+		let clear = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: renderRect)
+		let masked = image.applyingFilter("CIBlendWithMask", parameters: [
+			kCIInputBackgroundImageKey: clear,
+			kCIInputMaskImageKey: maskImage,
+		])
+		return masked.cropped(to: renderRect)
+	}
+
+	private static func maskBitmap(_ mask: ExportMask, renderSize: CGSize) -> CIImage? {
+		guard ExportMask.renderedTypes.contains(mask.type) else { return nil }
+		let width = Int(renderSize.width.rounded())
+		let height = Int(renderSize.height.rounded())
+		guard width > 1, height > 1 else { return nil }
+		// DeviceGray, origin bottom-left, matches CIImage(cgImage:). Canvas Y
+		// (down) is flipped once here so a positive centerY moves the hole down
+		// on screen, the same way getBoxLikeGeometry does.
+		guard let ctx = CGContext(
+			data: nil,
+			width: width,
+			height: height,
+			bitsPerComponent: 8,
+			bytesPerRow: width,
+			space: CGColorSpaceCreateDeviceGray(),
+			bitmapInfo: CGImageAlphaInfo.none.rawValue
+		) else { return nil }
+		ctx.setFillColor(gray: 0, alpha: 1)
+		ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+		let frameW = CGFloat(width)
+		let frameH = CGFloat(height)
+		let centerX = frameW / 2 + CGFloat(mask.centerX) * frameW
+		let canvasCenterY = frameH / 2 + CGFloat(mask.centerY) * frameH
+		let centerY = frameH - canvasCenterY
+		let maskW = max(CGFloat(mask.width), 0.01) * frameW
+		let maskH = max(CGFloat(mask.height), 0.01) * frameH
+		ctx.saveGState()
+		ctx.translateBy(x: centerX, y: centerY)
+		ctx.rotate(by: -CGFloat(mask.rotation) * .pi / 180)
+		ctx.setFillColor(gray: 1, alpha: 1)
+		let rect = CGRect(x: -maskW / 2, y: -maskH / 2, width: maskW, height: maskH)
+		switch mask.type {
+		case "ellipse":
+			ctx.fillEllipse(in: rect)
+		case "rectangle":
+			ctx.fill(rect)
+		case "diamond":
+			ctx.beginPath()
+			ctx.move(to: CGPoint(x: 0, y: maskH / 2))
+			ctx.addLine(to: CGPoint(x: maskW / 2, y: 0))
+			ctx.addLine(to: CGPoint(x: 0, y: -maskH / 2))
+			ctx.addLine(to: CGPoint(x: -maskW / 2, y: 0))
+			ctx.closePath()
+			ctx.fillPath()
+		default:
+			ctx.restoreGState()
+			return nil
+		}
+		ctx.restoreGState()
+		guard let cgImage = ctx.makeImage() else { return nil }
+		var bitmap = CIImage(cgImage: cgImage)
+		if mask.inverted {
+			bitmap = bitmap.applyingFilter("CIColorInvert")
+		}
+		let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+		if mask.feather > 0.5 {
+			bitmap = bitmap.clampedToExtent()
+				.applyingFilter("CIGaussianBlur", parameters: ["inputRadius": mask.feather / 2])
+				.cropped(to: bounds)
+		}
+		return bitmap.cropped(to: bounds)
 	}
 
 	/// Preview-parity placement — the Core Image mirror of the web renderer's

@@ -69,11 +69,52 @@ export async function listElevenLabsVoices(): Promise<ElevenLabsVoice[]> {
 }
 
 /**
+ * The POST `importRemoteMedia` sends so the MP3 is written in media
+ * custody and probed. The API key rides in a header, not the URL.
+ */
+export function elevenLabsSpeechRequest({
+	text,
+	voiceId,
+	modelId = "eleven_multilingual_v2",
+	stability = 0.5,
+	similarityBoost = 0.75,
+}: {
+	text: string;
+	voiceId: string;
+	modelId?: string;
+	stability?: number;
+	similarityBoost?: number;
+}): {
+	url: string;
+	method: "POST";
+	headers: Record<string, string>;
+	body: string;
+	fileName: string;
+} {
+	const key = getElevenLabsKey();
+	if (!key) throw new Error("No ElevenLabs API key set.");
+	if (!text.trim()) throw new Error("Voiceover text is empty.");
+	return {
+		url: `${ELEVENLABS_BASE}/text-to-speech/${encodeURIComponent(voiceId)}`,
+		method: "POST",
+		headers: {
+			"xi-api-key": key,
+			"Content-Type": "application/json",
+			Accept: "audio/mpeg",
+		},
+		body: JSON.stringify({
+			text,
+			model_id: modelId,
+			voice_settings: { stability, similarity_boost: similarityBoost },
+		}),
+		fileName: "voiceover.mp3",
+	};
+}
+
+/**
  * Renders `text` with an ElevenLabs voice and returns the MP3 bytes.
- *
- * Returns a Blob rather than writing to disk: unlike the native TTS path
- * (which hands back a file in media custody), this audio arrives over the
- * network, so the caller registers it as a normal blob-backed asset.
+ * Timeline voiceovers do not use this — they send `elevenLabsSpeechRequest`
+ * through native custody so the file is probed and persisted.
  */
 export async function synthesizeElevenLabs({
 	text,
@@ -88,22 +129,17 @@ export async function synthesizeElevenLabs({
 	stability?: number;
 	similarityBoost?: number;
 }): Promise<Blob> {
-	const key = getElevenLabsKey();
-	if (!key) throw new Error("No ElevenLabs API key set.");
-	if (!text.trim()) throw new Error("Voiceover text is empty.");
-
-	const res = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${voiceId}`, {
-		method: "POST",
-		headers: {
-			"xi-api-key": key,
-			"Content-Type": "application/json",
-			Accept: "audio/mpeg",
-		},
-		body: JSON.stringify({
-			text,
-			model_id: modelId,
-			voice_settings: { stability, similarity_boost: similarityBoost },
-		}),
+	const request = elevenLabsSpeechRequest({
+		text,
+		voiceId,
+		modelId,
+		stability,
+		similarityBoost,
+	});
+	const res = await fetch(request.url, {
+		method: request.method,
+		headers: request.headers,
+		body: request.body,
 	});
 
 	if (!res.ok) {

@@ -1,18 +1,20 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { SegmentedControl } from "../segmented-control";
 import { ProgressOverlay } from "../progress-overlay";
 import type { EditorCore } from "@kneecap/editor-core";
-import { buildEdl, type Edl } from "@kneecap/editor-core/edl";
+import {
+	listNativeExportOmissions,
+	type Edl,
+	type NativeExportOmission,
+	type NativeExportPlatform,
+} from "@kneecap/editor-core/edl";
 import type { ExportFormat, ExportQuality } from "@kneecap/editor-core/export";
 import { getNativeBridge, type ExportProgress } from "@kneecap/native-bridge";
+import { buildProjectEdl, exportActiveProject } from "../../export/export-active-project";
 import {
-	renderOverlayFrames,
-	type OverlayFrame,
-} from "@kneecap/editor-core/export/overlay-frames";
-import {
-	buildNativeEdlAssetResolver, setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
+	setProjectFps, setProjectResolution } from "../../editor/actions";
 import type { FrameRate } from "opencut-wasm";
 
 interface ExportSheetProps {
@@ -40,13 +42,6 @@ const QUALITY_OPTIONS: Array<{ id: ExportQuality; label: string }> = [
 	{ id: "high", label: "High" },
 	{ id: "very_high", label: "Very High" },
 ];
-
-const QUALITY_BITRATE: Record<ExportQuality, number> = {
-	low: 2_000_000,
-	medium: 5_000_000,
-	high: 10_000_000,
-	very_high: 20_000_000,
-};
 
 function isExportQuality(value: string): value is ExportQuality {
 	return QUALITY_OPTIONS.some((option) => option.id === value);
@@ -123,6 +118,8 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const [progress, setProgress] = useState<{ stage: ExportProgress["stage"]; fraction: number } | null>(null);
 	const [exportError, setExportError] = useState<string | null>(null);
 	const [outputUri, setOutputUri] = useState<string | null>(null);
+	const [omissions, setOmissions] = useState<NativeExportOmission[] | null>(null);
+	const [omissionError, setOmissionError] = useState<string | null>(null);
 	// Holds the in-flight generator ONLY so Cancel can `.return()` it — never
 	// read for anything else. A ref, not state: swapping it must not trigger
 	// a re-render.
@@ -158,35 +155,37 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		if (preset) setProjectFps({ editor, fps: preset.fps });
 	};
 
-	/** Shared by both "Preview EDL output" and "Export video" — the real
-	 *  export must build the EDL the exact same way the preview claims to,
-	 *  or the preview would be lying about what gets exported. */
-	const buildCurrentEdl = (): Edl => {
-		const scene = editor.scenes.getActiveScene();
+	/** Shared by the omission list, "Preview EDL output" and "Export video" —
+	 *  the real export must build the EDL the exact same way the sheet
+	 *  describes, or the list of what gets left out would be lying. */
+	const buildCurrentEdl = useCallback((): Edl => {
 		const fpsPreset = FPS_OPTIONS.find((f) => f.id === fpsId)?.fps;
-		return buildEdl({
-			project,
-			scene,
-			// Real live media assets, not a hardcoded `[]` — genuinely empty
-			// today only because no panel in this app can insert a video/image
-			// element yet (media import is out of M8 scope; see
-			// demo-project.ts's header). The moment that lands, this keeps
-			// working with no change here.
-			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
-			// Native custody paths for the exporter — without this every
-			// asset built with sourceUri:null and the on-device export died
-			// with "could not be resolved to a readable URL" (2026-08-20).
-			resolveAsset: buildNativeEdlAssetResolver(),
-			output: {
-				container: format,
-				videoCodec: "h264",
-				audioCodec: "aac",
-				bitrate: QUALITY_BITRATE[quality],
-				includeAudio: true,
-				fps: fpsPreset,
-			},
-		});
-	};
+		return buildProjectEdl({ editor, quality, format, fps: fpsPreset });
+	}, [editor, fpsId, format, quality]);
+
+	useEffect(() => {
+		let cancelled = false;
+		void (async () => {
+			try {
+				const bridge = await getNativeBridge();
+				const platform: NativeExportPlatform =
+					bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+				const next = listNativeExportOmissions({ edl: buildCurrentEdl(), platform });
+				if (!cancelled) {
+					setOmissions(next);
+					setOmissionError(null);
+				}
+			} catch (error) {
+				if (!cancelled) {
+					setOmissions(null);
+					setOmissionError(error instanceof Error ? error.message : String(error));
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [buildCurrentEdl]);
 
 	const previewEdl = () => {
 		setPreviewError(null);
@@ -206,69 +205,26 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		setOutputUri(null);
 		setProgress({ stage: "preparing", fraction: 0 });
 		setRunState("exporting");
-
-		let edl: Edl;
-		try {
-			edl = buildCurrentEdl();
-		} catch (error) {
+		const fpsPreset = FPS_OPTIONS.find((f) => f.id === fpsId)?.fps;
+		const result = await exportActiveProject({
+			editor,
+			quality,
+			format,
+			fps: fpsPreset,
+			onProgress: (next) => setProgress(next),
+			onOmissions: (next) => setOmissions(next),
+			onGenerator: (generator) => {
+				activeExportRef.current = generator;
+			},
+		});
+		if (!result.ok) {
+			if (result.cancelled) return;
 			setRunState("error");
-			setExportError(error instanceof Error ? error.message : String(error));
+			setExportError(result.error);
 			return;
 		}
-
-		try {
-			const bridge = await getNativeBridge();
-			// Render text/captions with the PREVIEW's own code (round 37) and
-			// hand the exporter the resulting images — one implementation of
-			// the visual contract, so what you saw is what you get. A failure
-			// here degrades to the native text path rather than blocking the
-			// export.
-			let overlayFrames: OverlayFrame[] = [];
-			try {
-				setProgress({ stage: "preparing", fraction: 0 });
-				overlayFrames = await renderOverlayFrames({
-					tracks: editor.scenes.getActiveScene().tracks,
-					mediaAssets: editor.media.getAssets(),
-					canvasSize: {
-						width: edl.output.resolution.width,
-						height: edl.output.resolution.height,
-					},
-					fps: edl.output.fps,
-					durationTicks: edl.meta.durationTicks,
-					ticksPerSecond: edl.meta.ticksPerSecond,
-					onProgress: (fraction: number) =>
-						setProgress({ stage: "preparing", fraction: fraction * 0.2 }),
-				});
-			} catch (error) {
-				console.warn("overlay prerender failed — native text path:", error);
-			}
-			const generator = bridge.exportProject({ edl, overlayFrames });
-			activeExportRef.current = generator;
-			for await (const event of generator) {
-				setProgress({ stage: event.stage, fraction: event.fraction });
-				if (event.stage === "error") {
-					setRunState("error");
-					setExportError(event.error ?? "Export failed");
-					break;
-				}
-				if (event.stage === "done") {
-					setRunState("done");
-					setOutputUri(event.outputUri ?? null);
-					break;
-				}
-			}
-		} catch (error) {
-			// Includes the honest `NativeBridgeError({code:"UNSUPPORTED",...})`
-			// the web-fallback bridge throws the moment this generator is first
-			// iterated (no native shell present) — same typed-error contract
-			// every other `getNativeBridge()` caller in this package relies on
-			// (see captions-actions.ts), surfaced here as plain sheet text
-			// rather than an uncaught rejection.
-			setRunState("error");
-			setExportError(error instanceof Error ? error.message : String(error));
-		} finally {
-			activeExportRef.current = null;
-		}
+		setRunState("done");
+		setOutputUri(result.outputUri);
 	};
 
 	const cancelExport = () => {
@@ -312,6 +268,20 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						}}
 					/>
 				</div>
+				{omissions && omissions.length > 0 && (
+					<div className="cc-export-omissions" role="status">
+						<p className="cc-export-omissions__title">Left out of this export</p>
+						<ul className="cc-export-omissions__list">
+							{omissions.map((item) => (
+								<li key={`${item.path}:${item.message}`}>{item.message}</li>
+							))}
+						</ul>
+					</div>
+				)}
+				{omissions && omissions.length === 0 && (
+					<p className="cc-panel-note">Everything on this timeline can be included in the export.</p>
+				)}
+				{omissionError && <p className="cc-panel-note">Could not check the export: {omissionError}</p>}
 				<button type="button" className="cc-export-sheet__action" onClick={previewEdl}>
 					Preview EDL output
 				</button>

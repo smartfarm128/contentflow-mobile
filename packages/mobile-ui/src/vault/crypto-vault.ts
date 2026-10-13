@@ -16,6 +16,7 @@ export interface VaultKeys {
 	elevenlabs?: string;
 	pexels?: string;
 	anselabs?: string;
+	nvidia?: string;
 }
 
 export interface StoredVaultPayload {

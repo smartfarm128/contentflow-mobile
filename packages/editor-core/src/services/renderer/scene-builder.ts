@@ -141,6 +141,7 @@ function buildTrackNodes({
 			if (element.type === "sticker") {
 				nodes.push(
 					new StickerNode({
+						elementId: element.id,
 						stickerId: element.stickerId,
 						intrinsicWidth: element.intrinsicWidth,
 						intrinsicHeight: element.intrinsicHeight,
@@ -160,6 +161,7 @@ function buildTrackNodes({
 			if (element.type === "graphic") {
 				nodes.push(
 					new GraphicNode({
+						elementId: element.id,
 						definitionId: element.definitionId,
 						params: element.params,
 						duration: element.duration,

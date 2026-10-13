@@ -26,6 +26,9 @@ import {
 	updateEffectParam,
 	insertHtmlTemplateElement,
 	getElement,
+	commitElementTrim,
+	commitElementMove,
+	setMainTrackTransition,
 	setElementMask,
 	removeElementMask,
 	getElementMask,
@@ -41,6 +44,7 @@ import {
 import { generateVoiceover, listAllVoiceOptions } from "../editor/voiceover-actions";
 import { searchPexelsVideos, importPexelsMediaToTimeline } from "../editor/stock-media-actions";
 import { captureFrameAt, captureFramesAcross, type CapturedFrame } from "./frame-capture";
+import { exportActiveProject } from "../export/export-active-project";
 import { analyzeReferenceVideo, buildStyleExtractionPrompt } from "./reference-analysis";
 import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
 import { findHtmlTemplateRef } from "../motion-templates/engine-bridge";
@@ -110,6 +114,14 @@ function findRef(ctx: ToolContext, clipId: string): ElementRef | null {
 	return row ? { trackId: row.trackId, elementId: row.id } : null;
 }
 
+function clipRange({ editor, ref }: { editor: EditorCore; ref: ElementRef }): string {
+	const element = getElement({ editor, ref });
+	if (!element) return "missing";
+	const start = mediaTimeToSeconds({ time: element.startTime });
+	const end = start + mediaTimeToSeconds({ time: element.duration });
+	return `${start.toFixed(2)}s → ${end.toFixed(2)}s`;
+}
+
 /** First main-track clip — the sensible default target when the model omits an id. */
 function firstMainRef(ctx: ToolContext): ElementRef | null {
 	const main = ctx.editor.scenes.getActiveSceneOrNull()?.tracks.main;
@@ -176,12 +188,10 @@ export async function executeTool(
 		}
 
 		case "list_motion_templates": {
-			// Lazy: the registry imports all 168 template components (three.js,
-			// R3F, framer-motion). Loading that eagerly costs app startup for a
-			// tool most turns never call, and cannot even be imported in a
-			// headless test runtime.
-			const { getAllHtmlTemplates } = await import("../motion-templates/registry");
-			const all = getAllHtmlTemplates();
+			// Metadata only. The component registry (three, remotion, d3, the
+			// OpenChatCut factories) stays out of this tool and out of startup.
+			const { getAllHtmlTemplateMeta } = await import("../motion-templates/template-meta");
+			const all = getAllHtmlTemplateMeta();
 			const q = String(input.search ?? "").toLowerCase();
 			const limit = Number(input.limit ?? 40);
 			const matched = (q
@@ -318,8 +328,13 @@ export async function executeTool(
 					text: "Could not render a frame — the preview compositor isn't running (no project open, or the GPU isn't available here). Judge from get_timeline instead, and say you could not look.",
 				};
 			}
+			const videoLine = frame.includesVideo
+				? `The ${frame.trace.videoDetail} video frame is underneath the overlays on a private canvas.`
+				: `The video frame was not composited (${frame.trace.videoDetail}). This still is overlays only.`;
 			return {
-				text: `Composited frame at ${frame.timeSeconds.toFixed(2)}s (this is exactly what will export):`,
+				text:
+					`Still at ${frame.timeSeconds.toFixed(2)}s. ${videoLine} ` +
+					`The live preview was not redrawn.`,
 				frames: [frame],
 			};
 		}
@@ -332,11 +347,17 @@ export async function executeTool(
 					text: "Could not render review frames — the timeline is empty or the compositor isn't running.",
 				};
 			}
+			const withVideo = frames.filter((frame) => frame.includesVideo).length;
+			const videoLine =
+				withVideo === frames.length
+					? "Each still composites the proxy video frame under the overlays and motion templates."
+					: `${withVideo} of ${frames.length} stills include the proxy video frame. The rest are overlays only — say so, and do not treat them as the full picture.`;
 			return {
 				text:
-					`Self-review: ${frames.length} composited frames across the video, at ` +
+					`Self-review: ${frames.length} frames across the video, at ` +
 					frames.map((f) => `${f.timeSeconds.toFixed(2)}s`).join(", ") +
-					". Check each for: text covering a face, captions clipped or unreadable, dead/black frames, overlapping graphics. Fix what is wrong before reporting done.",
+					`. ${videoLine} The live preview was not redrawn. ` +
+					"Check each for clipped or unreadable titles, dead/black frames, and overlapping graphics. Fix what is wrong before reporting done.",
 				frames,
 			};
 		}
@@ -480,8 +501,8 @@ export async function executeTool(
 
 		case "apply_motion_template": {
 			const id = String(input.template_id ?? "");
-			const { getHtmlTemplate } = await import("../motion-templates/registry");
-			const tmpl = getHtmlTemplate(id);
+			const { getHtmlTemplateMeta } = await import("../motion-templates/template-meta");
+			const tmpl = getHtmlTemplateMeta({ id });
 			if (!tmpl) return { text: `Error: no motion template with id "${id}". Call list_motion_templates for valid ids.` };
 			const defaults: Record<string, string | number | boolean> = {};
 			for (const c of tmpl.controls) defaults[c.id] = c.defaultValue;
@@ -647,6 +668,154 @@ export async function executeTool(
 			if (!size) return { text: `Error: unsupported preset "${preset}". Use 9:16, 16:9, 1:1 or 4:5.` };
 			setProjectResolution({ editor, canvasSize: size });
 			return { text: `Canvas set to ${preset} (${size.width}x${size.height}).` };
+		}
+
+		case "trim_clip": {
+			const ref = findRef(ctx, String(input.clip_id));
+			if (!ref) return { text: `Error: no clip with id "${input.clip_id}". Call get_timeline for valid ids.` };
+			const edge = input.edge === "start" || input.edge === "end" ? input.edge : null;
+			if (!edge) return { text: `Error: edge must be "start" or "end".` };
+			const boundary = Number(input.boundary_seconds);
+			if (!Number.isFinite(boundary)) return { text: "Error: boundary_seconds must be a number." };
+			const before = getElement({ editor, ref });
+			commitElementTrim({
+				editor,
+				trackId: ref.trackId,
+				elementId: ref.elementId,
+				edge,
+				boundarySec: boundary,
+			});
+			const after = getElement({ editor, ref });
+			if (!before || !after || (after.startTime === before.startTime && after.duration === before.duration)) {
+				return {
+					text: `Declined: trim of ${ref.elementId} did not move. boundary_seconds is the new ${edge} edge on the timeline, inside the clip.`,
+				};
+			}
+			return { text: `Trimmed ${ref.elementId} ${edge} to ${boundary.toFixed(2)}s. It now runs ${clipRange({ editor, ref })}.` };
+		}
+
+		case "move_clip": {
+			const ref = findRef(ctx, String(input.clip_id));
+			if (!ref) return { text: `Error: no clip with id "${input.clip_id}". Call get_timeline for valid ids.` };
+			const startSeconds = Number(input.start_seconds);
+			if (!Number.isFinite(startSeconds)) return { text: "Error: start_seconds must be a number." };
+			const trackId = typeof input.track_id === "string" && input.track_id.trim() ? input.track_id.trim() : undefined;
+			const before = getElement({ editor, ref });
+			commitElementMove({
+				editor,
+				trackId: ref.trackId,
+				elementId: ref.elementId,
+				startSec: startSeconds,
+				targetTrackId: trackId,
+			});
+			const after = getElement({ editor, ref });
+			if (!before || !after || after.startTime === before.startTime) {
+				return {
+					text: `Declined: ${ref.elementId} stayed at ${clipRange({ editor, ref })}. Main-track clips stay butted, so a move only changes them when it reorders the track.`,
+				};
+			}
+			return { text: `Moved ${ref.elementId} to ${clipRange({ editor, ref })}.` };
+		}
+
+		case "set_transition": {
+			const afterClipId = String(input.after_clip_id ?? "");
+			const ref = findRef(ctx, afterClipId);
+			if (!ref) return { text: `Error: no clip with id "${afterClipId}". Call get_timeline for valid ids.` };
+			const mainId = editor.scenes.getActiveScene().tracks.main.id;
+			if (ref.trackId !== mainId) {
+				return { text: `Error: transitions are main-track only. ${ref.elementId} is not on the main track.` };
+			}
+			const kind = String(input.kind ?? "");
+			if (kind !== "none" && kind !== "fade" && kind !== "slide" && kind !== "zoom") {
+				return { text: `Error: kind must be none, fade, slide, or zoom.` };
+			}
+			const durationSeconds = input.duration_seconds === undefined ? 0.4 : Number(input.duration_seconds);
+			if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+				return { text: "Error: duration_seconds must be greater than 0." };
+			}
+			setMainTrackTransition({
+				editor,
+				afterElementId: ref.elementId,
+				kind,
+				durationSec: durationSeconds,
+				applyToAll: input.apply_to_all === true,
+			});
+			const stored = editor.scenes.getActiveTransitions().find((item) => item.afterElementId === ref.elementId);
+			if (kind === "none") {
+				return stored
+					? { text: `Declined: the transition after ${ref.elementId} is still there.` }
+					: { text: `Removed the transition after ${ref.elementId}.` };
+			}
+			if (!stored) return { text: `Declined: no transition was stored after ${ref.elementId}.` };
+			return {
+				text: `Set a ${stored.kind} transition after ${ref.elementId} (${durationSeconds.toFixed(2)}s). Fade, slide, and zoom all play as a cross-fade.`,
+			};
+		}
+
+		case "transform_clip": {
+			const ref = findRef(ctx, String(input.clip_id));
+			if (!ref) return { text: `Error: no clip with id "${input.clip_id}". Call get_timeline for valid ids.` };
+			const updates: Array<{ key: string; value: number }> = [];
+			const readNumber = (value: unknown): number | null => {
+				if (value === undefined) return null;
+				const number = Number(value);
+				return Number.isFinite(number) ? number : Number.NaN;
+			};
+			const positionX = readNumber(input.position_x);
+			const positionY = readNumber(input.position_y);
+			const scale = readNumber(input.scale);
+			const rotation = readNumber(input.rotation);
+			if ([positionX, positionY, scale, rotation].some((value) => Number.isNaN(value))) {
+				return { text: "Error: transform values must be numbers." };
+			}
+			if (positionX !== null) updates.push({ key: "transform.positionX", value: positionX });
+			if (positionY !== null) updates.push({ key: "transform.positionY", value: positionY });
+			if (scale !== null) {
+				updates.push({ key: "transform.scaleX", value: scale });
+				updates.push({ key: "transform.scaleY", value: scale });
+			}
+			if (rotation !== null) updates.push({ key: "transform.rotate", value: rotation });
+			if (updates.length === 0) {
+				return { text: "Error: pass position_x, position_y, scale, or rotation." };
+			}
+			for (const update of updates) {
+				// Base params, not a playhead keyframe. A title that only has
+				// opacity keys would otherwise move for a single frame.
+				setElementParam({ editor, ref, key: update.key, value: update.value });
+			}
+			const element = getElement({ editor, ref });
+			const written = updates
+				.map((update) => `${update.key}=${element?.params[update.key] ?? update.value}`)
+				.join(", ");
+			return { text: `Transformed ${ref.elementId}: ${written}.` };
+		}
+
+		case "export_video": {
+			const qualityRaw = typeof input.quality === "string" ? input.quality : "high";
+			const quality =
+				qualityRaw === "low" || qualityRaw === "medium" || qualityRaw === "high" || qualityRaw === "very_high"
+					? qualityRaw
+					: null;
+			if (!quality) return { text: `Error: quality must be low, medium, high, or very_high.` };
+			let result;
+			try {
+				result = await exportActiveProject({
+					editor,
+					quality,
+					format: "mp4",
+					fps: editor.project.getActive().settings.fps,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return { text: `Could not export: ${message}` };
+			}
+			if (!result.ok) return { text: `Could not export: ${result.error}` };
+			const omissionNote =
+				result.omissions.length > 0
+					? ` Omissions: ${result.omissions.map((item) => item.message).join(" ")}`
+					: "";
+			const file = result.outputUri ?? "the sandbox export";
+			return { text: `Exported ${file}.${omissionNote}` };
 		}
 
 		default:

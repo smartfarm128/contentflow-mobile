@@ -89,8 +89,32 @@ describe("style extraction prompt", () => {
 		const prompt = buildStyleExtractionPrompt({
 			analysis: {
 				frames: [
-					{ base64: "x", mediaType: "image/jpeg", timeSeconds: 1.5 },
-					{ base64: "y", mediaType: "image/jpeg", timeSeconds: 4.5 },
+					{
+						base64: "x",
+						mediaType: "image/jpeg",
+						timeSeconds: 1.5,
+						includesVideo: true,
+						trace: {
+							video: "yes",
+							videoDetail: "fixture",
+							captured: [],
+							missed: [],
+							jpegChars: 1,
+						},
+					},
+					{
+						base64: "y",
+						mediaType: "image/jpeg",
+						timeSeconds: 4.5,
+						includesVideo: true,
+						trace: {
+							video: "yes",
+							videoDetail: "fixture",
+							captured: [],
+							missed: [],
+							jpegChars: 1,
+						},
+					},
 				],
 				transcript: "[0.0s–2.0s] hello",
 				pacing: "Speech stats: 4 words",

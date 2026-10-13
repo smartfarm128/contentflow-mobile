@@ -2,9 +2,9 @@
  * Capacitor implementation of NativeBridge — plan §2.4 / M3, extended by
  * M4 (media custody) and M9 (export) on BOTH platforms.
  *
- * This is the ONE file (with its sibling `web-fallback.ts` and this
- * package's `types.ts`/`event-generator.ts`) allowed to import
- * `@capacitor/core`. Nothing else in the tree may — see
+ * This file, `native-http.ts`, `index.ts`, `spike-diagnostics.ts`, and
+ * the web-fallback selection in `index.ts` are the package files that
+ * import `@capacitor/core`. Nothing outside this package may — see
  * `scripts/invariants.sh`'s bridge-import gate and the
  * `no-restricted-imports` ESLint rule that mirrors it.
  *
@@ -97,6 +97,7 @@ import type {
 	Platform,
 	ProxyProgress,
 	ProxySpec,
+	ImportRemoteMediaRequest,
 	SpeakOptions,
 	SpeechResult,
 	SpeechVoice,
@@ -140,7 +141,7 @@ type WireMediaHandle = Omit<MediaHandle, "rotationDegrees"> & {
  * than platform-branched. */
 interface RawProxyProgress {
 	assetId: string;
-	stage: "queued" | "transcoding" | "done" | "error";
+	stage: "queued" | "transcoding" | "thumbnails" | "done" | "error";
 	fraction: number;
 	proxyUri?: string;
 	proxyWidth?: number;
@@ -225,6 +226,16 @@ interface NativeBridgePluginSpec {
 		edl: Edl;
 		overlayFrames: ExportOverlayFrame[];
 	}): Promise<unknown>;
+	/** One PNG into the sandbox. Returns a raw filesystem path, not a
+	 *  playback URL — native export reads the file itself. */
+	writeOverlayPng(params: { pngBase64: string }): Promise<{ path: string }>;
+	clearOverlayPngs(): Promise<void>;
+	removeAutotestFlag(params: { name: string }): Promise<void>;
+	grabVideoFrame(params: {
+		path: string;
+		timeSeconds: number;
+		maxEdge?: number;
+	}): Promise<{ jpegBase64: string; width: number; height: number }>;
 	/** Plugin-private — NOT part of the public `NativeBridge` TS interface,
 	 * which expresses cancellation as the caller simply stopping iteration
 	 * of the `AsyncGenerator<ExportProgress>` `exportProject` returns. This
@@ -262,6 +273,14 @@ interface NativeBridgePluginSpec {
 		rate: number;
 		pitch: number;
 	}): Promise<{ audioUri: string; durationSec?: number }>;
+	importRemoteMedia(params: {
+		url: string;
+		kind: MediaKind;
+		fileName: string;
+		method?: string;
+		headers?: Record<string, string>;
+		body?: string;
+	}): Promise<WireMediaHandle>;
 }
 
 /** `generateProxy` filters its event stream on `handle.id` — a domain
@@ -393,12 +412,91 @@ function fromWireMediaHandle(wire: WireMediaHandle): MediaHandle {
  * UrlSource retried the dead fetch forever. Android already returns
  * `file:///...` (`Uri.fromFile(...).toString()`), so the prefix is a
  * no-op there.
+ *
+ * iOS playback is then forced to `capacitor://localhost/_capacitor_file_`.
+ * `convertFileSrc` copies `server.hostname`, and a shared Android hostname
+ * produced `capacitor://appassets.androidplatform.net/_capacitor_file_/...`,
+ * which WKWebView would not load (director-export, 2026-10-13). Path
+ * segments are percent-encoded so the space in `Application Support` stays
+ * inside the URL.
  */
+const IOS_PLAYBACK_ORIGIN = "capacitor://localhost";
+const CAPACITOR_FILE_MARKER = "/_capacitor_file_";
+const ANDROID_ASSET_HOST = "appassets.androidplatform.net";
+
+export function playbackUriFromConverted({
+	nativeUri,
+	platform,
+	converted,
+}: {
+	nativeUri: string;
+	platform: string;
+	converted: string;
+}): string {
+	const normalized = nativeUri.startsWith("/") ? `file://${nativeUri}` : nativeUri;
+	if (platform === "ios") return iosPlaybackUri(normalized);
+	if (platform === "android" || converted.includes(ANDROID_ASSET_HOST)) {
+		return encodeCapacitorFileUrl(converted);
+	}
+	return converted;
+}
+
 function toPlaybackUri(nativeUri: string): string {
-	const normalized = nativeUri.startsWith("/")
-		? `file://${nativeUri}`
-		: nativeUri;
-	return Capacitor.convertFileSrc(normalized);
+	const normalized = nativeUri.startsWith("/") ? `file://${nativeUri}` : nativeUri;
+	return playbackUriFromConverted({
+		nativeUri: normalized,
+		platform: Capacitor.getPlatform(),
+		converted: Capacitor.convertFileSrc(normalized),
+	});
+}
+
+function iosPlaybackUri(fileUri: string): string {
+	const path = filesystemPath(fileUri);
+	return `${IOS_PLAYBACK_ORIGIN}${CAPACITOR_FILE_MARKER}${encodePath(path)}`;
+}
+
+function filesystemPath(fileUri: string): string {
+	if (fileUri.startsWith("file://")) {
+		try {
+			// Bun's URL.pathname keeps `%20`. Decode once so encodePath
+			// does not turn that into `%2520`.
+			return decodeURIComponent(new URL(fileUri).pathname);
+		} catch {
+			return fileUri.slice("file://".length);
+		}
+	}
+	const markerAt = fileUri.indexOf(CAPACITOR_FILE_MARKER);
+	if (markerAt !== -1) {
+		const rest = fileUri.slice(markerAt + CAPACITOR_FILE_MARKER.length);
+		try {
+			return decodeURIComponent(rest);
+		} catch {
+			return rest;
+		}
+	}
+	return fileUri.startsWith("/") ? fileUri : `/${fileUri}`;
+}
+
+function encodePath(path: string): string {
+	const withSlash = path.startsWith("/") ? path : `/${path}`;
+	return withSlash
+		.split("/")
+		.map((segment) => encodeURIComponent(segment))
+		.join("/");
+}
+
+function encodeCapacitorFileUrl(url: string): string {
+	const markerAt = url.indexOf(CAPACITOR_FILE_MARKER);
+	if (markerAt === -1) return url;
+	const prefix = url.slice(0, markerAt);
+	const rest = url.slice(markerAt + CAPACITOR_FILE_MARKER.length);
+	let path = rest;
+	try {
+		path = decodeURIComponent(rest);
+	} catch {
+		path = rest;
+	}
+	return `${prefix}${CAPACITOR_FILE_MARKER}${encodePath(path)}`;
 }
 
 /**
@@ -666,6 +764,100 @@ export function createCapacitorBridge({
 			}
 		},
 
+		async writeOverlayPng({
+			pngBase64,
+		}: {
+			pngBase64: string;
+		}): Promise<{ path: string }> {
+			try {
+				const written = await plugin.writeOverlayPng({ pngBase64 });
+				if (!written.path) {
+					throw new NativeBridgeError({
+						code: "IO_ERROR",
+						message: "writeOverlayPng returned no path",
+					});
+				}
+				return { path: written.path };
+			} catch (err) {
+				if (err instanceof NativeBridgeError) throw err;
+				throw toNativeBridgeError({ err, method: "writeOverlayPng" });
+			}
+		},
+
+		async clearOverlayPngs(): Promise<void> {
+			try {
+				await plugin.clearOverlayPngs();
+			} catch (err) {
+				throw toNativeBridgeError({ err, method: "clearOverlayPngs" });
+			}
+		},
+
+		async removeAutotestFlag({ name }: { name: string }): Promise<void> {
+			try {
+				await plugin.removeAutotestFlag({ name });
+			} catch (err) {
+				throw toNativeBridgeError({ err, method: "removeAutotestFlag" });
+			}
+		},
+
+		async grabVideoFrame({
+			path,
+			timeSeconds,
+			maxEdge,
+		}: {
+			path: string;
+			timeSeconds: number;
+			maxEdge?: number;
+		}): Promise<{ jpegBase64: string; width: number; height: number }> {
+			// Capacitor drops a call whose selector is missing on the plugin
+			// instance: it logs and returns without resolving or rejecting.
+			// Race a timeout so that miss becomes an error the caller can
+			// catch, instead of a promise that never settles.
+			const GRAB_TIMEOUT_MS = 12_000;
+			try {
+				const frame = await new Promise<{
+					jpegBase64: string;
+					width: number;
+					height: number;
+				}>((resolve, reject) => {
+					const timer = setTimeout(() => {
+						reject(
+							new NativeBridgeError({
+								code: "IO_ERROR",
+								message: `grabVideoFrame timed out after ${GRAB_TIMEOUT_MS}ms; native did not answer`,
+							}),
+						);
+					}, GRAB_TIMEOUT_MS);
+					plugin
+						.grabVideoFrame({ path, timeSeconds, maxEdge })
+						.then(
+							(value) => {
+								clearTimeout(timer);
+								resolve(value);
+							},
+							(err: unknown) => {
+								clearTimeout(timer);
+								reject(err);
+							},
+						);
+				});
+				if (!frame.jpegBase64) {
+					throw new NativeBridgeError({
+						code: "IO_ERROR",
+						message: "grabVideoFrame returned no jpeg",
+					});
+				}
+				return {
+					jpegBase64: frame.jpegBase64,
+					width: frame.width,
+					height: frame.height,
+				};
+			} catch (err) {
+				if (err instanceof NativeBridgeError) throw err;
+				throw toNativeBridgeError({ err, method: "grabVideoFrame" });
+			}
+		},
+
 		/**
 		 * ContentFlow TTS. `listVoices` degrades to an empty list rather than
 		 * throwing, so a picker can render "no voices installed" instead of
@@ -691,6 +883,21 @@ export function createCapacitorBridge({
 				return { audioUri: res.audioUri, durationSec: res.durationSec ?? 0 };
 			} catch (error) {
 				throw toNativeBridgeError({ err: error, method: "speak" });
+			}
+		},
+		async importRemoteMedia(request: ImportRemoteMediaRequest): Promise<MediaHandle> {
+			try {
+				const wire = await plugin.importRemoteMedia({
+					url: request.url,
+					kind: request.kind,
+					fileName: request.fileName,
+					method: request.method,
+					headers: request.headers,
+					body: request.body,
+				});
+				return fromWireMediaHandle(wire);
+			} catch (error) {
+				throw toNativeBridgeError({ err: error, method: "importRemoteMedia" });
 			}
 		},
 		async *transcribe({

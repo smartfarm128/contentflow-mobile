@@ -151,11 +151,9 @@ export interface EdlEffect {
 }
 
 /**
- * Masks are explicitly POST-v1 for native export (plan §2.3 rule 4). They are
- * carried in the document so the preview renderer and the export path read the
- * same graph, but `validateEdl` emits a warning for every non-empty `masks`
- * array and a v1 native mapper is expected to refuse the export rather than
- * silently drop them.
+ * Masks ride the document so preview and export read the same graph. iOS
+ * draws ellipse, rectangle, and diamond. Other types, and every mask on
+ * Android, stay on the omission list. The clip still exports.
  */
 export interface EdlMask {
 	maskId: string;

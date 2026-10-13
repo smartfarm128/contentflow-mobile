@@ -149,7 +149,7 @@ describe("createProjectFromPickedMedia", () => {
 		});
 		expect(outcome).toEqual({
 			kind: "failed",
-			message: "Couldn't import the selected media: unsupported codec",
+			message: "Import failed at proxy: unsupported codec",
 		});
 		expect(calls).toEqual([]);
 		expect(editor.project.getActiveOrNull()).toBeNull();

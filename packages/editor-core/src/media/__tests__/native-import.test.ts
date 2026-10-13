@@ -5,6 +5,8 @@ import type { Notification } from "@/core/notifications";
 import { buildFixtureProject, buildFixtureScene } from "@/edl/__tests__/fixture";
 import {
 	buildMediaAssetFromNativeImport,
+	drainProxyEvents,
+	formatImportFailure,
 	importMediaFromNative,
 	pickNativeMedia,
 	prepareNativeMedia,
@@ -224,7 +226,7 @@ describe("importMediaFromNative", () => {
 
 		expect(result.imported).toHaveLength(0);
 		expect(result.failed).toHaveLength(1);
-		expect(result.failed[0]?.error).toBe("unsupported codec");
+		expect(result.failed[0]?.error).toBe("Import failed at proxy: unsupported codec");
 		expect(editor.media.getAssets()).toHaveLength(0);
 		expect(notifications.some((n) => n.level === "error")).toBe(true);
 	});
@@ -374,6 +376,59 @@ describe("pickNativeMedia + prepareNativeMedia (no project)", () => {
 		});
 		expect(result.prepared.map((p) => p.handle.id)).toEqual(["good", "img"]);
 		expect(result.prepared[1]?.proxy.proxyUri).toBe(image.uri);
-		expect(result.failed).toEqual([{ handle: bad, error: "codec" }]);
+		expect(result.failed).toEqual([{ handle: bad, error: "Import failed at proxy: codec" }]);
+	});
+});
+
+describe("post-copy import step timeouts", () => {
+	test("formatImportFailure names the step and keeps a native prefix", () => {
+		expect(formatImportFailure({ step: "proxy", detail: "no progress for 45s" })).toBe(
+			"Import failed at proxy: no progress for 45s",
+		);
+		expect(
+			formatImportFailure({
+				step: "proxy",
+				detail: "Import failed at thumbnails: timed out after 8s",
+			}),
+		).toBe("Import failed at thumbnails: timed out after 8s");
+		expect(
+			formatImportFailure({
+				step: "thumbnails",
+				detail: "Import failed at proxy: cancelled",
+			}),
+		).toBe("Import failed at proxy: cancelled");
+	});
+
+	test("a proxy stream that never emits again fails at proxy", async () => {
+		async function* hang(): AsyncGenerator<NativeProxyProgress> {
+			yield { assetId: "a", stage: "transcoding", fraction: 0.2 };
+			await new Promise(() => {});
+		}
+		await expect(
+			drainProxyEvents({
+				events: hang(),
+				onEvent: () => {},
+				silenceMs: { proxy: 1000, thumbnails: 1000 },
+				fileName: "clip.mov",
+			}),
+		).rejects.toThrow("Import failed at proxy: timed out after 1s");
+	});
+
+	test("after the 95% thumbnail marker a silent stream fails at thumbnails", async () => {
+		async function* hang(): AsyncGenerator<NativeProxyProgress> {
+			yield { assetId: "a", stage: "transcoding", fraction: 0.4 };
+			yield { assetId: "a", stage: "thumbnails", fraction: 0.95 };
+			await new Promise(() => {});
+		}
+		const seen: string[] = [];
+		await expect(
+			drainProxyEvents({
+				events: hang(),
+				onEvent: (event) => seen.push(event.stage),
+				silenceMs: { proxy: 5_000, thumbnails: 1000 },
+				fileName: "clip.mov",
+			}),
+		).rejects.toThrow("Import failed at thumbnails: timed out after 1s");
+		expect(seen).toEqual(["transcoding", "thumbnails"]);
 	});
 });

@@ -1,5 +1,6 @@
 import React, { Component, useEffect, useRef, useState, useMemo, type ReactNode } from "react";
-import type { HtmlTemplate } from "../types";
+import type { HtmlTemplate, HtmlTemplateMeta } from "../types";
+import { loadHtmlTemplate } from "../load-template";
 import { Sparkles, Play } from "lucide-react";
 
 class ThumbnailErrorBoundary extends Component<
@@ -21,16 +22,28 @@ export function TemplateThumbnail({
 	template,
 	isLivePreview = false,
 }: {
-	template: HtmlTemplate;
+	template: HtmlTemplateMeta;
 	isLivePreview?: boolean;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [isVisible, setIsVisible] = useState(false);
+	const [live, setLive] = useState<HtmlTemplate | null>(null);
 	const [scale, setScale] = useState(0.5);
 	const [progress, setProgress] = useState(0.5);
 
 	const VIRTUAL_WIDTH = 360;
 	const VIRTUAL_HEIGHT = 202; // 16:9
+
+	useEffect(() => {
+		if (!isVisible) return;
+		let cancelled = false;
+		void loadHtmlTemplate({ id: template.id }).then((value) => {
+			if (!cancelled && value) setLive(value);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [isVisible, template.id]);
 
 	// Lazy mount via IntersectionObserver
 	useEffect(() => {
@@ -89,7 +102,7 @@ export function TemplateThumbnail({
 		return vals;
 	}, [template.controls]);
 
-	const Component = template.Component;
+	const Component = live?.Component;
 
 	const fallbackBadge = (
 		<div className="cc-motion-card__fallback">
@@ -100,7 +113,7 @@ export function TemplateThumbnail({
 
 	return (
 		<div ref={containerRef} className="cc-motion-card__preview">
-			{isVisible ? (
+			{isVisible && Component ? (
 				<ThumbnailErrorBoundary fallback={fallbackBadge}>
 					<div
 						className="cc-motion-card__preview-scaler"

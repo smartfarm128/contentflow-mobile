@@ -484,6 +484,29 @@
 	font-size: 12px;
 	text-align: left;
 	z-index: 40;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.cc-chrome-error__dismiss {
+	background: none;
+	border: 0;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	padding: 0;
+}
+
+.cc-chrome-error__retry {
+	background: #ff9c9c;
+	color: #3a1414;
+	border: 0;
+	border-radius: 6px;
+	font: inherit;
+	font-weight: 600;
+	padding: 6px 12px;
 }
 
 /* Same strip, neutral treatment — a verb that DECLINED (nothing to cut) or
@@ -1801,6 +1824,34 @@
 	cursor: default;
 }
 
+/* What the native exporter will skip. Shown before Export so a template,
+   a blob B-roll clip, or a filter is a listed omission, not a surprise
+   failure or a silent hole in the file. */
+.cc-export-omissions {
+	margin-top: var(--cc-space-3);
+	padding: var(--cc-space-2) var(--cc-space-3);
+	border-radius: 12px;
+	background: rgba(255, 77, 46, 0.14);
+}
+.cc-export-omissions__title {
+	margin: 0 0 var(--cc-space-2);
+	font-size: var(--cc-text-label);
+	font-weight: 700;
+	color: var(--cc-text-primary);
+}
+.cc-export-omissions__list {
+	margin: 0;
+	padding-left: 1.1em;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.cc-export-omissions__list li {
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-primary);
+	line-height: 1.35;
+}
+
 /* Fullscreen preview (2026-08-27, founder: "fullscreen button doesnt
  * actually fullscreen the preview lol").
  *
@@ -2204,6 +2255,41 @@
 	color: var(--cc-accent-contrast, #04181a);
 	font-weight: 500;
 	border-bottom-right-radius: 4px;
+}
+
+.cc-director__thinking {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 4px 0 8px;
+	padding: 10px 12px;
+	border-radius: 12px;
+	background: rgba(118, 185, 0, 0.14);
+	color: var(--cc-text-primary);
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.cc-director__thinking-dot {
+	width: 8px;
+	height: 8px;
+	flex-shrink: 0;
+	border-radius: 50%;
+	background: #76b900;
+	animation: cc-director-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes cc-director-pulse {
+	0%,
+	100% {
+		opacity: 0.35;
+		transform: scale(0.85);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1);
+	}
 }
 
 .cc-director__bubble--ai {

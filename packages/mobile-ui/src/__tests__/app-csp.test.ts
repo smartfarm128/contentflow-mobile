@@ -30,6 +30,7 @@ function readCsp(): Map<string, string[]> {
 const REQUIRED: Array<{ directive: string; origin: string; usedBy: string }> = [
 	{ directive: "connect-src", origin: "https://api.anthropic.com", usedBy: "ai-agent.ts" },
 	{ directive: "connect-src", origin: "https://api.ananselabs.org", usedBy: "ai-director/ai-agent (Anselabs provider)" },
+	{ directive: "connect-src", origin: "https://integrate.api.nvidia.com", usedBy: "ai-director/nvidia-api.ts" },
 	{ directive: "connect-src", origin: "https://api.elevenlabs.io", usedBy: "elevenlabs-voice.ts" },
 	{ directive: "connect-src", origin: "https://api.pexels.com", usedBy: "stock search" },
 	{ directive: "connect-src", origin: "https://images.pexels.com", usedBy: "stock photo download" },
@@ -38,6 +39,9 @@ const REQUIRED: Array<{ directive: string; origin: string; usedBy: string }> = [
 	// Downloaded stock media and ElevenLabs voiceovers become object URLs.
 	{ directive: "img-src", origin: "blob:", usedBy: "stock photos on the timeline" },
 	{ directive: "connect-src", origin: "blob:", usedBy: "object-URL media reads" },
+	{ directive: "connect-src", origin: "capacitor://localhost", usedBy: "iOS export and proxy fetch" },
+	{ directive: "img-src", origin: "capacitor://localhost", usedBy: "iOS thumbnail images" },
+	{ directive: "default-src", origin: "capacitor://localhost", usedBy: "iOS video playback" },
 ];
 
 describe("apps/mobile CSP", () => {

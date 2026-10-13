@@ -81,10 +81,16 @@ public enum CompositionBuilder {
 		for a in edl.assets { assetById[a.assetId] = a }
 		var avAssetCache: [String: AVURLAsset] = [:]
 
-		func loadAsset(_ assetId: String) throws -> AVURLAsset {
+		/// Nil means "this clip cannot be read by AVFoundation" — a missing
+		/// custody path, a `blob:` URL, or a resolver that handed back a
+		/// non-file URL. Callers skip that clip. They do not fail the export:
+		/// the rest of the timeline still encodes, and the export sheet has
+		/// already told the user what was left out.
+		func loadAsset(_ assetId: String) -> AVURLAsset? {
 			if let cached = avAssetCache[assetId] { return cached }
-			guard let edlAsset = assetById[assetId], let url = resolveAssetURL(edlAsset) else {
-				throw CompositionBuilderError.assetNotResolvable(assetId)
+			guard let edlAsset = assetById[assetId], let url = resolveAssetURL(edlAsset), Self.isSandboxFile(url) else {
+				print("[kneecap-export] asset \(assetId) has no sandbox file — left out")
+				return nil
 			}
 			let avAsset = AVURLAsset(url: url)
 			avAssetCache[assetId] = avAsset
@@ -123,6 +129,11 @@ public enum CompositionBuilder {
 		}
 
 		var mainTrackIDs: [String: CMPersistentTrackID] = [:]
+		/// Main-video clips whose media could not be opened. Their placements
+		/// stay (so the timeline doesn't collapse) but they have no lane, so
+		/// the pacer has to cover them or AVFoundation never schedules the
+		/// background instruction.
+		var unreadableMainRanges: [CMTimeRange] = []
 		var audioRampInstructions: [AVMutableAudioMixInputParameters] = []
 		let audioParamsA = AVMutableAudioMixInputParameters(track: audioLaneA)
 		let audioParamsB = AVMutableAudioMixInputParameters(track: audioLaneB)
@@ -137,12 +148,29 @@ public enum CompositionBuilder {
 			// no composition lane: VideoCompositionBuilder decodes them once
 			// as stills and the compositor renders them like PiP `.still`s.
 			if clip.kind == "image" { continue }
-			let avAsset = try loadAsset(assetId)
-			let assetTracks = try await avAsset.load(.tracks)
+			let placementRange = EdlTime.cmTimeRange(
+				startTicks: placement.insertStartTicks,
+				durationTicks: placement.insertDurationTicks,
+				ticksPerSecond: tps
+			)
+			guard let avAsset = loadAsset(assetId) else {
+				unreadableMainRanges.append(placementRange)
+				continue
+			}
+			let assetTracks: [AVAssetTrack]
+			do {
+				assetTracks = try await avAsset.load(.tracks)
+			} catch {
+				print("[kneecap-export] main clip \(clip.clipId) left out: \(error)")
+				unreadableMainRanges.append(placementRange)
+				continue
+			}
 			let videoTrack = assetTracks.first { $0.mediaType == .video }
 			let audioTrack = assetTracks.first { $0.mediaType == .audio }
 			guard videoTrack != nil || audioTrack != nil else {
-				throw CompositionBuilderError.assetHasNoUsableTrack(assetId)
+				print("[kneecap-export] main clip \(clip.clipId) left out: asset \(assetId) has no usable track")
+				unreadableMainRanges.append(placementRange)
+				continue
 			}
 
 			let lane = i % 2 == 0 ? videoLaneA : videoLaneB
@@ -219,9 +247,18 @@ public enum CompositionBuilder {
 			let params = AVMutableAudioMixInputParameters(track: compTrack)
 			for clip in track.clips where clip.kind == "audio" {
 				guard let assetId = clip.assetId, !clip.muted else { continue }
-				let avAsset = try loadAsset(assetId)
-				let assetTracks = try await avAsset.load(.tracks)
-				guard let audioTrack = assetTracks.first(where: { $0.mediaType == .audio }) else { continue }
+				guard let avAsset = loadAsset(assetId) else { continue }
+				let assetTracks: [AVAssetTrack]
+				do {
+					assetTracks = try await avAsset.load(.tracks)
+				} catch {
+					print("[kneecap-export] audio clip \(clip.clipId) left out: \(error)")
+					continue
+				}
+				guard let audioTrack = assetTracks.first(where: { $0.mediaType == .audio }) else {
+					print("[kneecap-export] audio clip \(clip.clipId) left out: no audio track")
+					continue
+				}
 				let sourceDurationTicks = max(0, clip.sourceEndTicks - clip.sourceStartTicks)
 				let sourceRange = EdlTime.cmTimeRange(
 					startTicks: clip.sourceStartTicks,
@@ -255,10 +292,22 @@ public enum CompositionBuilder {
 			var audioParams: AVMutableAudioMixInputParameters?
 
 			for clip in videoClips {
-				guard let assetId = clip.assetId else { continue }
-				let avAsset = try loadAsset(assetId)
-				let assetTracks = try await avAsset.load(.tracks)
-				guard let videoTrack = assetTracks.first(where: { $0.mediaType == .video }) else { continue }
+				guard let assetId = clip.assetId else {
+					print("[kneecap-export] overlay clip \(clip.clipId) left out: no asset")
+					continue
+				}
+				guard let avAsset = loadAsset(assetId) else { continue }
+				let assetTracks: [AVAssetTrack]
+				do {
+					assetTracks = try await avAsset.load(.tracks)
+				} catch {
+					print("[kneecap-export] overlay clip \(clip.clipId) left out: \(error)")
+					continue
+				}
+				guard let videoTrack = assetTracks.first(where: { $0.mediaType == .video }) else {
+					print("[kneecap-export] overlay clip \(clip.clipId) left out: no video track")
+					continue
+				}
 
 				let sourceDurationTicks = max(0, clip.sourceEndTicks - clip.sourceStartTicks)
 				let sourceRange = EdlTime.cmTimeRange(
@@ -352,7 +401,7 @@ public enum CompositionBuilder {
 			}
 		}
 
-		let pacerRanges = imageRanges + backgroundOnlyRanges
+		let pacerRanges = imageRanges + backgroundOnlyRanges + unreadableMainRanges
 		if !pacerRanges.isEmpty {
 			guard let pacerLane = composition.addMutableTrack(
 				withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
@@ -451,6 +500,21 @@ public enum CompositionBuilder {
 
 	static func dbToLinear(_ db: Double) -> Double {
 		pow(10.0, db / 20.0)
+	}
+
+	/// A URL the exporter can open as a local file. `blob:` and `data:`
+	/// (Pexels / ElevenLabs before they have a sandbox copy) are not, even
+	/// when a resolver wraps them in `URL(fileURLWithPath:)`.
+	static func isSandboxFile(_ url: URL) -> Bool {
+		let scheme = (url.scheme ?? "").lowercased()
+		if scheme == "blob" || scheme == "http" || scheme == "https" || scheme == "data" {
+			return false
+		}
+		let absolute = url.absoluteString.lowercased()
+		if absolute.hasPrefix("blob:") || absolute.hasPrefix("data:") {
+			return false
+		}
+		return true
 	}
 
 	/// A ~1s, 64×64 black H.264 clip synthesized once per process, used

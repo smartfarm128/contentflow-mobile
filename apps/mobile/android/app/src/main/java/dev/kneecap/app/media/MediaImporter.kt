@@ -5,6 +5,8 @@ import android.net.Uri
 import android.webkit.MimeTypeMap
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
 
 /**
@@ -101,6 +103,84 @@ object MediaImporter {
 			sizeBytes = totalBytes,
 			mimeType = mimeType,
 		)
+	}
+
+	/**
+	 * Copies a `file://` path the app can already read (the device harness
+	 * fixture) into the same custody directory as a picked clip.
+	 */
+	fun copyLocalFile(context: Context, source: File, displayName: String?, mimeType: String?): ImportedFile {
+		if (!source.isFile) {
+			throw IllegalStateException("no file at ${source.absolutePath}")
+		}
+		val ext = extensionFor(mimeType, displayName ?: source.name)
+		val destFile = File(mediaDir(context), "${UUID.randomUUID()}.$ext")
+		source.inputStream().use { input ->
+			FileOutputStream(destFile).use { output ->
+				input.copyTo(output, COPY_BUFFER_BYTES)
+			}
+		}
+		return ImportedFile(
+			file = destFile,
+			fileName = displayName ?: destFile.name,
+			sizeBytes = destFile.length(),
+			mimeType = mimeType,
+		)
+	}
+
+	/**
+	 * Streams an https/http response into media custody. Pexels is a GET;
+	 * ElevenLabs is a POST with a JSON body. Bytes never enter the WebView.
+	 */
+	fun downloadInto(
+		context: Context,
+		urlString: String,
+		method: String,
+		headers: Map<String, String>,
+		body: String?,
+		displayName: String?,
+		mimeHint: String?,
+	): ImportedFile {
+		val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
+			requestMethod = method
+			instanceFollowRedirects = true
+			connectTimeout = 30_000
+			readTimeout = 120_000
+			setRequestProperty("User-Agent", "ContentFlow/1.0")
+			for ((key, value) in headers) {
+				setRequestProperty(key, value)
+			}
+			if (method == "POST" && body != null) {
+				doOutput = true
+				outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+			}
+		}
+		try {
+			val status = connection.responseCode
+			if (status !in 200..299) {
+				throw IllegalStateException("download failed: $status")
+			}
+			val mimeType = connection.contentType?.substringBefore(';')?.trim() ?: mimeHint
+			val ext = extensionFor(mimeType, displayName)
+			val destFile = File(mediaDir(context), "${UUID.randomUUID()}.$ext")
+			connection.inputStream.use { input ->
+				FileOutputStream(destFile).use { output ->
+					input.copyTo(output, COPY_BUFFER_BYTES)
+				}
+			}
+			if (destFile.length() <= 0L) {
+				destFile.delete()
+				throw IllegalStateException("download was empty")
+			}
+			return ImportedFile(
+				file = destFile,
+				fileName = displayName ?: destFile.name,
+				sizeBytes = destFile.length(),
+				mimeType = mimeType,
+			)
+		} finally {
+			connection.disconnect()
+		}
 	}
 
 	/** Deletes a previously-imported file (e.g. when probing fails after the

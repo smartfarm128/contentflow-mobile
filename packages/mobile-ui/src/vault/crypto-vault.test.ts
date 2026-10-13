@@ -78,6 +78,18 @@ describe("crypto-vault engine", () => {
 		expect(decrypted.pexels).toBe("pexels-secret");
 	});
 
+	it("round-trips an NVIDIA key with the other provider keys", async () => {
+		await encryptAndSaveVault("1984", {
+			anthropic: "sk-ant-secret",
+			nvidia: "nvapi-roundtrip",
+		});
+		const decrypted = await unlockVault("1984");
+		expect(decrypted.nvidia).toBe("nvapi-roundtrip");
+		expect(decrypted.anthropic).toBe("sk-ant-secret");
+		const raw = getVaultStorage().getItem(VAULT_STORAGE_KEY) ?? "";
+		expect(raw).not.toContain("nvapi-roundtrip");
+	});
+
 	it("rejects an incorrect PIN with an authentication failure", async () => {
 		await encryptAndSaveVault("2026", { anthropic: "my-key" });
 

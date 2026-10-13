@@ -14,6 +14,7 @@ import com.google.common.collect.ImmutableList
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
+import android.util.Log
 import dev.kneecap.app.edl.Edl
 import dev.kneecap.app.edl.EdlAsset
 import dev.kneecap.app.edl.EdlAssetKind
@@ -44,16 +45,20 @@ import dev.kneecap.app.edl.EdlTrackType
  * Text/caption overlays do NOT get their own sequence — they are collected
  * into a single composition-level `OverlayEffect` (see `EdlTextOverlay`).
  *
- * WHAT THIS CLASS DELIBERATELY REFUSES (throws `ExportUnsupportedException`
- * rather than silently degrading — plan §2.3 rule 3's "cut, don't ship
- * inconsistent"): masks, keyframes on anything but `transform.*`/`opacity`
- * (round 47 made those real — `KeyframeEvaluator`), and any non-empty
- * `EdlClip.effects` (generic filter mapping is out of scope for this pass —
- * see the M9 handoff). An asset with `sourceUri == null` is also a hard
- * error: it means M4's media-custody import never ran for that asset, which
- * is a producer bug the exporter should surface immediately, not paper over.
+ * WHAT THIS CLASS LEAVES OUT (it does not throw — the export sheet lists
+ * these, and the rest of the timeline still encodes): graphic clips with no
+ * sandbox file (motion templates, stickers, shapes), assets whose `sourceUri`
+ * is null or a `blob:` URL (Pexels / ElevenLabs before a custody copy),
+ * masks, keyframes on anything but `transform.*`/`opacity`, blur, and the
+ * sharpen/vignette sliders. `adjust`, `brightness`, and `filter` become an
+ * RGB matrix (`ColorGradeMatrix`) using the preview's color-adjust formula.
+ * A missing main
+ * track, or a transition whose timing does not fit its neighbours, is still
+ * a hard error: those are broken documents, not unsupported features.
  */
 object EdlToComposition {
+    private const val TAG = "kneecap-export"
+
     fun buildComposition(
         edl: Edl,
         /** Preview-rendered text/caption images (round 37). When non-empty
@@ -100,10 +105,18 @@ object EdlToComposition {
         // exception, then a released-audio-input crash at 54%.
         var baseSeqBuilder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
         for (clip in mainClips) {
+            val asset = resolvableAsset(edl, clip)
+            if (asset == null) {
+                Log.i(TAG, "main clip ${clip.clipId} left out: no sandbox file")
+                if (clip.durationTicks > 0) {
+                    baseSeqBuilder = baseSeqBuilder.addGap(us(clip.durationTicks))
+                }
+                continue
+            }
             baseSeqBuilder = baseSeqBuilder.addItem(
                 buildEditedMediaItem(
                     clip = clip,
-                    asset = requireAsset(edl, clip),
+                    asset = asset,
                     us = ::us,
                     ticksPerSecond = tps,
                     canvasWidth = edl.meta.canvasWidth,
@@ -170,9 +183,14 @@ object EdlToComposition {
                 sourceEndTicks = incomingClip.sourceStartTicks +
                     Math.round(transition.durationTicks * incomingClip.speed.toDouble()),
             )
+            val headAsset = resolvableAsset(edl, headClip)
+            if (headAsset == null) {
+                Log.i(TAG, "transition ${transition.transitionId} left out: incoming clip has no sandbox file")
+                continue
+            }
             val overlayItem = buildEditedMediaItem(
                 clip = headClip,
-                asset = requireAsset(edl, headClip),
+                asset = headAsset,
                 us = ::us,
                 ticksPerSecond = tps,
                 // The head plays the incoming clip's first `d` ticks starting
@@ -216,7 +234,11 @@ object EdlToComposition {
         }
         for (track in overlayVisualTracks) {
             for (clip in track.clips.sortedBy { it.startTicks }) {
-                val asset = requireAsset(edl, clip)
+                val asset = resolvableAsset(edl, clip)
+                if (asset == null) {
+                    Log.i(TAG, "overlay clip ${clip.clipId} (${clip.kind}) left out: no sandbox file")
+                    continue
+                }
                 val animated = KeyframeEvaluator.hasVisualAnimations(clip)
                 val item = buildEditedMediaItem(
                     clip = clip,
@@ -284,8 +306,9 @@ object EdlToComposition {
         fun audibleClips(clips: List<EdlClip>, trackMuted: Boolean): List<EdlClip> =
             clips
                 .filter { clip ->
-                    !trackMuted && !clip.muted && edl.output.includeAudio &&
-                        requireAsset(edl, clip).kind != EdlAssetKind.IMAGE
+                    if (trackMuted || clip.muted || !edl.output.includeAudio) return@filter false
+                    val asset = resolvableAsset(edl, clip) ?: return@filter false
+                    asset.kind != EdlAssetKind.IMAGE
                 }
                 .sortedBy { it.startTicks }
 
@@ -302,13 +325,22 @@ object EdlToComposition {
             var seqBuilder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
             var cursorTicks = 0L
             for (clip in audible) {
+                val asset = resolvableAsset(edl, clip)
+                if (asset == null) {
+                    val end = clip.startTicks + clip.durationTicks
+                    if (end > cursorTicks) {
+                        seqBuilder = seqBuilder.addGap(us(end - cursorTicks))
+                        cursorTicks = end
+                    }
+                    continue
+                }
                 if (clip.startTicks > cursorTicks) {
                     seqBuilder = seqBuilder.addGap(us(clip.startTicks - cursorTicks))
                 }
                 seqBuilder = seqBuilder.addItem(
                     buildEditedMediaItem(
                         clip = clip,
-                        asset = requireAsset(edl, clip),
+                        asset = asset,
                         us = ::us,
                         ticksPerSecond = tps,
                         canvasWidth = edl.meta.canvasWidth,
@@ -338,7 +370,13 @@ object EdlToComposition {
         // renderer below stays as the fallback for callers that send none.
         val textOverlays: List<androidx.media3.effect.TextureOverlay> =
             if (overlayFrames.isNotEmpty()) {
-                listOf(PrerenderedOverlay(overlayFrames))
+                listOf(
+                    PrerenderedOverlay(
+                        frames = overlayFrames,
+                        targetWidth = edl.output.resolutionWidth,
+                        targetHeight = edl.output.resolutionHeight,
+                    ),
+                )
             } else edl.overlays
             .filter { it.kind == EdlOverlayKind.TEXT || it.kind == EdlOverlayKind.CAPTION }
             .sortedBy { it.zIndex }
@@ -397,16 +435,13 @@ object EdlToComposition {
             .build()
     }
 
-    private fun requireAsset(edl: Edl, clip: EdlClip): EdlAsset {
-        val assetId = clip.assetId
-            ?: throw ExportUnsupportedException("clip ${clip.clipId} has no assetId")
-        val asset = edl.assetById(assetId)
-            ?: throw ExportUnsupportedException("clip ${clip.clipId} references unknown assetId $assetId")
-        if (asset.sourceUri == null) {
-            throw ExportUnsupportedException(
-                "asset ${asset.assetId} has no sourceUri — media import (M4) has not run for this asset",
-            )
-        }
+    /** A clip Media3 can open. Templates, stickers and in-memory blob assets
+     *  return null and the caller skips them. */
+    private fun resolvableAsset(edl: Edl, clip: EdlClip): EdlAsset? {
+        val assetId = clip.assetId ?: return null
+        val asset = edl.assetById(assetId) ?: return null
+        val uri = asset.sourceUri ?: return null
+        if (uri.startsWith("blob:") || uri.startsWith("data:")) return null
         return asset
     }
 
@@ -434,25 +469,33 @@ object EdlToComposition {
         applyOpacity: Boolean = true,
     ): EditedMediaItem {
         if (clip.hasMasks) {
-            throw ExportUnsupportedException(
-                "clip ${clip.clipId} has masks; masks are explicitly post-v1 for native export (plan §2.3 rule 4)",
-            )
+            Log.i(TAG, "clip ${clip.clipId}: leaving out masks")
         }
         val unsupportedKeyframes = KeyframeEvaluator.unsupportedAnimationPaths(clip)
         if (unsupportedKeyframes.isNotEmpty()) {
-            throw ExportUnsupportedException(
-                "clip ${clip.clipId} has keyframes on ${unsupportedKeyframes.joinToString()}; native export " +
-                    "supports keyframes on transform.* and opacity only (round 47)",
+            Log.i(
+                TAG,
+                "clip ${clip.clipId}: leaving out keyframes on ${unsupportedKeyframes.joinToString()}",
             )
         }
-        if (clip.effects.isNotEmpty()) {
-            throw ExportUnsupportedException(
-                "clip ${clip.clipId} has ${clip.effects.size} filter effect(s); generic filter mapping is not " +
-                    "implemented in this M9 pass (see handoff)",
+        val skippedEffects = clip.effects.filter { it.enabled && it.type !in ColorGradeEffects.renderedTypes() }
+        if (skippedEffects.isNotEmpty()) {
+            Log.i(
+                TAG,
+                "clip ${clip.clipId}: leaving out effects " +
+                    skippedEffects.joinToString { it.type },
             )
+        }
+        val adjust = clip.effects.firstOrNull { it.enabled && it.type == "adjust" }
+        if (adjust != null) {
+            val sharpen = (adjust.params["sharpen"] as? Number)?.toDouble() ?: 0.0
+            val vignette = (adjust.params["vignette"] as? Number)?.toDouble() ?: 0.0
+            if (sharpen > 0.0 || vignette > 0.0) {
+                Log.i(TAG, "clip ${clip.clipId}: leaving out sharpen/vignette (color sliders still apply)")
+            }
         }
 
-        val sourceUri = requireNotNull(asset.sourceUri) // requireAsset() already guaranteed non-null.
+        val sourceUri = requireNotNull(asset.sourceUri) // resolvableAsset() already guaranteed non-null.
         val isImage = clip.kind == "image" || asset.kind == EdlAssetKind.IMAGE
 
         val mediaItemBuilder = MediaItem.Builder().setUri(sourceUri)
@@ -477,6 +520,9 @@ object EdlToComposition {
         }
 
         val videoEffects = mutableListOf<Effect>()
+        if (!removeVideo) {
+            videoEffects.addAll(ColorGradeEffects.effectsFor(clip))
+        }
         val itemStartUs = us(itemStartTicks)
         val animated = KeyframeEvaluator.hasVisualAnimations(clip)
         if (animated || !EdlTransformEffect.isIdentity(clip.transform)) {

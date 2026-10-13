@@ -40,14 +40,15 @@ import {
 	EditorShell,
 	ensurePreviewGpu,
 	KeyVaultSheet,
-	getAllHtmlTemplates,
+	getAllHtmlTemplateMeta,
 	TemplateThumbnail,
 	insertHtmlTemplateElement,
 	getActiveAnthropicKey,
+	installVaultSessionLock,
 	useVaultStore,
 	createProjectFromPickedMedia,
 	type SheetId,
-	type HtmlTemplate,
+	type HtmlTemplateMeta,
 } from "@kneecap/mobile-ui";
 import {
 	Home as HomeIcon,
@@ -135,6 +136,7 @@ function App() {
 	});
 
 	useEffect(() => {
+		installVaultSessionLock();
 		const handleHash = () => {
 			if (window.location.hash.includes("editor")) {
 				if (canShowEditor()) {
@@ -273,7 +275,7 @@ function HomeScreen({
 		}
 	};
 
-	const useTemplateInNewProject = async (tmpl: HtmlTemplate) => {
+	const useTemplateInNewProject = async (tmpl: HtmlTemplateMeta) => {
 		await run(
 			async () => {
 				await editor.project.createNewProject({
@@ -291,7 +293,7 @@ function HomeScreen({
 	};
 
 	// ─── Templates Catalog ───────────────────────────────────────────────
-	const allTemplates = useMemo(() => getAllHtmlTemplates(), []);
+	const allTemplates = useMemo(() => getAllHtmlTemplateMeta(), []);
 	const categories = useMemo(() => {
 		const cats = new Set<string>();
 		cats.add("all");
@@ -362,7 +364,14 @@ function HomeScreen({
 				)}
 
 			{(error ?? startError) && (
-				<div className="cf-home-error">{error ?? startError}</div>
+				<div className="cf-home-error">
+					<div>{error ?? startError}</div>
+					{startError?.startsWith("Import failed at ") && (
+						<button type="button" className="cf-home-error__retry" onClick={() => onStartCreating()}>
+							Retry
+						</button>
+					)}
+				</div>
 			)}
 
 			{/* Main Scrollable View Area */}

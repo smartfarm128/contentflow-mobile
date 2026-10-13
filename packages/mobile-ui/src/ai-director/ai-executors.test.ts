@@ -57,6 +57,12 @@ describe("AI Director tool contract", () => {
 		expect(typeof out.text).toBe("string");
 	});
 
+	it("exposes trim, move, transition, transform, and export", () => {
+		for (const name of ["trim_clip", "move_clip", "set_transition", "transform_clip", "export_video"]) {
+			expect(AI_TOOL_NAMES.has(name)).toBe(true);
+		}
+	});
+
 	it("exposes the vision tools that let the Director see its own work", () => {
 		expect(AI_TOOL_NAMES.has("render_frame")).toBe(true);
 		expect(AI_TOOL_NAMES.has("review_composition")).toBe(true);
@@ -235,6 +241,69 @@ describe("AI Director executors against a real editor", () => {
 			ctx,
 		);
 		expect(out.text).toStartWith("Error");
+	});
+
+	it("trim_clip moves the end edge and reports the new span", async () => {
+		const { editor, ctx } = await loadFixture();
+		const { getElement } = await import("../editor/actions");
+		const ref = { trackId: "track-main", elementId: "clip-a" };
+		const before = getElement({ editor, ref })?.duration ?? 0;
+		const out = await executeTool(
+			"trim_clip",
+			{ clip_id: "clip-a", edge: "end", boundary_seconds: 1 },
+			ctx,
+		);
+		expect(out.text).toContain("Trimmed clip-a end");
+		const after = getElement({ editor, ref });
+		expect(after).not.toBeNull();
+		if (after) expect(after.duration).toBeLessThan(before);
+	});
+
+	it("move_clip slides an overlay clip", async () => {
+		const { editor, ctx } = await loadFixture();
+		const { getElement } = await import("../editor/actions");
+		const ref = { trackId: "track-text", elementId: "clip-title" };
+		const before = getElement({ editor, ref })?.startTime ?? 0;
+		const out = await executeTool("move_clip", { clip_id: "clip-title", start_seconds: 1 }, ctx);
+		expect(out.text).toContain("Moved clip-title");
+		const after = getElement({ editor, ref });
+		expect(after).not.toBeNull();
+		if (after) expect(after.startTime).toBeGreaterThan(before);
+	});
+
+	it("set_transition stores a cross-fade and says so", async () => {
+		const { editor, ctx } = await loadFixture();
+		const out = await executeTool(
+			"set_transition",
+			{ after_clip_id: "clip-a", kind: "slide", duration_seconds: 0.4 },
+			ctx,
+		);
+		expect(out.text).toContain("cross-fade");
+		const stored = editor.scenes.getActiveTransitions().find((item) => item.afterElementId === "clip-a");
+		expect(stored?.kind).toBe("slide");
+	});
+
+	it("transform_clip writes position and scale", async () => {
+		const { editor, ctx } = await loadFixture();
+		const out = await executeTool(
+			"transform_clip",
+			{ clip_id: "clip-title", position_x: 40, scale: 1.25 },
+			ctx,
+		);
+		expect(out.text).toContain("transform.positionX=40");
+		expect(out.text).toContain("transform.scaleX=1.25");
+		const { getElement } = await import("../editor/actions");
+		const element = getElement({ editor, ref: { trackId: "track-text", elementId: "clip-title" } });
+		expect(element?.params["transform.positionX"]).toBe(40);
+		expect(element?.params["transform.scaleX"]).toBe(1.25);
+		expect(element?.params["transform.scaleY"]).toBe(1.25);
+	});
+
+	it("export_video reports the web shell cannot encode instead of a file", async () => {
+		const { ctx } = await loadFixture();
+		const out = await executeTool("export_video", { quality: "high" }, ctx);
+		expect(out.text).toStartWith("Could not export");
+		expect(out.text).toContain("native shell");
 	});
 
 	it("generate_captions fails honestly instead of laying the sample transcript down", async () => {

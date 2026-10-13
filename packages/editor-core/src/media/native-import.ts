@@ -6,6 +6,7 @@ import {
 	relativeMediaPathFromRawPath,
 } from "@/media/native-paths";
 import type { MediaAsset, MediaType } from "@/media/types";
+import { videoCache } from "@/services/video-cache/service";
 
 /**
  * kneecap M4 — wires the editor's import flow to a `NativeBridge`
@@ -51,7 +52,7 @@ export interface NativeMediaHandle {
 /** Structural subset of `@kneecap/native-bridge`'s `ProxyProgress`. */
 export interface NativeProxyProgress {
 	assetId: string;
-	stage: "queued" | "transcoding" | "done" | "error";
+	stage: "queued" | "transcoding" | "thumbnails" | "done" | "error";
 	fraction: number;
 	proxyUri?: string;
 	proxyWidth?: number;
@@ -268,12 +269,188 @@ export interface PickNativeMediaResult {
 	handles: NativeMediaHandle[];
 	/** Items the user chose that failed to load (e.g. offline iCloud). */
 	pickFailures: number;
+	/** Set when a post-copy step already produced `Import failed at <step>: …`. */
+	failureMessage?: string;
 }
 
 export interface PrepareNativeMediaResult {
 	prepared: PreparedNativeMedia[];
 	failed: NativeImportFailure[];
 	mediaRoot: string | null;
+}
+
+/** Silence budgets for the steps after the file is in custody. A step that
+ *  keeps emitting progress resets the clock. Native timeouts are shorter
+ *  and cancel the reader/generator; these are the backstop when that
+ *  callback never arrives. */
+export const IMPORT_STEP_SILENCE_MS = {
+	proxy: 60_000,
+	thumbnails: 25_000,
+	commit: 10_000,
+} as const;
+
+export type ImportPostCopyStep = "probe" | "proxy" | "thumbnails" | "commit";
+
+const IMPORT_FAILURE_PREFIX = /^Import failed at [a-z]+:/;
+
+/** `Import failed at <step>: <detail>`. An already-formatted native error
+ *  is kept so the step that actually stalled is the one we show. */
+export function formatImportFailure({
+	step,
+	detail,
+}: {
+	step: string;
+	detail: string;
+}): string {
+	const trimmed = detail.trim() || "unknown error";
+	if (IMPORT_FAILURE_PREFIX.test(trimmed)) return trimmed;
+	return `Import failed at ${step}: ${trimmed}`;
+}
+
+export function importStepForProxyEvent(event: {
+	stage: string;
+	fraction: number;
+}): "proxy" | "thumbnails" {
+	return event.stage === "thumbnails" ? "thumbnails" : "proxy";
+}
+
+function importFailureKind(message: string): "stalled" | "failed" {
+	return /timed out|no progress/.test(message) ? "stalled" : "failed";
+}
+
+function logImportStall({
+	step,
+	fileName,
+}: {
+	step: string;
+	fileName?: string;
+}): void {
+	console.error(
+		fileName
+			? `[import] stalled at ${step} file=${fileName}`
+			: `[import] stalled at ${step}`,
+	);
+}
+
+export function withImportStepTimeout<T>({
+	step,
+	ms,
+	run,
+	fileName,
+}: {
+	step: string;
+	ms: number;
+	run: () => T | Promise<T>;
+	fileName?: string;
+}): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			logImportStall({ step, fileName });
+			reject(
+				new Error(
+					formatImportFailure({
+						step,
+						detail: `timed out after ${Math.round(ms / 1000)}s`,
+					}),
+				),
+			);
+		}, ms);
+		Promise.resolve()
+			.then(run)
+			.then((value) => {
+				clearTimeout(timer);
+				resolve(value);
+			})
+			.catch((error: unknown) => {
+				clearTimeout(timer);
+				const detail = error instanceof Error ? error.message : String(error);
+				if (IMPORT_FAILURE_PREFIX.test(detail)) {
+					reject(error instanceof Error ? error : new Error(detail));
+					return;
+				}
+				reject(new Error(formatImportFailure({ step, detail })));
+			});
+	});
+}
+
+/**
+ * Drives a `generateProxy` stream. Each wait is bounded by the current
+ * step's silence budget: transcode progress resets the proxy clock, and
+ * the first `thumbnails` event (the 95% marker) switches the clock to the
+ * thumbnail step. A stall rejects with `Import failed at <step>: …` and
+ * drops the native listener.
+ */
+export async function drainProxyEvents({
+	events,
+	onEvent,
+	silenceMs = IMPORT_STEP_SILENCE_MS,
+	fileName,
+}: {
+	events: AsyncGenerator<NativeProxyProgress>;
+	onEvent: (event: NativeProxyProgress) => void;
+	silenceMs?: { proxy: number; thumbnails: number };
+	fileName?: string;
+}): Promise<{ final: NativeProxyProgress; step: "proxy" | "thumbnails" }> {
+	let step: "proxy" | "thumbnails" = "proxy";
+	const iterator = events[Symbol.asyncIterator]();
+	let released = false;
+	// `iterator.return()` does not interrupt a generator parked on `await`
+	// (Bun). Timing out must reject the wait from outside, then move on —
+	// awaiting `return()` here is how a stalled thumbnail step stayed a spinner.
+	const release = () => {
+		if (released) return;
+		released = true;
+		const cancel = (iterator as AsyncIterator<NativeProxyProgress> & { cancel?: () => void }).cancel;
+		if (typeof cancel === "function") {
+			cancel();
+			return;
+		}
+		void iterator.return?.(undefined)?.catch(() => {});
+	};
+	try {
+		for (;;) {
+			const timeoutMs = silenceMs[step];
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const pending = iterator.next().then(
+				(value) => ({ kind: "next" as const, value }),
+				(error: unknown) => ({ kind: "error" as const, error }),
+			);
+			const timeout = new Promise<{ kind: "timeout" }>((resolve) => {
+				timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+			});
+			const outcome = await Promise.race([pending, timeout]);
+			if (timer !== undefined) clearTimeout(timer);
+			if (outcome.kind === "timeout") {
+				logImportStall({ step, fileName });
+				release();
+				throw new Error(
+					formatImportFailure({
+						step,
+						detail: `timed out after ${Math.round(timeoutMs / 1000)}s`,
+					}),
+				);
+			}
+			if (outcome.kind === "error") {
+				const detail = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+				throw new Error(formatImportFailure({ step, detail }));
+			}
+			const next = outcome.value;
+			if (next.done || !next.value) {
+				throw new Error(formatImportFailure({ step, detail: "ended before a result" }));
+			}
+			const event = next.value;
+			onEvent(event);
+			if (event.stage === "done" || event.stage === "error") {
+				return { final: event, step };
+			}
+			step = importStepForProxyEvent(event);
+		}
+	} finally {
+		if (!released) {
+			released = true;
+			await iterator.return?.(undefined);
+		}
+	}
 }
 
 /** Android rejects a dismissed picker with `USER_CANCELLED`; iOS and web
@@ -307,6 +484,7 @@ export async function pickNativeMedia({
 	onProgress?: (progress: NativeImportProgress) => void;
 }): Promise<PickNativeMediaResult> {
 	let pickFailures = 0;
+	let failureMessage: string | undefined;
 	let started = false;
 	let handles: NativeMediaHandle[];
 	try {
@@ -323,9 +501,14 @@ export async function pickNativeMedia({
 					// all-failed batch (e.g. iCloud originals with no network)
 					// indistinguishable from a user cancel (2026-08-19).
 					pickFailures++;
+					const reason = pick.error ?? "unknown error";
+					if (!failureMessage && IMPORT_FAILURE_PREFIX.test(reason)) {
+						failureMessage = reason;
+						console.error(`[import] ${importFailureKind(reason)} at probe: ${reason}`);
+					}
 					toast.error({
 						message: `Couldn't load item ${pick.index + 1} of ${pick.total}`,
-						description: `${pick.error ?? "unknown error"} — if it's stored in iCloud, check your connection and try again`,
+						description: `${reason} — if it's stored in iCloud, check your connection and try again`,
 					});
 					return;
 				}
@@ -344,7 +527,7 @@ export async function pickNativeMedia({
 		}
 		throw error;
 	}
-	return { handles, pickFailures };
+	return failureMessage ? { handles, pickFailures, failureMessage } : { handles, pickFailures };
 }
 
 /**
@@ -412,26 +595,43 @@ export async function prepareNativeMedia({
 			});
 		}
 
+		let step: "proxy" | "thumbnails" = "proxy";
 		try {
 			if (!finalProxy) {
-				for await (const progress of source.generateProxy({
-					handle,
-					spec: proxySpec,
-				})) {
-					onProgress?.({
-						index,
-						total: handles.length,
-						fileName: handle.fileName,
-						stage: progress.stage,
-						fraction: progress.fraction,
-					});
-					if (progress.stage === "done" || progress.stage === "error") {
-						finalProxy = progress;
-					}
-				}
+				// Preview sinks (CanvasSink / VideoDecoder) from the clip
+				// already on the timeline hold the same hardware decoder the
+				// thumbnail generator needs. Drop them before this asset's
+				// proxy; the next paint opens a fresh sink.
+				videoCache.clearAll();
+				console.error(
+					`[import] step proxy file=${handle.fileName} (preview decoders released)`,
+				);
+				const drained = await drainProxyEvents({
+					events: source.generateProxy({
+						handle,
+						spec: proxySpec,
+					}),
+					fileName: handle.fileName,
+					onEvent: (progress) => {
+						step = importStepForProxyEvent(progress);
+						onProgress?.({
+							index,
+							total: handles.length,
+							fileName: handle.fileName,
+							stage: progress.stage,
+							fraction: progress.fraction,
+						});
+					},
+				});
+				finalProxy = drained.final;
+				step = drained.step;
 			}
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+			const detail = error instanceof Error ? error.message : String(error);
+			const message = formatImportFailure({ step, detail });
+			console.error(
+				`[import] ${importFailureKind(message)} at ${step} file=${handle.fileName}: ${message}`,
+			);
 			failed.push({ handle, error: message });
 			toast.error({
 				message: `Couldn't process "${handle.fileName}"`,
@@ -441,7 +641,13 @@ export async function prepareNativeMedia({
 		}
 
 		if (!finalProxy || finalProxy.stage === "error") {
-			const message = finalProxy?.error ?? "proxy generation produced no result";
+			const message = formatImportFailure({
+				step,
+				detail: finalProxy?.error ?? "proxy generation produced no result",
+			});
+			console.error(
+				`[import] ${importFailureKind(message)} at ${step} file=${handle.fileName}: ${message}`,
+			);
 			failed.push({ handle, error: message });
 			toast.error({
 				message: `Couldn't process "${handle.fileName}"`,
@@ -522,12 +728,18 @@ export async function importMediaFromNative({
 		proxySpec,
 		onProgress,
 	});
-	const imported = commitPreparedMedia({
-		editor,
-		projectId,
-		prepared,
-		toPlaybackUri: source.toPlaybackUri,
-		mediaRoot,
+	const imported = await withImportStepTimeout({
+		step: "commit",
+		ms: IMPORT_STEP_SILENCE_MS.commit,
+		fileName: prepared[0]?.handle.fileName,
+		run: () =>
+			commitPreparedMedia({
+				editor,
+				projectId,
+				prepared,
+				toPlaybackUri: source.toPlaybackUri,
+				mediaRoot,
+			}),
 	});
 	return { imported, failed };
 }

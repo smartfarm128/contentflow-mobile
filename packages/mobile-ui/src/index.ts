@@ -54,12 +54,15 @@ export {
 	toEdlMediaAssets,
 	buildNativeEdlAssetResolver,
 	insertHtmlTemplateElement,
+	insertStickerElement,
 	importAndPlaceMedia,
 	createProjectFromPickedMedia,
 	describeImportProgress,
 	type CreateProjectFromMediaOutcome,
 } from "./editor/actions";
 export { generateCaptions, getAllCaptions } from "./editor/captions-actions";
+export { importRemoteMediaToTimeline } from "./editor/custody-import";
+export { importPexelsMediaToTimeline } from "./editor/stock-media-actions";
 export { PreviewRenderer, ensurePreviewGpu } from "./components/editor/preview-renderer";
 export { TopBar } from "./components/editor/top-bar";
 export { PlaybackBar } from "./components/editor/playback-bar";
@@ -69,10 +72,15 @@ export { bootstrapDemoProject, resetDemoProjectBootstrap, type DemoProjectRefs }
 export { KeyVaultSheet } from "./components/panels/key-vault-sheet";
 export * from "./vault/vault-store";
 export {
-	getAllHtmlTemplates,
-	getHtmlTemplate,
+	getAllHtmlTemplateMeta,
+	getHtmlTemplateMeta,
 	getHtmlTemplateDefaultValues,
-	HTML_TEMPLATES,
-} from "./motion-templates/registry";
+} from "./motion-templates/template-meta";
+export { loadHtmlTemplate, loadHtmlTemplates } from "./motion-templates/load-template";
 export { TemplateThumbnail } from "./motion-templates/ui/template-thumbnail";
-export type { HtmlTemplate } from "./motion-templates/types";
+export { createHtmlOverlayPainter, htmlOverlayStepSeconds } from "./motion-templates/rasterize-for-export";
+export { captureFrameAt, captureFramesAcross } from "./ai-director/frame-capture";
+export { askAIDirector, executeApprovedPlan } from "./ai-director/ai-agent";
+export { useAIDirectorStore } from "./ai-director/ai-store";
+export { clearSpilledOverlayPngs, spillOverlayFrame } from "./export/spill-overlay-frame";
+export type { HtmlTemplate, HtmlTemplateMeta } from "./motion-templates/types";

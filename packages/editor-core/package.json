@@ -24,6 +24,7 @@
 		"./params": "./src/params/index.ts",
 		"./params/registry": "./src/params/registry.ts",
 		"./effects": "./src/effects/index.ts",
+		"./effects/grade": "./src/effects/grade.ts",
 		"./effects/definitions/adjust": "./src/effects/definitions/adjust.ts",
 		"./effects/definitions/filter": "./src/effects/definitions/filter.ts",
 		"./stickers": "./src/stickers/index.ts",

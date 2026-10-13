@@ -14,7 +14,7 @@ import {
 	htmlGraphicDefinitionId,
 	registerHtmlTemplateGraphics,
 } from "../motion-templates/engine-bridge";
-import { getHtmlTemplate } from "../motion-templates/registry";
+import { getHtmlTemplateMeta } from "../motion-templates/template-meta";
 import {
 	DuplicateElementsCommand,
 	SplitElementsCommand,
@@ -77,11 +77,13 @@ import {
 } from "./keyframes";
 import { getNativeBridge } from "@kneecap/native-bridge";
 import {
+	IMPORT_STEP_SILENCE_MS,
 	commitPreparedMedia,
 	importMediaFromNative,
 	mediaTimeFromSeconds,
 	pickNativeMedia,
 	prepareNativeMedia,
+	withImportStepTimeout,
 	resolveNativeMediaRawPath,
 	TICKS_PER_SECOND,
 	ZERO_MEDIA_TIME,
@@ -983,6 +985,13 @@ export function insertTextElement({
 
 const IMAGE_DEFAULT_DURATION_SEC = 3;
 
+/** Surfaces a post-copy stall (`Import failed at <step>: …`) to the shell,
+ *  which offers Retry. Per-asset toasts already fired inside prepare. */
+function rethrowImportStepFailure(failed: { error: string }[]): void {
+	const step = failed.find((item) => item.error.startsWith("Import failed at "));
+	if (step) throw new Error(step.error);
+}
+
 /**
  * The timeline's "+" add-clip button (capture-verified CapCut chrome,
  * 2026-08-18): native picker -> proxy -> asset registration via the real M4
@@ -999,7 +1008,7 @@ export async function importAndPlaceMedia({
 }): Promise<number> {
 	const bridge = await getNativeBridge();
 	const projectId = editor.project.getActive().metadata.id;
-	const { imported } = await importMediaFromNative({
+	const { imported, failed } = await importMediaFromNative({
 		editor,
 		projectId,
 		source: bridge,
@@ -1013,6 +1022,7 @@ export async function importAndPlaceMedia({
 			command: new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "video" } }),
 		});
 	}
+	rethrowImportStepFailure(failed);
 	return imported.length;
 }
 
@@ -1080,7 +1090,7 @@ export async function createProjectFromPickedMedia({
 		onPicked?.();
 	};
 
-	const { handles, pickFailures } = await pickNativeMedia({
+	const { handles, pickFailures, failureMessage } = await pickNativeMedia({
 		source: media,
 		kinds: ["video", "image"],
 		allowMultiple: true,
@@ -1092,6 +1102,7 @@ export async function createProjectFromPickedMedia({
 			? {
 					kind: "failed",
 					message:
+						failureMessage ??
 						"Couldn't load the selected media. If it's stored in iCloud, check your connection and try again.",
 				}
 			: { kind: "cancelled" };
@@ -1104,19 +1115,28 @@ export async function createProjectFromPickedMedia({
 		onProgress,
 	});
 	if (prepared.length === 0) {
+		const step = failed.find((item) => item.error.startsWith("Import failed at "));
 		return {
 			kind: "failed",
-			message: `Couldn't import the selected media${failed[0] ? `: ${failed[0].error}` : "."}`,
+			message: step
+				? step.error
+				: `Couldn't import the selected media${failed[0] ? `: ${failed[0].error}` : "."}`,
 		};
 	}
 
 	const projectId = await editor.project.createNewProject({ name });
-	const imported = commitPreparedMedia({
-		editor,
-		projectId,
-		prepared,
-		toPlaybackUri: media.toPlaybackUri,
-		mediaRoot,
+	const imported = await withImportStepTimeout({
+		step: "commit",
+		ms: IMPORT_STEP_SILENCE_MS.commit,
+		fileName: prepared[0]?.handle.fileName,
+		run: () =>
+			commitPreparedMedia({
+				editor,
+				projectId,
+				prepared,
+				toPlaybackUri: media.toPlaybackUri,
+				mediaRoot,
+			}),
 	});
 
 	const mainTrackId = editor.scenes.getActiveScene().tracks.main.id;
@@ -1163,7 +1183,7 @@ export async function importAndPlaceOverlay({
 }): Promise<number> {
 	const bridge = await getNativeBridge();
 	const projectId = editor.project.getActive().metadata.id;
-	const { imported } = await importMediaFromNative({
+	const { imported, failed } = await importMediaFromNative({
 		editor,
 		projectId,
 		source: bridge,
@@ -1209,6 +1229,7 @@ export async function importAndPlaceOverlay({
 			}),
 		});
 	}
+	rethrowImportStepFailure(failed);
 	return imported.length;
 }
 
@@ -1228,7 +1249,7 @@ export async function importAndPlaceAudio({
 }): Promise<number> {
 	const bridge = await getNativeBridge();
 	const projectId = editor.project.getActive().metadata.id;
-	const { imported } = await importMediaFromNative({
+	const { imported, failed } = await importMediaFromNative({
 		editor,
 		projectId,
 		source: bridge,
@@ -1248,6 +1269,7 @@ export async function importAndPlaceAudio({
 			command: new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "audio" } }),
 		});
 	}
+	rethrowImportStepFailure(failed);
 	return imported.length;
 }
 
@@ -1325,7 +1347,7 @@ export function insertHtmlTemplateElement({
 	startSeconds?: number;
 }): ElementRef | null {
 	registerHtmlTemplateGraphics();
-	const template = getHtmlTemplate(templateId);
+	const template = getHtmlTemplateMeta({ id: templateId });
 	if (!template) return null;
 
 	const create = buildGraphicElement({

@@ -7,6 +7,19 @@
  *                       harness, kept reachable for QA (see its header).
  *
  *   #/autotest       -> ./autotest.tsx      — headless end-to-end QA.
+ *   #/autotest/export-honesty (or `<mediaRoot>/autotest-export-honesty.flag`
+ *                    next to autotest.flag) -> the export-honesty phase.
+ *   #/autotest/custody-media (or `<mediaRoot>/autotest-custody-media.flag`)
+ *                    -> stock + voiceover files imported into native custody.
+ *   #/autotest/overlay-pixels (or `<mediaRoot>/autotest-overlay-pixels.flag`)
+ *                    -> CSS template, WebGL template and sticker pixels in
+ *                    the exported file.
+ *   #/autotest/nvidia-director (or `<mediaRoot>/autotest-nvidia-director.flag`,
+ *                    plus a one-line `<mediaRoot>/NVIDIA_API_KEY`)
+ *                    -> one AI Director turn through NVIDIA.
+ *   #/autotest/director-export (or `<mediaRoot>/autotest-director-export.flag`,
+ *                    plus the same NVIDIA_API_KEY file)
+ *                    -> one Director turn that trims and exports.
  *
  * Both are dynamic imports so the diagnostics path stays out of the
  * editor's startup graph and vice versa. A hash flip between modes does a

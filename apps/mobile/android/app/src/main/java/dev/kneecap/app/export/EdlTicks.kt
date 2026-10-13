@@ -13,11 +13,8 @@ fun ticksToUs(ticks: Long, ticksPerSecond: Long): Long {
     return Math.multiplyExact(ticks, 1_000_000L) / ticksPerSecond
 }
 
-/** Thrown for any EDL construct M9's mapper does not (yet) support — masks,
- * keyframe animations, generic filter effects, a transition kind other than
- * cross-fade, an asset with no native `sourceUri`. Plan §2.3 rule 3's
- * "cut, don't ship inconsistent" posture, made into a hard failure rather
- * than a silent drop: `Media3Exporter` surfaces this as an honest
- * `ExportProgress(stage = "error")` rather than exporting a file that
- * doesn't match the preview. */
+/** Thrown for a document the exporter cannot time at all (no main track, a
+ * transition that does not fit its neighbours). Unsupported features —
+ * masks, filters, templates, blob assets — are skipped, not thrown; the
+ * export sheet lists those before the encode starts. */
 class ExportUnsupportedException(message: String) : Exception(message)

@@ -215,6 +215,26 @@ export function createWebFallbackBridge(): NativeBridge {
 			});
 		},
 
+		async writeOverlayPng(): Promise<{ path: string }> {
+			throw new NativeBridgeError({
+				code: "UNSUPPORTED",
+				message:
+					"Overlay PNG spill requires a native sandbox. Not available in the web-fallback bridge.",
+			});
+		},
+
+		async clearOverlayPngs(): Promise<void> {},
+
+		async removeAutotestFlag(): Promise<void> {},
+
+		async grabVideoFrame(): Promise<{ jpegBase64: string; width: number; height: number }> {
+			throw new NativeBridgeError({
+				code: "UNSUPPORTED",
+				message:
+					"Reading a video frame requires a native shell (AVAssetImageGenerator / MediaMetadataRetriever). Not available in the web-fallback bridge.",
+			});
+		},
+
 		/**
 		 * `listVoices` still enumerates the browser's voices so a dev running
 		 * the web preview sees a realistic picker; `speak` is the honest
@@ -235,6 +255,39 @@ export function createWebFallbackBridge(): NativeBridge {
 				message:
 					"Voiceover rendering requires the iOS or Android app — the browser's speech API can play audio but cannot render it to a file for the timeline.",
 			});
+		},
+		/**
+		 * No sandbox in a browser. The bytes stay a blob URL so the web
+		 * preview can still play them; native export is already unsupported
+		 * on this bridge. Duration and hasAudio come from the media element,
+		 * same as a picked file.
+		 */
+		async importRemoteMedia(request) {
+			let response: Response;
+			try {
+				response = await fetch(request.url, {
+					method: request.method ?? "GET",
+					headers: request.headers,
+					body: request.method === "POST" ? request.body : undefined,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				throw new NativeBridgeError({
+					code: "IO_ERROR",
+					message: `Couldn't download media: ${message}`,
+				});
+			}
+			if (!response.ok) {
+				throw new NativeBridgeError({
+					code: "IO_ERROR",
+					message: `Couldn't download media: ${response.status}`,
+				});
+			}
+			const blob = await response.blob();
+			const file = new File([blob], request.fileName, {
+				type: blob.type || undefined,
+			});
+			return probeFile({ file, id: `web-remote-${nextHandleId++}` });
 		},
 		async *transcribe({
 			handle,

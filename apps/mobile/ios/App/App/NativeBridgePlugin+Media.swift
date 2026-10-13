@@ -12,6 +12,92 @@ import UniformTypeIdentifiers
 /// so that logic stays independently testable via
 /// `apps/mobile/ios/verify-media-pipeline` — this file's own job is just
 /// PHPickerViewController presentation and Capacitor call/event plumbing.
+
+/// One AVFoundation decode session at a time. A new import waits here
+/// instead of cancelling the job that is already reading.
+final class ImportDecodeQueue: @unchecked Sendable {
+	static let shared = ImportDecodeQueue()
+
+	private let lock = NSLock()
+	private var busy = false
+	private var waiters: [CheckedContinuation<Bool, Never>] = []
+
+	/// `true` when this caller waited for an in-flight job.
+	func acquire() async -> Bool {
+		await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+			lock.lock()
+			if !busy {
+				busy = true
+				lock.unlock()
+				cont.resume(returning: false)
+			} else {
+				waiters.append(cont)
+				lock.unlock()
+			}
+		}
+	}
+
+	func release() {
+		lock.lock()
+		let next = waiters.isEmpty ? nil : waiters.removeFirst()
+		if next == nil {
+			busy = false
+		}
+		lock.unlock()
+		next?.resume(returning: true)
+	}
+}
+
+/// Keeps a queued import's progress stream alive while it waits for the
+/// decode queue. The JS silence budget is 60s with no events; a long
+/// in-flight transcode would otherwise look like a stall.
+final class ImportQueuePulse: @unchecked Sendable {
+	private let lock = NSLock()
+	private var active = true
+
+	func stop() {
+		lock.lock()
+		active = false
+		lock.unlock()
+	}
+
+	var isActive: Bool {
+		lock.lock()
+		defer { lock.unlock() }
+		return active
+	}
+}
+
+/// One import's AVFoundation decode session. `cancelAll()` runs when that
+/// job finishes (the defer on the way out). It is not how a later import
+/// preempts this one — that import waits on `ImportDecodeQueue`.
+final class LiveImportSession: @unchecked Sendable {
+	private let lock = NSLock()
+	private var reader: AVAssetReader?
+	private var generator: AVAssetImageGenerator?
+
+	func setReader(_ reader: AVAssetReader) {
+		lock.lock()
+		self.reader = reader
+		lock.unlock()
+	}
+
+	func setGenerator(_ generator: AVAssetImageGenerator) {
+		lock.lock()
+		self.generator = generator
+		lock.unlock()
+	}
+
+	func cancelAll() {
+		lock.lock()
+		let reader = self.reader
+		let generator = self.generator
+		lock.unlock()
+		reader?.cancelReading()
+		generator?.cancelAllCGImageGeneration()
+	}
+}
+
 extension NativeBridgePlugin {
 
     // MARK: - pickMedia
@@ -106,8 +192,36 @@ extension NativeBridgePlugin {
         call.resolve(["accepted": true])
 
         Task { [weak self] in
+            let pulse = ImportQueuePulse()
+            let beater = Task { [weak self] in
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(nanoseconds: 5_000_000_000)
+                    } catch {
+                        break
+                    }
+                    if Task.isCancelled || !pulse.isActive { break }
+                    self?.emitProxyProgress(assetId: assetId, stage: "transcoding", fraction: 0)
+                }
+            }
+            let waited = await ImportDecodeQueue.shared.acquire()
+            pulse.stop()
+            beater.cancel()
+            defer { ImportDecodeQueue.shared.release() }
             guard let self else { return }
+            if waited {
+                print("[import] waited asset=\(assetId)")
+            }
+            let session = LiveImportSession()
+            self.liveImportSession = session
+            defer {
+                session.cancelAll()
+                if self.liveImportSession === session {
+                    self.liveImportSession = nil
+                }
+            }
             do {
+                print("[import] step proxy asset=\(assetId)")
                 self.emitProxyProgress(assetId: assetId, stage: "transcoding", fraction: 0)
 
                 let proxyURL = try MediaSandbox.proxyURL(assetId: assetId)
@@ -125,15 +239,27 @@ extension NativeBridgePlugin {
                         DispatchQueue.main.async {
                             self?.emitProxyProgress(assetId: assetId, stage: "transcoding", fraction: fraction)
                         }
-                    }
+                    },
+                    onReader: { session.setReader($0) }
                 )
 
-                self.emitProxyProgress(assetId: assetId, stage: "transcoding", fraction: 0.95)
+                // 0.95 is the first event of the thumbnail step — the UI
+                // percent for a one-file import. Copy and transcode have
+                // already returned. This is where import #2 used to hang.
+                print("[import] step thumbnails asset=\(assetId) frames=\(importThumbnailCount)")
+                self.emitProxyProgress(assetId: assetId, stage: "thumbnails", fraction: 0.95)
                 let thumbDir = try MediaSandbox.thumbnailDirectory(assetId: assetId)
                 let thumbURLs = try await ThumbnailStripGenerator.generate(
                     sourceURL: sourceURL,
                     outputDirectory: thumbDir,
-                    count: 500
+                    count: importThumbnailCount,
+                    onProgress: { [weak self] fraction in
+                        let mapped = 0.95 + 0.04 * min(1, max(0, fraction))
+                        DispatchQueue.main.async {
+                            self?.emitProxyProgress(assetId: assetId, stage: "thumbnails", fraction: mapped)
+                        }
+                    },
+                    onGenerator: { session.setGenerator($0) }
                 )
 
                 self.emitProxyProgress(
@@ -146,14 +272,40 @@ extension NativeBridgePlugin {
                     thumbnailUris: thumbURLs.map { $0.path }
                 )
             } catch {
+                self.discardFailedProxyArtifacts(assetId: assetId)
+                let message = String(describing: error)
+                if message.contains("no progress") || message.contains("timed out") {
+                    print("[import] stalled asset=\(assetId): \(message)")
+                } else {
+                    print("[import] failed asset=\(assetId): \(message)")
+                }
                 self.emitProxyProgress(
                     assetId: assetId,
                     stage: "error",
                     fraction: 1,
-                    error: String(describing: error)
+                    error: message
                 )
             }
         }
+    }
+
+    /// Removes a failed import's proxy mp4 and thumbnail strip. The custody
+    /// original under `Media/` is left in place so Retry can transcode it
+    /// again without another Photos copy.
+    private func discardFailedProxyArtifacts(assetId: String) {
+        guard !assetId.contains("/") && !assetId.contains("..") else { return }
+        guard let root = try? MediaSandbox.rootDirectory() else { return }
+        let proxy = root
+            .appendingPathComponent("Proxies", isDirectory: true)
+            .appendingPathComponent("\(assetId).mp4")
+        let thumbs = root
+            .appendingPathComponent("Thumbnails", isDirectory: true)
+            .appendingPathComponent(assetId, isDirectory: true)
+        for url in [proxy, thumbs] {
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            try? FileManager.default.removeItem(at: url)
+        }
+        print("[import] discarded partial proxy artifacts asset=\(assetId)")
     }
 
     // MARK: - generateThumbnails
@@ -188,6 +340,11 @@ extension NativeBridgePlugin {
         let durationMicros = (handle["durationMicros"] as? Int) ?? 0
 
         Task {
+            let waited = await ImportDecodeQueue.shared.acquire()
+            defer { ImportDecodeQueue.shared.release() }
+            if waited {
+                print("[import] waited thumbnails asset=\(assetId)")
+            }
             do {
                 let thumbDir = try MediaSandbox.thumbnailDirectory(assetId: assetId)
                 let urls = try await ThumbnailStripGenerator.generate(
@@ -456,8 +613,15 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
             ])
         }
 
-        guard let probed = try? await MediaProbe.probe(url: custodyURL) else {
-            return .failed("probe failed — unsupported or corrupt media")
+        let probed: ProbedMedia
+        do {
+            probed = try await withImportStepTimeout(step: "probe", seconds: 30) {
+                try await MediaProbe.probe(url: custodyURL)
+            }
+        } catch let timeout as ImportStepTimeout {
+            return .failed(timeout.description)
+        } catch {
+            return .failed("Import failed at probe: unsupported or corrupt media")
         }
         let attrs = try? FileManager.default.attributesOfItem(atPath: custodyURL.path)
         let sizeBytes = (attrs?[.size] as? Int) ?? 0
@@ -571,5 +735,65 @@ final class AudioDocumentPickerCoordinator: NSObject, UIDocumentPickerDelegate {
             call.resolve(["handles": handles])
             onFinished()
         }
+    }
+}
+
+extension NativeBridgePlugin {
+    /// One upright JPEG of a sandbox video at `timeSeconds`. Used by the AI
+    /// still, which composites this under the overlay raster on a private
+    /// canvas. The webview never decodes the MP4.
+    ///
+    /// This has to be a method of `NativeBridgePlugin` itself, listed in
+    /// `pluginMethods`, with the `@objc` selector `grabVideoFrame:`.
+    /// Capacitor looks that selector up on the plugin instance. A method
+    /// on a helper class is invisible: the bridge logs
+    /// "does not respond to method call" and returns without resolving or
+    /// rejecting, so the JavaScript promise never settles.
+    @objc func grabVideoFrame(_ call: CAPPluginCall) {
+        guard let raw = call.getString("path"), !raw.isEmpty else {
+            call.reject("grabVideoFrame requires path")
+            return
+        }
+        let timeSeconds = call.getDouble("timeSeconds") ?? 0
+        let maxEdge = CGFloat(call.getDouble("maxEdge") ?? 768)
+        let path = Self.filesystemPath(from: raw)
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            call.reject("grabVideoFrame file missing at \(url.path)")
+            return
+        }
+        Task {
+            do {
+                let grabbed = try await ThumbnailStripGenerator.grabFrame(
+                    sourceURL: url,
+                    timeSeconds: timeSeconds,
+                    maxEdge: maxEdge
+                )
+                call.resolve([
+                    "jpegBase64": grabbed.base64,
+                    "width": grabbed.width,
+                    "height": grabbed.height,
+                ])
+            } catch {
+                call.reject("grabVideoFrame failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Raw path, `file://`, or a Capacitor playback URL
+    /// (`…/_capacitor_file_/…`). Spaces in `Application Support` stay
+    /// literal once the percent-encoding is removed.
+    private static func filesystemPath(from raw: String) -> String {
+        if let range = raw.range(of: "/_capacitor_file_") {
+            let rest = String(raw[range.upperBound...])
+            return rest.removingPercentEncoding ?? rest
+        }
+        if raw.hasPrefix("file://") {
+            if let url = URL(string: raw), url.isFileURL {
+                return url.path
+            }
+            return String(raw.dropFirst("file://".count))
+        }
+        return raw
     }
 }

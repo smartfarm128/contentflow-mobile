@@ -26,6 +26,75 @@
  *      `[autotest] VERDICT phase=<import|reopen> <PASS|FAIL> …`, greppable
  *      from `simctl launch --console-pty`.
  *
+ *   5. EXPORT-HONESTY phase (`#/autotest/export-honesty`, or a planted
+ *      `<mediaRoot>/autotest-export-honesty.flag` next to `autotest.flag`):
+ *      a project with the planted video PLUS a motion template, a blob-only
+ *      asset, a heart mask and reverse. The filter is rendered, so it must
+ *      not be listed. The verdict requires the export to succeed and the
+ *      omission list to name the template, the blob, the mask and reverse.
+ *
+ *   6. CUSTODY-MEDIA phase (`#/autotest/custody-media`, or
+ *      `<mediaRoot>/autotest-custody-media.flag`): imports the planted mp4
+ *      and a planted mp3 through the same `importRemoteMedia` path Pexels
+ *      and ElevenLabs use, reloads the project, exports, and requires both
+ *      files in the output with no omissions.
+ *
+ *   7. OVERLAY-PIXELS phase (`#/autotest/overlay-pixels`, or
+ *      `<mediaRoot>/autotest-overlay-pixels.flag`): exports the planted mp4
+ *      alone, then again with a CSS template, a WebGL template and a
+ *      sticker. The second file's frames must differ from the baseline in
+ *      each of those three regions, and none of them is an omission.
+ *      Each stage logs `step: <name>` and `diag:` lines for the sub-step
+ *      that produced it. The phase flag is deleted before any of that work,
+ *      so a webview crash cannot relaunch into the same phase. A thrown
+ *      failure, a window error, an unhandled rejection, or a 240s watchdog
+ *      logs `VERDICT phase=overlay-pixels FAIL`.
+ *
+ *   8. FRAME-CAPTURE phase (`#/autotest/frame-capture`, or
+ *      `<mediaRoot>/autotest-frame-capture.flag`): imports the planted mp4,
+ *      inserts a CSS motion template, and captures one AI still. The JPEG
+ *      must include the proxy video (non-black) and the template's magenta.
+ *      The phase flag is deleted first. `diag:` lines name the grab and
+ *      paint sub-steps. The live preview canvas, when it can be read, must
+ *      be unchanged. A throw, window error, or the 240s watchdog logs
+ *      `VERDICT phase=frame-capture FAIL`.
+ *
+ *   9. GRADE-PIXELS phase (`#/autotest/grade-pixels`, or
+ *      `<mediaRoot>/autotest-grade-pixels.flag`): exports the planted mp4
+ *      with a mono filter, a blur, and an ellipse mask. A sampled export
+ *      frame is compared to the preview/WGSL grade of the same source frame
+ *      (`renderPreviewGradeFrame`). The phase flag is deleted first.
+ *
+ *  10. NVIDIA-DIRECTOR phase (`#/autotest/nvidia-director`, or
+ *      `<mediaRoot>/autotest-nvidia-director.flag`): reads a one-line key
+ *      from `<mediaRoot>/NVIDIA_API_KEY`. With no key the verdict is SKIP.
+ *      With a key, the vault is unlocked in memory only (the encrypted file
+ *      is not rewritten) and one Director turn is sent to NVIDIA. Nemotron
+ *      Ultra can use most of the 180s request timeout, so this phase waits
+ *      300s before its watchdog. The phase flag is deleted first.
+ *
+ *  11. DIRECTOR-EXPORT phase (`#/autotest/director-export`, or
+ *      `<mediaRoot>/autotest-director-export.flag`): same key file. With no
+ *      key the verdict is SKIP. With a key, the planted mp4 is imported and
+ *      one Director turn must trim it and call export_video. The output mp4
+ *      must exist, last about 4 seconds, and contain a non-black frame.
+ *      Ultra plus the encode can use most of 12 minutes, so the watchdog is
+ *      720s. The phase flag is deleted first.
+ *
+ *  12. DOUBLE-IMPORT phase (`#/autotest/double-import`, or
+ *      `<mediaRoot>/autotest-double-import.flag`): imports two videos back
+ *      to back through the real proxy path. The first is a planted
+ *      `Media/autotest-source.mov` when that file exists, otherwise the
+ *      planted mp4 copied into custody as `.mov`. The second is
+ *      `Media/autotest-source.mp4`, started only after the first reaches
+ *      100% and is on the timeline. A second pair repeats that with a
+ *      preview frame requested (editor open) before the mp4 import. A
+ *      third pair is a multi-select: both files are copied into custody,
+ *      then both proxy streams start together and each must reach 100%.
+ *      Each single import has a 90s budget. The multi-select pair has
+ *      180s because one decode session runs at a time. The phase flag is
+ *      deleted first. The verdict is `VERDICT phase=double-import`.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -41,6 +110,8 @@ import { createRoot } from "react-dom/client";
 import {
 	EditorCore,
 	importMediaFromNative,
+	prepareNativeMedia,
+	commitPreparedMedia,
 	registerNativeMediaPathResolver,
 	registerNativeAudioRouter,
 	mediaTimeFromSeconds,
@@ -49,9 +120,32 @@ import {
 	type NativeMediaSource,
 } from "@kneecap/editor-core";
 import { buildElementFromMedia, buildTextElement } from "@kneecap/editor-core/timeline";
-import { InsertElementCommand, UpdateElementsCommand } from "@kneecap/editor-core/commands";
+import { AddClipEffectCommand, AddMediaAssetCommand, InsertElementCommand, UpdateElementsCommand } from "@kneecap/editor-core/commands";
+import { buildEdl, listNativeExportOmissions } from "@kneecap/editor-core/edl";
+import {
+	boxMaskContains,
+	filterShaderGrade,
+	renderPreviewGradeFrame,
+	sampledBlurSigma,
+} from "@kneecap/editor-core/effects/grade";
 import { loadFontAtlas } from "@kneecap/editor-core/fonts/local-fonts";
-import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
+import {
+	EditorShell,
+	buildNativeEdlAssetResolver,
+	ensurePreviewGpu,
+	importPexelsMediaToTimeline,
+	importRemoteMediaToTimeline,
+	createHtmlOverlayPainter,
+	insertHtmlTemplateElement,
+	insertStickerElement,
+	clearSpilledOverlayPngs,
+	spillOverlayFrame,
+	captureFrameAt,
+	toEdlMediaAssets,
+	useVaultStore,
+	askAIDirector,
+	useAIDirectorStore,
+} from "@kneecap/mobile-ui";
 import { getNativeBridge } from "@kneecap/native-bridge";
 
 const PROJECT_NAME = "Autotest";
@@ -62,6 +156,24 @@ const log = (...args: unknown[]) => console.error("[autotest]", ...args);
 /** Matches the clip the runner plants (ffmpeg testsrc2 1280x720@30, 6s,
  *  h264 + aac). generateProxy's native side probes the real file for
  *  everything that matters; these fields are the wire contract's metadata. */
+function proxyPlantedMedia({
+	bridge,
+	params,
+}: {
+	bridge: { generateProxy: (args: {
+		handle: NativeMediaHandle & { rotationDegrees: 0 | 90 | 180 | 270 };
+		spec: { targetHeight: number; shortGop: boolean };
+	}) => ReturnType<NativeMediaSource["generateProxy"]> };
+	params: Parameters<NativeMediaSource["generateProxy"]>[0];
+}): ReturnType<NativeMediaSource["generateProxy"]> {
+	const rotation = params.handle.rotationDegrees;
+	const rotationDegrees = rotation === 90 || rotation === 180 || rotation === 270 ? rotation : 0;
+	return bridge.generateProxy({
+		handle: { ...params.handle, rotationDegrees },
+		spec: params.spec,
+	});
+}
+
 function plantedHandle(root: string): NativeMediaHandle {
 	const handle: NativeMediaHandle = {
 		id: "autotest-src",
@@ -650,21 +762,29 @@ async function driveAndSample({
 		const { renderOverlayFrames } = await import(
 			"@kneecap/editor-core/export/overlay-frames"
 		);
-		const overlayFrames = await renderOverlayFrames({
-			tracks: editor.scenes.getActiveScene().tracks,
-			mediaAssets: editor.media.getAssets(),
-			canvasSize: {
-				width: edl.output.resolution.width,
-				height: edl.output.resolution.height,
-			},
-			fps: edl.output.fps,
-			durationTicks: edl.meta.durationTicks,
-			ticksPerSecond: edl.meta.ticksPerSecond,
-		});
-		log(`overlay frames prerendered: ${overlayFrames.length}`);
-		for await (const p of bridge.exportProject({ edl, overlayFrames })) {
-			if (p.stage === "error") throw new Error(p.error ?? "export error");
-			if (p.stage === "done") outputUri = p.outputUri ?? null;
+		let overlayFrames: Awaited<ReturnType<typeof renderOverlayFrames>>["frames"] = [];
+		try {
+			overlayFrames = (
+				await renderOverlayFrames({
+					tracks: editor.scenes.getActiveScene().tracks,
+					mediaAssets: editor.media.getAssets(),
+					canvasSize: {
+						width: edl.output.resolution.width,
+						height: edl.output.resolution.height,
+					},
+					fps: edl.output.fps,
+					durationTicks: edl.meta.durationTicks,
+					ticksPerSecond: edl.meta.ticksPerSecond,
+					spillFrame: (frame) => spillOverlayFrame({ bridge, frame }),
+				})
+			).frames;
+			log(`overlay frames prerendered: ${overlayFrames.length}`);
+			for await (const p of bridge.exportProject({ edl, overlayFrames })) {
+				if (p.stage === "error") throw new Error(p.error ?? "export error");
+				if (p.stage === "done") outputUri = p.outputUri ?? null;
+			}
+		} finally {
+			await clearSpilledOverlayPngs({ bridge });
 		}
 		if (!outputUri) throw new Error("export finished without an outputUri");
 		// exportProject's outputUri is ALREADY a converted playback URL (the
@@ -712,6 +832,2068 @@ async function driveAndSample({
 	);
 }
 
+const HONESTY_PROJECT = "Autotest Export Honesty";
+const CUSTODY_PROJECT = "Autotest Custody Media";
+const VOICE_RELATIVE = "Media/autotest-voice.mp3";
+
+/** Spaces in the iOS container path must be percent-encoded for URL(string:). */
+function fixtureFileUrl({ root, relative }: { root: string; relative: string }): string {
+	return `file://${encodeURI(`${root}/${relative}`)}`;
+}
+
+/**
+ * Exports a project that contains one real planted clip plus things the
+ * native exporters still cannot render: a motion template (no painter, so
+ * it stays uncaptured), a blob-only asset, a heart mask, and reverse. The
+ * filter is rendered now, so the omission list must NOT name it.
+ */
+async function runExportHonesty({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const fail = (detail: string) => {
+		log(`VERDICT phase=export-honesty FAIL ${detail}`);
+	};
+	let spilledBridge: Awaited<ReturnType<typeof getNativeBridge>> | null = null;
+	try {
+		await editor.project.createNewProject({ name: HONESTY_PROJECT });
+		const bridge = await getNativeBridge();
+		spilledBridge = bridge;
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+
+		const scene = editor.scenes.getActiveScene();
+		const main = scene.tracks.main;
+		const mainEl = main.elements[0];
+		if (!mainEl) {
+			fail("planted video did not land on the main track");
+			return;
+		}
+		editor.command.execute({
+			command: new AddClipEffectCommand({
+				trackId: main.id,
+				elementId: mainEl.id,
+				effectType: "filter",
+			}),
+		});
+		editor.command.execute({
+			command: new UpdateElementsCommand({
+				updates: [
+					{
+						trackId: main.id,
+						elementId: mainEl.id,
+						patch: {
+							params: { ...mainEl.params, reversed: true },
+							masks: [
+								{
+									id: "honesty-heart",
+									type: "heart",
+									params: {
+										centerX: 0,
+										centerY: 0,
+										width: 0.4,
+										height: 0.4,
+										rotation: 0,
+										scale: 1,
+										feather: 0,
+										inverted: false,
+										strokeColor: "#ffffff",
+										strokeWidth: 0,
+										strokeAlign: "center",
+									},
+								},
+							],
+						},
+					},
+				],
+			}),
+		});
+
+		const templateRef = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-text-scramble",
+			durationSec: 3,
+			startSeconds: 0,
+		});
+		if (!templateRef) {
+			fail("html-text-scramble did not insert");
+			return;
+		}
+
+		const blobFile = new File([new Uint8Array(32)], "pexels-broll.mp4", { type: "video/mp4" });
+		const blobCommand = new AddMediaAssetCommand({
+			projectId: editor.project.getActive().metadata.id,
+			asset: {
+				name: "Pexels b-roll",
+				type: "video",
+				file: blobFile,
+				url: URL.createObjectURL(blobFile),
+				duration: 2,
+				width: 1280,
+				height: 720,
+				hasAudio: false,
+			},
+		});
+		editor.command.execute({ command: blobCommand });
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: blobCommand.getAssetId(),
+					mediaType: "video",
+					name: "Pexels b-roll",
+					duration: mediaTimeFromSeconds({ seconds: 2 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 4_000_000,
+				includeAudio: true,
+			},
+		});
+		const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+		// No HTML painter here: the template stays uncaptured, so the omission
+		// list must still name it. The overlay-pixels phase is what paints it.
+		const { renderOverlayFrames } = await import("@kneecap/editor-core/export/overlay-frames");
+		const rendered = await renderOverlayFrames({
+			tracks: editor.scenes.getActiveScene().tracks,
+			mediaAssets: editor.media.getAssets(),
+			canvasSize: {
+				width: edl.output.resolution.width,
+				height: edl.output.resolution.height,
+			},
+			fps: edl.output.fps,
+			durationTicks: edl.meta.durationTicks,
+			ticksPerSecond: edl.meta.ticksPerSecond,
+			spillFrame: (frame) => spillOverlayFrame({ bridge, frame }),
+		});
+		const omissions = listNativeExportOmissions({
+			edl,
+			platform,
+			uncapturedClipIds: new Set(rendered.uncapturedElementIds),
+		});
+		const messages = omissions.map((item) => item.message);
+		for (const message of messages) log("omission:", message);
+		const reportedTemplate = messages.some((message) => /motion template/i.test(message));
+		const reportedBlob = messages.some(
+			(message) => message.includes("Pexels b-roll") && /sandbox|in-memory/i.test(message),
+		);
+		const reportedFilter = messages.some((message) => message.startsWith("Filter on"));
+		const reportedMask = messages.some((message) => message.startsWith("Mask on"));
+		const reportedReverse = messages.some((message) => message.startsWith("Reverse on"));
+		if (!reportedTemplate || !reportedBlob || !reportedMask || !reportedReverse || reportedFilter) {
+			fail(
+				`omissions incomplete template=${reportedTemplate} blob=${reportedBlob} mask=${reportedMask} reverse=${reportedReverse} filterListed=${reportedFilter} count=${messages.length}`,
+			);
+			return;
+		}
+
+		let outputUri: string | null = null;
+		for await (const event of bridge.exportProject({ edl, overlayFrames: rendered.frames })) {
+			if (event.stage === "error") throw new Error(event.error ?? "export error");
+			if (event.stage === "done") outputUri = event.outputUri ?? null;
+		}
+		if (!outputUri) throw new Error("export finished without an outputUri");
+		let bytes: ArrayBuffer | null = null;
+		for (let attempt = 0; attempt < 4; attempt++) {
+			try {
+				bytes = await fetch(outputUri).then((response) => response.arrayBuffer());
+				break;
+			} catch {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+		if (!bytes || bytes.byteLength < 10_000) {
+			throw new Error(`suspiciously small output (${bytes?.byteLength ?? 0}B)`);
+		}
+		const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
+		const probe = new Input({
+			source: new BlobSource(new Blob([bytes])),
+			formats: ALL_FORMATS,
+		});
+		const track = await probe.getPrimaryVideoTrack();
+		if (!track) throw new Error("output has no video track");
+		log(
+			`VERDICT phase=export-honesty PASS export=${Math.round(bytes.byteLength / 1024)}KB omitted=${messages.length} template=yes blob=yes mask=yes reverse=yes filter=rendered`,
+		);
+	} catch (error) {
+		fail(error instanceof Error ? error.message : String(error));
+	} finally {
+		if (spilledBridge) await clearSpilledOverlayPngs({ bridge: spilledBridge });
+	}
+}
+
+/**
+ * Imports a planted stock clip and a planted MP3 through the same custody
+ * path Pexels and ElevenLabs use, reloads the project, and exports. PASS
+ * means both files were probed (real duration, video hasAudio), survived
+ * the reload, were not listed as omissions, and the encoded file has a
+ * video track about as long as the stock clip plus an audio track.
+ *
+ * The voice fixture is a 2-second MP3 (`autotest-voice.mp3`). The stock
+ * fixture is the existing 6-second `autotest-source.mp4`.
+ */
+async function runCustodyMedia({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const fail = (detail: string) => {
+		log(`VERDICT phase=custody-media FAIL ${detail}`);
+	};
+	try {
+		await editor.project.createNewProject({ name: CUSTODY_PROJECT });
+		const bridge = await getNativeBridge();
+		const stockRef = await importPexelsMediaToTimeline({
+			editor,
+			downloadUrl: fixtureFileUrl({ root, relative: SOURCE_RELATIVE }),
+			name: "Stock b-roll",
+			type: "video",
+		});
+		if (!stockRef) {
+			fail("stock clip did not land on the timeline");
+			return;
+		}
+		const voice = await importRemoteMediaToTimeline({
+			editor,
+			request: {
+				url: fixtureFileUrl({ root, relative: VOICE_RELATIVE }),
+				kind: "audio",
+				fileName: "voiceover.mp3",
+			},
+			name: "VO fixture",
+		});
+		if (!voice.ref) {
+			fail("voiceover did not land on the timeline");
+			return;
+		}
+
+		const assets = editor.media.getAssets();
+		const stockAsset = assets.find((asset) => asset.name.includes("Stock b-roll"));
+		const voiceAsset = assets.find((asset) => asset.name === "voiceover.mp3");
+		if (!stockAsset || !voiceAsset) {
+			fail(`assets missing stock=${Boolean(stockAsset)} voice=${Boolean(voiceAsset)}`);
+			return;
+		}
+		const stockDuration = stockAsset.duration ?? 0;
+		if (!(stockDuration > 5 && stockDuration < 7)) {
+			fail(`stock duration ${stockDuration}s (expected the 6s planted mp4)`);
+			return;
+		}
+		if (stockAsset.hasAudio !== true) {
+			fail("stock hasAudio is not true — probe was ignored");
+			return;
+		}
+		const voiceDuration = voiceAsset.duration ?? 0;
+		if (!(voiceDuration > 1.5 && voiceDuration < 2.5)) {
+			fail(`voice duration ${voiceDuration}s (expected the 2s planted mp3)`);
+			return;
+		}
+		if (voiceAsset.hasAudio !== true) {
+			fail("voiceover hasAudio is not true");
+			return;
+		}
+		if (!stockAsset.sourceNativeRelativePath || !voiceAsset.sourceNativeRelativePath) {
+			fail(
+				`relative path missing stock=${stockAsset.sourceNativeRelativePath ?? "none"} voice=${voiceAsset.sourceNativeRelativePath ?? "none"}`,
+			);
+			return;
+		}
+		if (stockAsset.url?.startsWith("blob:") || voiceAsset.url?.startsWith("blob:")) {
+			fail("custody import stored a blob URL");
+			return;
+		}
+
+		const projectId = editor.project.getActive().metadata.id;
+		await editor.project.saveCurrentProject();
+		await new Promise((resolve) => setTimeout(resolve, 800));
+		await editor.project.loadProject({ id: projectId });
+		const reloaded = editor.media.getAssets();
+		const stockAgain = reloaded.find((asset) => asset.id === stockAsset.id);
+		const voiceAgain = reloaded.find((asset) => asset.id === voiceAsset.id);
+		if (!stockAgain?.sourceNativeRelativePath || !voiceAgain?.sourceNativeRelativePath) {
+			fail("reload dropped a custody asset or its relative path");
+			return;
+		}
+		const stockDurationAgain = stockAgain.duration ?? 0;
+		const voiceDurationAgain = voiceAgain.duration ?? 0;
+		if (!(stockDurationAgain > 5 && stockDurationAgain < 7)) {
+			fail(`reloaded stock duration ${stockDurationAgain}`);
+			return;
+		}
+		if (stockAgain.hasAudio !== true || voiceAgain.hasAudio !== true) {
+			fail("reload lost hasAudio");
+			return;
+		}
+		const scene = editor.scenes.getActiveScene();
+		const hasStockClip = scene.tracks.main.elements.some((element) => element.name === "Stock b-roll");
+		const hasVoiceClip = scene.tracks.audio.some((track) =>
+			track.elements.some((element) => element.name === "VO fixture"),
+		);
+		if (!hasStockClip || !hasVoiceClip) {
+			fail(`reload lost a clip stock=${hasStockClip} voice=${hasVoiceClip}`);
+			return;
+		}
+
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 4_000_000,
+				includeAudio: true,
+			},
+		});
+		const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+		const omissions = listNativeExportOmissions({ edl, platform });
+		for (const item of omissions) log("omission:", item.message);
+		if (omissions.length > 0) {
+			fail(`expected no omissions, got ${omissions.length}`);
+			return;
+		}
+		const stockEdl = edl.assets.find((asset) => asset.assetId === stockAgain.id);
+		const voiceEdl = edl.assets.find((asset) => asset.assetId === voiceAgain.id);
+		const stockUri = stockEdl?.sourceUri ?? "";
+		const voiceUri = voiceEdl?.sourceUri ?? "";
+		if (!stockUri || stockUri.startsWith("blob:") || !stockUri.includes(stockAgain.sourceNativeRelativePath)) {
+			fail(`stock sourceUri not in custody: ${stockUri || "none"}`);
+			return;
+		}
+		if (!voiceUri || voiceUri.startsWith("blob:") || !voiceUri.includes(voiceAgain.sourceNativeRelativePath)) {
+			fail(`voice sourceUri not in custody: ${voiceUri || "none"}`);
+			return;
+		}
+
+		let outputUri: string | null = null;
+		for await (const event of bridge.exportProject({ edl, overlayFrames: [] })) {
+			if (event.stage === "error") throw new Error(event.error ?? "export error");
+			if (event.stage === "done") outputUri = event.outputUri ?? null;
+		}
+		if (!outputUri) throw new Error("export finished without an outputUri");
+		let bytes: ArrayBuffer | null = null;
+		for (let attempt = 0; attempt < 4; attempt++) {
+			try {
+				bytes = await fetch(outputUri).then((response) => response.arrayBuffer());
+				break;
+			} catch {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+		if (!bytes || bytes.byteLength < 10_000) {
+			throw new Error(`suspiciously small output (${bytes?.byteLength ?? 0}B)`);
+		}
+		const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
+		const probe = new Input({
+			source: new BlobSource(new Blob([bytes])),
+			formats: ALL_FORMATS,
+		});
+		const videoTrack = await probe.getPrimaryVideoTrack();
+		const audioTrack = await probe.getPrimaryAudioTrack();
+		if (!videoTrack) throw new Error("output has no video track");
+		if (!audioTrack) throw new Error("output has no audio track");
+		const videoDuration = await videoTrack.computeDuration();
+		const audioDuration = await audioTrack.computeDuration();
+		if (!(videoDuration > 5 && videoDuration < 7)) {
+			throw new Error(`output video duration ${videoDuration.toFixed(2)}s (expected ~6s stock clip)`);
+		}
+		if (!(audioDuration > 0.5)) {
+			throw new Error(`output audio duration ${audioDuration.toFixed(2)}s`);
+		}
+		log(
+			`VERDICT phase=custody-media PASS export=${Math.round(bytes.byteLength / 1024)}KB omitted=0 stock=${stockDurationAgain.toFixed(2)}s hasAudio=yes voice=${voiceDurationAgain.toFixed(2)}s videoOut=${videoDuration.toFixed(2)}s audioOut=${audioDuration.toFixed(2)}s`,
+		);
+	} catch (error) {
+		fail(error instanceof Error ? error.message : String(error));
+	}
+}
+
+const OVERLAY_PROJECT = "Autotest Overlay Pixels";
+
+async function fetchExportBytes(outputUri: string): Promise<ArrayBuffer> {
+	let bytes: ArrayBuffer | null = null;
+	for (let attempt = 0; attempt < 4; attempt++) {
+		try {
+			bytes = await fetch(outputUri).then((response) => response.arrayBuffer());
+			break;
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+		}
+	}
+	if (!bytes || bytes.byteLength < 10_000) {
+		throw new Error(`suspiciously small output (${bytes?.byteLength ?? 0}B)`);
+	}
+	return bytes;
+}
+
+async function exportEdlBytes({
+	editor,
+	overlayFrames,
+}: {
+	editor: EditorCore;
+	overlayFrames: Array<{ startTicks: number; endTicks: number; pngBase64: string; pngPath?: string }>;
+}): Promise<ArrayBuffer> {
+	const bridge = await getNativeBridge();
+	const edl = buildEdl({
+		project: editor.project.getActive(),
+		scene: editor.scenes.getActiveScene(),
+		mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+		resolveAsset: buildNativeEdlAssetResolver(),
+		output: {
+			container: "mp4",
+			videoCodec: "h264",
+			audioCodec: "aac",
+			bitrate: 4_000_000,
+			includeAudio: true,
+		},
+	});
+	let outputUri: string | null = null;
+	for await (const event of bridge.exportProject({ edl, overlayFrames })) {
+		if (event.stage === "error") throw new Error(event.error ?? "export error");
+		if (event.stage === "done") outputUri = event.outputUri ?? null;
+	}
+	if (!outputUri) throw new Error("export finished without an outputUri");
+	return fetchExportBytes(outputUri);
+}
+
+/** Long edge of a sampled export frame. Full-frame getImageData of a
+ *  second MP4 is what wedged WKWebView after the baseline sample. */
+const SAMPLE_MAX_EDGE = 640;
+
+/**
+ * Prints one FAIL verdict for a phase, including from window.onerror,
+ * an unhandled rejection, or a watchdog. `close` stops further verdicts
+ * so a later cleanup error cannot replace a line that already printed.
+ */
+function installPhaseGuard({
+	phase,
+	watchdogMs = 240_000,
+}: {
+	phase: string;
+	watchdogMs?: number;
+}): {
+	note: (detail: string) => void;
+	claim: () => boolean;
+	close: () => void;
+} {
+	let printed = false;
+	const note = (detail: string) => {
+		if (printed) return;
+		printed = true;
+		log(`VERDICT phase=${phase} FAIL ${detail}`);
+	};
+	const onError = (event: ErrorEvent) => {
+		note(`window.onerror ${event.message} @ ${event.filename}:${event.lineno}`);
+	};
+	const onRejection = (event: PromiseRejectionEvent) => {
+		const reason: unknown = event.reason;
+		const message = reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason);
+		note(`unhandledrejection ${message}`);
+	};
+	window.addEventListener("error", onError);
+	window.addEventListener("unhandledrejection", onRejection);
+	const timer = window.setTimeout(() => {
+		note(`watchdog: no verdict after ${Math.round(watchdogMs / 1000)}s`);
+	}, watchdogMs);
+	return {
+		note,
+		/** True when this caller should print the success verdict. A
+		 *  watchdog or window error that already printed a failure wins. */
+		claim(): boolean {
+			if (printed) return false;
+			printed = true;
+			return true;
+		},
+		close() {
+			window.clearTimeout(timer);
+			window.removeEventListener("error", onError);
+			window.removeEventListener("unhandledrejection", onRejection);
+			printed = true;
+		},
+	};
+}
+
+function withTimeout<T>({
+	promise,
+	ms,
+	label,
+}: {
+	promise: Promise<T>;
+	ms: number;
+	label: string;
+}): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const timer = window.setTimeout(() => {
+			reject(new Error(`${label} timed out after ${ms}ms`));
+		}, ms);
+		promise.then(
+			(value) => {
+				window.clearTimeout(timer);
+				resolve(value);
+			},
+			(error: unknown) => {
+				window.clearTimeout(timer);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			},
+		);
+	});
+}
+
+async function clearAutotestFlags({
+	names,
+}: {
+	names: string[];
+}): Promise<void> {
+	const bridge = await getNativeBridge();
+	for (const name of names) {
+		try {
+			await bridge.removeAutotestFlag({ name });
+			log("flag cleared", name);
+		} catch (error) {
+			log(
+				"flag clear failed",
+				name,
+				error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+			);
+		}
+	}
+}
+
+async function frameImageData({
+	bytes,
+	timeSeconds,
+	label,
+}: {
+	bytes: ArrayBuffer;
+	timeSeconds: number;
+	label: string;
+}): Promise<{ image: ImageData; decodedWidth: number; decodedHeight: number }> {
+	log(`diag: ${label} blob bytes=${bytes.byteLength}`);
+	const url = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
+	const video = document.createElement("video");
+	video.muted = true;
+	video.defaultMuted = true;
+	video.playsInline = true;
+	video.setAttribute("playsinline", "");
+	video.preload = "auto";
+	// WKWebView will not always fire loadeddata on a detached element, and
+	// it keeps the hardware decoder until src is cleared. Leaving the
+	// baseline element alive made the overlay file's loadeddata never
+	// arrive, so the phase sat past the runner's 300s cutoff with no
+	// verdict. The element stays in the document for the decode, then
+	// loses its src before the next sample.
+	video.style.cssText =
+		"position:fixed;left:0;top:0;width:8px;height:8px;opacity:0.02;pointer-events:none";
+	document.body.appendChild(video);
+	const diag = (detail: string) => log(`diag: ${label} ${detail}`);
+	try {
+		const loaded = new Promise<void>((resolve, reject) => {
+			video.onloadeddata = () => resolve();
+			video.onerror = () => {
+				const mediaError = video.error;
+				reject(
+					new Error(
+						`could not decode the export code=${mediaError?.code ?? "none"} ${mediaError?.message ?? ""}`.trim(),
+					),
+				);
+			};
+		});
+		video.src = url;
+		await withTimeout({ promise: loaded, ms: 15_000, label: `${label} loadeddata` });
+		diag(`loadeddata ${video.videoWidth}x${video.videoHeight} ready=${video.readyState}`);
+		if (video.videoWidth < 2) {
+			diag("videoWidth empty, play()");
+			try {
+				await video.play();
+			} catch (error) {
+				diag(`play failed ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+			}
+		}
+		const sought = new Promise<void>((resolve, reject) => {
+			const timer = window.setTimeout(() => reject(new Error(`${label} seek timed out`)), 8_000);
+			video.onseeked = () => {
+				window.clearTimeout(timer);
+				resolve();
+			};
+			video.currentTime = timeSeconds;
+		});
+		await sought;
+		diag(`seeked t=${video.currentTime.toFixed(3)} ${video.videoWidth}x${video.videoHeight}`);
+		const decodedWidth = video.videoWidth;
+		const decodedHeight = video.videoHeight;
+		const longEdge = Math.max(decodedWidth, decodedHeight, 1);
+		const scale = Math.min(1, SAMPLE_MAX_EDGE / longEdge);
+		const width = Math.max(2, Math.round(decodedWidth * scale));
+		const height = Math.max(2, Math.round(decodedHeight * scale));
+		const read = ({
+			source,
+			width: readWidth,
+			height: readHeight,
+		}: {
+			source: CanvasImageSource;
+			width: number;
+			height: number;
+		}) => {
+			const canvas = document.createElement("canvas");
+			canvas.width = readWidth;
+			canvas.height = readHeight;
+			const ctx = canvas.getContext("2d", { willReadFrequently: true });
+			if (!ctx || readWidth < 2 || readHeight < 2) throw new Error("export frame has no pixels");
+			ctx.drawImage(source, 0, 0, readWidth, readHeight);
+			try {
+				return ctx.getImageData(0, 0, readWidth, readHeight);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				throw new Error(`getImageData failed (${message})`);
+			}
+		};
+		try {
+			const pixels = read({ source: video, width, height });
+			diag(`getImageData ${width}x${height} decoded=${decodedWidth}x${decodedHeight}`);
+			return { image: pixels, decodedWidth, decodedHeight };
+		} catch (error) {
+			// WKWebView taints a canvas after drawing some video elements
+			// ("The operation is insecure."). A bitmap copied out of the
+			// element is same-origin and can be read from a fresh canvas.
+			const name = error instanceof Error ? error.name : "Error";
+			const message = error instanceof Error ? error.message : String(error);
+			diag(`getImageData threw ${name}: ${message}; bitmap fallback`);
+			if (typeof createImageBitmap !== "function") throw error;
+			const bitmap = await createImageBitmap(video);
+			try {
+				const bitmapScale = Math.min(1, SAMPLE_MAX_EDGE / Math.max(bitmap.width, bitmap.height, 1));
+				const bitmapWidth = Math.max(2, Math.round(bitmap.width * bitmapScale));
+				const bitmapHeight = Math.max(2, Math.round(bitmap.height * bitmapScale));
+				const pixels = read({ source: bitmap, width: bitmapWidth, height: bitmapHeight });
+				diag(`bitmap ${bitmapWidth}x${bitmapHeight} decoded=${decodedWidth}x${decodedHeight}`);
+				return { image: pixels, decodedWidth, decodedHeight };
+			} finally {
+				bitmap.close();
+			}
+		}
+	} finally {
+		video.pause();
+		video.removeAttribute("src");
+		video.load();
+		video.remove();
+		URL.revokeObjectURL(url);
+	}
+}
+
+function diffRatio({
+	base,
+	over,
+	box,
+}: {
+	base: ImageData;
+	over: ImageData;
+	box: { x: number; y: number; w: number; h: number };
+}): number {
+	const x0 = Math.max(0, Math.round(box.x));
+	const y0 = Math.max(0, Math.round(box.y));
+	const x1 = Math.min(base.width, Math.round(box.x + box.w));
+	const y1 = Math.min(base.height, Math.round(box.y + box.h));
+	const step = Math.max(1, Math.floor(Math.min(Math.max(1, x1 - x0), Math.max(1, y1 - y0)) / 28));
+	let total = 0;
+	let differ = 0;
+	for (let y = y0; y < y1; y += step) {
+		for (let x = x0; x < x1; x += step) {
+			const i = (y * base.width + x) * 4;
+			const delta =
+				Math.abs((base.data[i] ?? 0) - (over.data[i] ?? 0)) +
+				Math.abs((base.data[i + 1] ?? 0) - (over.data[i + 1] ?? 0)) +
+				Math.abs((base.data[i + 2] ?? 0) - (over.data[i + 2] ?? 0));
+			total += 1;
+			if (delta > 60) differ += 1;
+		}
+	}
+	return total === 0 ? 0 : differ / total;
+}
+
+/**
+ * Baseline export of the planted clip, then the same clip with a CSS
+ * template, a WebGL template and a sticker. Each region of the second
+ * file must differ from the baseline.
+ */
+async function runOverlayPixels({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "overlay-pixels" });
+	const fail = (detail: string, error?: unknown) => {
+		guard.note(detail);
+		if (error instanceof Error && error.stack) log(error.stack);
+	};
+	let step = "start";
+	let spilledBridge: Awaited<ReturnType<typeof getNativeBridge>> | null = null;
+	let spilled = false;
+	try {
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: OVERLAY_PROJECT });
+		const bridge = await getNativeBridge();
+		spilledBridge = bridge;
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+
+		step = "baseline export";
+		log("step:", step);
+		const baselineBytes = await exportEdlBytes({ editor, overlayFrames: [] });
+
+		step = "insert templates";
+		log("step:", step);
+		const canvas = editor.project.getActive().settings.canvasSize;
+		const scramble = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-text-scramble",
+			durationSec: 3,
+			startSeconds: 0,
+			values: {
+				text: "SCRAMBLE",
+				accent: "#ff2bd6",
+				"transform.scaleX": 0.34,
+				"transform.scaleY": 0.34,
+				"transform.positionX": -canvas.width * 0.28,
+				"transform.positionY": -canvas.height * 0.28,
+			},
+		});
+		const shader = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-shader-animation",
+			durationSec: 4,
+			startSeconds: 0,
+			values: {
+				text: "SHADER",
+				textColor: "#ffe14a",
+				"transform.scaleX": 0.34,
+				"transform.scaleY": 0.34,
+				"transform.positionX": canvas.width * 0.28,
+				"transform.positionY": canvas.height * 0.28,
+			},
+		});
+		const stickerRef = insertStickerElement({ editor, stickerId: "shapes:star" });
+		if (!scramble || !shader || !stickerRef) {
+			fail("could not insert template, shader, or sticker");
+			return;
+		}
+		const stickerTrack = editor.scenes
+			.getActiveScene()
+			.tracks.overlay.find((track) => track.type === "graphic" && track.id === stickerRef.trackId);
+		const stickerElement = stickerTrack?.elements.find((element) => element.id === stickerRef.elementId);
+		if (!stickerElement) {
+			fail("sticker element missing after insert");
+			return;
+		}
+		editor.command.execute({
+			command: new UpdateElementsCommand({
+				updates: [
+					{
+						trackId: stickerRef.trackId,
+						elementId: stickerRef.elementId,
+						patch: {
+							params: {
+								...stickerElement.params,
+								"transform.scaleX": 0.18,
+								"transform.scaleY": 0.18,
+							},
+						},
+					},
+				],
+			}),
+		});
+
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 4_000_000,
+				includeAudio: true,
+			},
+		});
+		step = "rasterize overlays";
+		log("step:", step);
+		const painter = createHtmlOverlayPainter({
+			tracks: editor.scenes.getActiveScene().tracks,
+			durationSeconds: edl.meta.durationTicks / edl.meta.ticksPerSecond,
+			width: edl.output.resolution.width,
+			height: edl.output.resolution.height,
+		});
+		let overlayBytes: ArrayBuffer;
+		try {
+			const { renderOverlayFrames } = await import("@kneecap/editor-core/export/overlay-frames");
+			spilled = true;
+			const rendered = await renderOverlayFrames({
+				tracks: editor.scenes.getActiveScene().tracks,
+				mediaAssets: editor.media.getAssets(),
+				canvasSize: {
+					width: edl.output.resolution.width,
+					height: edl.output.resolution.height,
+				},
+				fps: edl.output.fps,
+				durationTicks: edl.meta.durationTicks,
+				ticksPerSecond: edl.meta.ticksPerSecond,
+				extraHash: (args) => painter.hashAt(args),
+				paintExtras: (args) => painter.paint(args),
+				spillFrame: (frame) => spillOverlayFrame({ bridge, frame }),
+			});
+			const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+			const omissions = listNativeExportOmissions({
+				edl,
+				platform,
+				uncapturedClipIds: new Set(rendered.uncapturedElementIds),
+			});
+			for (const item of omissions) log("omission:", item.message);
+			const blocked = omissions.filter((item) =>
+				/Text Scramble|Kinetic Shader|Sticker "star"/i.test(item.message),
+			);
+			const spilledCount = rendered.frames.filter((frame) => frame.pngPath).length;
+			const firstPng = rendered.frames.find((frame) => frame.pngPath)?.pngPath ?? "none";
+			log(
+				"raster:",
+				`frames=${rendered.frames.length}`,
+				`uncaptured=${rendered.uncapturedElementIds.join(",") || "none"}`,
+				`spilled=${spilledCount}`,
+				`inlineKB=${Math.round(rendered.frames.reduce((sum, frame) => sum + frame.pngBase64.length, 0) / 1024)}`,
+				`firstPng=${firstPng}`,
+			);
+			if (blocked.length > 0 || rendered.uncapturedElementIds.length > 0) {
+				fail(
+					`step=rasterize overlays capture missed ids=${rendered.uncapturedElementIds.join(",") || "none"} omissions=${blocked.map((item) => item.message).join(" | ")}`,
+				);
+				return;
+			}
+			step = "export with overlays";
+			log("step:", step);
+			overlayBytes = await exportEdlBytes({ editor, overlayFrames: rendered.frames });
+			log(
+				`diag: export bytes=${overlayBytes.byteLength} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
+			);
+		} finally {
+			painter.dispose();
+		}
+
+		step = "sample baseline frame";
+		log("step:", step);
+		const baseSample = await frameImageData({ bytes: baselineBytes, timeSeconds: 1, label: "baseline" });
+		const baseFrame = baseSample.image;
+		// Let WKWebView drop the baseline decoder before the overlay file
+		// asks for one. A second <video> started while the first still owns
+		// the hardware decoder never fires loadeddata or error.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		step = "sample overlay frame";
+		log("step:", step);
+		const overSample = await frameImageData({ bytes: overlayBytes, timeSeconds: 1, label: "overlay" });
+		const overFrame = overSample.image;
+		if (baseFrame.width !== overFrame.width || baseFrame.height !== overFrame.height) {
+			fail(`frame size ${baseFrame.width}x${baseFrame.height} vs ${overFrame.width}x${overFrame.height}`);
+			return;
+		}
+		const frameScaleX = canvas.width > 0 ? baseFrame.width / canvas.width : 1;
+		const frameScaleY = canvas.height > 0 ? baseFrame.height / canvas.height : 1;
+		log(
+			`diag: sample scale=${frameScaleX.toFixed(3)}x${frameScaleY.toFixed(3)} frame=${baseFrame.width}x${baseFrame.height} canvas=${canvas.width}x${canvas.height}`,
+		);
+		const box = ({
+			positionX,
+			positionY,
+			scale,
+		}: {
+			positionX: number;
+			positionY: number;
+			scale: number;
+		}) => {
+			const w = baseFrame.width * scale;
+			const h = baseFrame.height * scale;
+			return {
+				x: baseFrame.width / 2 + positionX * frameScaleX - w / 2,
+				y: baseFrame.height / 2 + positionY * frameScaleY - h / 2,
+				w,
+				h,
+			};
+		};
+		const scrambleRatio = diffRatio({
+			base: baseFrame,
+			over: overFrame,
+			box: box({ positionX: -canvas.width * 0.28, positionY: -canvas.height * 0.28, scale: 0.34 }),
+		});
+		const shaderRatio = diffRatio({
+			base: baseFrame,
+			over: overFrame,
+			box: box({ positionX: canvas.width * 0.28, positionY: canvas.height * 0.28, scale: 0.34 }),
+		});
+		const stickerSide = 180 * frameScaleX;
+		const stickerRatio = diffRatio({
+			base: baseFrame,
+			over: overFrame,
+			box: {
+				x: baseFrame.width / 2 - stickerSide / 2,
+				y: baseFrame.height / 2 - stickerSide / 2,
+				w: stickerSide,
+				h: stickerSide,
+			},
+		});
+		if (scrambleRatio < 0.01 || shaderRatio < 0.35 || stickerRatio < 0.05) {
+			fail(
+				`pixels scramble=${scrambleRatio.toFixed(3)} shader=${shaderRatio.toFixed(3)} sticker=${stickerRatio.toFixed(3)}`,
+			);
+			return;
+		}
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=overlay-pixels PASS export=${Math.round(overlayBytes.byteLength / 1024)}KB scramble=${scrambleRatio.toFixed(2)} shader=${shaderRatio.toFixed(2)} sticker=${stickerRatio.toFixed(2)} sampled=${baseFrame.width}x${baseFrame.height} decoded=${baseSample.decodedWidth}x${baseSample.decodedHeight} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
+			);
+		}
+	} catch (error) {
+		const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+		fail(`step=${step} ${message}`, error);
+	} finally {
+		if (spilled && spilledBridge) {
+			log("step: clear overlay pngs");
+			try {
+				await clearSpilledOverlayPngs({ bridge: spilledBridge });
+				log("diag: overlay pngs cleared after sampling");
+			} catch (error) {
+				log(
+					"diag: clear overlay pngs failed",
+					error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+				);
+			}
+		}
+		guard.close();
+	}
+}
+
+const FRAME_PROJECT = "Autotest Frame Capture";
+
+async function previewFingerprint(): Promise<string | null> {
+	try {
+		const { wasmCompositor } = await import(
+			"@kneecap/editor-core/services/renderer/compositor/wasm-compositor"
+		);
+		const source = wasmCompositor.getCanvas();
+		const canvas = document.createElement("canvas");
+		canvas.width = 8;
+		canvas.height = 8;
+		const ctx = canvas.getContext("2d");
+		if (!ctx || source.width < 2 || source.height < 2) return null;
+		ctx.drawImage(source, 0, 0, 8, 8);
+		return Array.from(ctx.getImageData(0, 0, 8, 8).data.slice(0, 16)).join(",");
+	} catch {
+		return null;
+	}
+}
+
+async function jpegPixels({ base64 }: { base64: string }): Promise<ImageData> {
+	const img = new Image();
+	const loaded = new Promise<void>((resolve, reject) => {
+		img.onload = () => resolve();
+		img.onerror = () => reject(new Error("jpeg decode failed"));
+	});
+	img.src = `data:image/jpeg;base64,${base64}`;
+	await loaded;
+	const canvas = document.createElement("canvas");
+	canvas.width = img.naturalWidth;
+	canvas.height = img.naturalHeight;
+	const ctx = canvas.getContext("2d");
+	if (!ctx || canvas.width < 2 || canvas.height < 2) throw new Error("jpeg has no pixels");
+	ctx.drawImage(img, 0, 0);
+	return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/**
+ * Imports the planted clip, inserts a magenta scramble template, and
+ * captures one AI still. PASS means the JPEG contains the proxy video
+ * (non-black) and that magenta, and the live preview canvas was not
+ * rewritten.
+ */
+async function runFrameCapture({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "frame-capture" });
+	const fail = (detail: string, error?: unknown) => {
+		guard.note(detail);
+		if (error instanceof Error && error.stack) log(error.stack);
+	};
+	let step = "start";
+	try {
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: FRAME_PROJECT });
+		const before = await previewFingerprint();
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		log(`diag: imported id=${video.id} proxy=${video.nativeRelativePath ?? "none"} source=${video.sourceNativeRelativePath ?? "none"}`);
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+		step = "insert template";
+		log("step:", step);
+		const scramble = insertHtmlTemplateElement({
+			editor,
+			templateId: "html-text-scramble",
+			durationSec: 3,
+			startSeconds: 0,
+			values: {
+				text: "SCRAMBLE",
+				accent: "#ff2bd6",
+				"transform.scaleX": 0.8,
+				"transform.scaleY": 0.8,
+			},
+		});
+		if (!scramble) {
+			fail("could not insert template");
+			return;
+		}
+		step = "capture frame";
+		log("step:", step);
+		const frame = await captureFrameAt({
+			editor,
+			timeSeconds: 1,
+			onTrace: (line) => log("diag:", line),
+		});
+		if (!frame || frame.base64.length < 100) {
+			fail(`capture returned no jpeg video=${frame?.trace.video ?? "none"} ${frame?.trace.videoDetail ?? ""}`);
+			return;
+		}
+		log(
+			`diag: jpeg chars=${frame.base64.length} video=${frame.trace.video} detail=${frame.trace.videoDetail} captured=${frame.trace.captured.join(",") || "none"} missed=${frame.trace.missed.join(",") || "none"}`,
+		);
+		const after = await previewFingerprint();
+		if (before && after && before !== after) {
+			fail("capture drew into the live preview");
+			return;
+		}
+		if (!frame.includesVideo) {
+			fail(`video not composited ${frame.trace.videoDetail}`);
+			return;
+		}
+		step = "read jpeg";
+		log("step:", step);
+		const pixels = await withTimeout({
+			promise: jpegPixels({ base64: frame.base64 }),
+			ms: 10_000,
+			label: "jpeg decode",
+		});
+		let nonBlack = 0;
+		let magenta = 0;
+		const count = pixels.data.length / 4;
+		for (let i = 0; i < pixels.data.length; i += 4) {
+			const r = pixels.data[i] ?? 0;
+			const g = pixels.data[i + 1] ?? 0;
+			const b = pixels.data[i + 2] ?? 0;
+			if (r + g + b > 40) nonBlack += 1;
+			if (r > 160 && b > 120 && g < 120) magenta += 1;
+		}
+		const nonBlackRatio = nonBlack / count;
+		const templateRatio = magenta / count;
+		const preview = before && after ? "unchanged" : "unread";
+		log(
+			`capture nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview} video=${frame.trace.video}`,
+		);
+		if (nonBlackRatio < 0.2 || templateRatio < 0.0003) {
+			fail(
+				`frame missing video or template pixels nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)}`,
+			);
+			return;
+		}
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=frame-capture PASS nonBlack=${nonBlackRatio.toFixed(3)} template=${templateRatio.toFixed(3)} preview=${preview} video=${frame.trace.video}`,
+			);
+		}
+	} catch (error) {
+		fail(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+			error,
+		);
+	} finally {
+		guard.close();
+	}
+}
+
+const GRADE_PROJECT = "Autotest Grade Pixels";
+const GRADE_BLUR_INTENSITY = 80;
+const GRADE_MASK = {
+	type: "ellipse" as const,
+	centerX: 0,
+	centerY: 0,
+	width: 0.5,
+	height: 0.5,
+	rotation: 0,
+	inverted: false,
+};
+
+/**
+ * Exports the planted clip with a mono filter, a blur, and an ellipse, then
+ * compares one export frame to the preview/WGSL rendering of the source
+ * frame (`renderPreviewGradeFrame` — the color-adjust matrix, the separable
+ * gaussian, and the ellipse).
+ */
+async function runGradePixels({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "grade-pixels" });
+	const fail = (detail: string, error?: unknown) => {
+		guard.note(detail);
+		if (error instanceof Error && error.stack) log(error.stack);
+	};
+	let step = "start";
+	try {
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: GRADE_PROJECT });
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+		const scene = editor.scenes.getActiveScene();
+		const main = scene.tracks.main;
+		const mainEl = main.elements[0];
+		if (!mainEl) {
+			fail("planted video did not land on the main track");
+			return;
+		}
+		step = "apply filter blur mask";
+		log("step:", step);
+		editor.command.execute({
+			command: new UpdateElementsCommand({
+				updates: [
+					{
+						trackId: main.id,
+						elementId: mainEl.id,
+						patch: {
+							effects: [
+								{
+									id: "grade-filter",
+									type: "filter",
+									enabled: true,
+									params: { preset: "mono", intensity: 100 },
+								},
+								{
+									id: "grade-blur",
+									type: "blur",
+									enabled: true,
+									params: { intensity: GRADE_BLUR_INTENSITY },
+								},
+							],
+							masks: [
+								{
+									id: "grade-ellipse",
+									type: "ellipse",
+									params: {
+										...GRADE_MASK,
+										scale: 1,
+										feather: 0,
+										strokeColor: "#ffffff",
+										strokeWidth: 0,
+										strokeAlign: "center",
+									},
+								},
+							],
+						},
+					},
+				],
+			}),
+		});
+
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 4_000_000,
+				includeAudio: true,
+			},
+		});
+		const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+		const omissions = listNativeExportOmissions({ edl, platform }).map((item) => item.message);
+		for (const message of omissions) log("omission:", message);
+		const listedFilter = omissions.some((message) => message.startsWith("Filter on"));
+		const listedBlur = omissions.some((message) => message.includes('Effect "blur"'));
+		const listedMask = omissions.some((message) => message.startsWith("Mask on"));
+		log(`diag: platform=${platform} filterListed=${listedFilter} blurListed=${listedBlur} maskListed=${listedMask}`);
+		if (platform === "ios" && (listedFilter || listedBlur || listedMask)) {
+			fail(`iOS still lists a rendered grade filter=${listedFilter} blur=${listedBlur} mask=${listedMask}`);
+			return;
+		}
+		if (platform === "android" && listedFilter) {
+			fail("Android still lists the filter");
+			return;
+		}
+
+		step = "sample source frame";
+		log("step:", step);
+		const sourceUrl = bridge.toPlaybackUri(`file://${root}/${SOURCE_RELATIVE}`);
+		const sourceBytes = await fetch(sourceUrl).then((response) => response.arrayBuffer());
+		log(`diag: source bytes=${sourceBytes.byteLength}`);
+		const sourceSample = await frameImageData({ bytes: sourceBytes, timeSeconds: 1, label: "source" });
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		step = "export graded clip";
+		log("step:", step);
+		const exportedBytes = await exportEdlBytes({ editor, overlayFrames: [] });
+		log(
+			`diag: export bytes=${exportedBytes.byteLength} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
+		);
+		step = "sample export frame";
+		log("step:", step);
+		const exportSample = await frameImageData({ bytes: exportedBytes, timeSeconds: 1, label: "graded" });
+		const sourceFrame = sourceSample.image;
+		const exportFrame = exportSample.image;
+		if (sourceFrame.width !== exportFrame.width || sourceFrame.height !== exportFrame.height) {
+			fail(
+				`frame size source=${sourceFrame.width}x${sourceFrame.height} export=${exportFrame.width}x${exportFrame.height}`,
+			);
+			return;
+		}
+		const grade = filterShaderGrade({ params: { preset: "mono", intensity: 100 } });
+		if (!grade) {
+			fail("mono filter produced no grade");
+			return;
+		}
+		const width = sourceFrame.width;
+		const height = sourceFrame.height;
+		const reference = renderPreviewGradeFrame({
+			pixels: sourceFrame.data,
+			width,
+			height,
+			grades: [grade],
+			blurSigma: sampledBlurSigma({ intensity: GRADE_BLUR_INTENSITY, sampleWidth: width }),
+			mask: GRADE_MASK,
+		});
+		let inside = 0;
+		let outside = 0;
+		let maeCount = 0;
+		let maeSum = 0;
+		let outsideLuma = 0;
+		let insideChroma = 0;
+		let refEdge = 0;
+		let expEdge = 0;
+		let edgeCount = 0;
+		const margin = 4;
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const contained = boxMaskContains({ x, y, width, height, mask: GRADE_MASK });
+				const offset = (y * width + x) * 4;
+				const er = exportFrame.data[offset] ?? 0;
+				const eg = exportFrame.data[offset + 1] ?? 0;
+				const eb = exportFrame.data[offset + 2] ?? 0;
+				if (!contained) {
+					outside += 1;
+					outsideLuma += (er + eg + eb) / 3;
+					continue;
+				}
+				inside += 1;
+				insideChroma += Math.max(er, eg, eb) - Math.min(er, eg, eb);
+				const nearEdge =
+					x < margin ||
+					y < margin ||
+					x >= width - margin ||
+					y >= height - margin ||
+					!boxMaskContains({ x: x + margin, y, width, height, mask: GRADE_MASK }) ||
+					!boxMaskContains({ x: x - margin, y, width, height, mask: GRADE_MASK }) ||
+					!boxMaskContains({ x, y: y + margin, width, height, mask: GRADE_MASK }) ||
+					!boxMaskContains({ x, y: y - margin, width, height, mask: GRADE_MASK });
+				if (nearEdge) continue;
+				maeCount += 1;
+				const rr = reference[offset] ?? 0;
+				const rg = reference[offset + 1] ?? 0;
+				const rb = reference[offset + 2] ?? 0;
+				maeSum += Math.abs(er - rr) + Math.abs(eg - rg) + Math.abs(eb - rb);
+				if (x + 1 < width) {
+					const next = offset + 4;
+					refEdge += Math.abs(rr - (reference[next] ?? 0)) + Math.abs(rg - (reference[next + 1] ?? 0));
+					expEdge += Math.abs(er - (exportFrame.data[next] ?? 0)) + Math.abs(eg - (exportFrame.data[next + 1] ?? 0));
+					edgeCount += 1;
+				}
+			}
+		}
+		const mae = maeCount > 0 ? maeSum / (maeCount * 3) / 255 : 1;
+		const outsideMean = outside > 0 ? outsideLuma / outside / 255 : 1;
+		const chroma = inside > 0 ? insideChroma / inside / 255 : 1;
+		const edgeRatio = expEdge / Math.max(refEdge, 1);
+		log(
+			`diag: inside=${inside} outside=${outside} mae=${mae.toFixed(3)} outsideLuma=${outsideMean.toFixed(3)} chroma=${chroma.toFixed(3)} edgeRatio=${edgeRatio.toFixed(3)} edges=${edgeCount} sigma=${sampledBlurSigma({ intensity: GRADE_BLUR_INTENSITY, sampleWidth: width }).toFixed(2)}`,
+		);
+		if (inside < 100 || outside < 100) {
+			fail(`mask coverage inside=${inside} outside=${outside}`);
+			return;
+		}
+		if (mae > 0.22 || outsideMean > 0.1 || chroma > 0.12 || edgeRatio > 1.6 || edgeRatio < 0.35) {
+			fail(
+				`grade mismatch mae=${mae.toFixed(3)} outsideLuma=${outsideMean.toFixed(3)} chroma=${chroma.toFixed(3)} edgeRatio=${edgeRatio.toFixed(3)}`,
+			);
+			return;
+		}
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=grade-pixels PASS mae=${mae.toFixed(3)} outsideLuma=${outsideMean.toFixed(3)} chroma=${chroma.toFixed(3)} edgeRatio=${edgeRatio.toFixed(2)} sampled=${width}x${height} decoded=${exportSample.decodedWidth}x${exportSample.decodedHeight} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
+			);
+		}
+	} catch (error) {
+		fail(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+			error,
+		);
+	} finally {
+		guard.close();
+	}
+}
+
+async function readSandboxText({ root, name }: { root: string; name: string }): Promise<string> {
+	try {
+		const bridge = await getNativeBridge();
+		const response = await fetch(bridge.toPlaybackUri(`file://${root}/${name}`));
+		if (!response.ok && response.status !== 0) return "";
+		return (await response.text()).trim();
+	} catch {
+		return "";
+	}
+}
+
+/**
+ * One real Director turn when the founder has planted NVIDIA_API_KEY.
+ * The key stays in the unlocked vault memory for this launch only.
+ */
+async function runNvidiaDirector({ root }: { root: string }): Promise<void> {
+	const guard = installPhaseGuard({ phase: "nvidia-director", watchdogMs: 300_000 });
+	let step = "read NVIDIA_API_KEY";
+	try {
+		const apiKey = (await readSandboxText({ root, name: "NVIDIA_API_KEY" })).split(/\s+/)[0] ?? "";
+		if (!apiKey) {
+			if (guard.claim()) log("VERDICT phase=nvidia-director SKIP no NVIDIA_API_KEY");
+			return;
+		}
+		step = "unlock vault";
+		useVaultStore.setState({
+			isConfigured: true,
+			isUnlocked: true,
+			keys: { nvidia: apiKey },
+			activePin: null,
+			error: null,
+		});
+		useAIDirectorStore.getState().setSelectedProvider("nvidia");
+		useAIDirectorStore.setState({ messages: [], isStreaming: false, pendingPlan: null });
+		const editor = EditorCore.getInstance();
+		step = "director turn";
+		const reply = await askAIDirector(
+			"Reply with exactly the word ready. Do not call any tools.",
+			{ editor },
+		);
+		const failed =
+			reply.startsWith("Couldn't reach") ||
+			reply.startsWith("NVIDIA timed out") ||
+			reply.startsWith("NVIDIA never answered") ||
+			reply.startsWith("NVIDIA rejected") ||
+			reply.startsWith("No NVIDIA") ||
+			reply.startsWith("The Key Vault");
+		if (failed) throw new Error(reply);
+		const assistant = useAIDirectorStore
+			.getState()
+			.messages.filter((message) => message.role === "assistant" && !message.local && !message.toolName);
+		if (assistant.length === 0) throw new Error(`no assistant text (${reply})`);
+		const model = useAIDirectorStore.getState().selectedModel;
+		const preview = reply.replace(/\s+/g, " ").slice(0, 80);
+		if (guard.claim()) log(`VERDICT phase=nvidia-director PASS model=${model} reply=${preview}`);
+	} catch (error) {
+		guard.note(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+		);
+	} finally {
+		guard.close();
+	}
+}
+
+function litPixelRatio(image: ImageData): number {
+	const data = image.data;
+	let lit = 0;
+	let count = 0;
+	for (let index = 0; index < data.length; index += 4) {
+		const red = data[index] ?? 0;
+		const green = data[index + 1] ?? 0;
+		const blue = data[index + 2] ?? 0;
+		count += 1;
+		if (red + green + blue > 40) lit += 1;
+	}
+	return count === 0 ? 0 : lit / count;
+}
+
+/** The tool text is `Exported ${uri}.` and the uri lives under
+ *  `Application Support`, so a non-whitespace match stops at the space and
+ *  fetch throws Load failed on a truncated path. */
+export function exportUriFromToolText(text: string): string {
+	const match = /^Exported (.+?)(?: Omissions:|$)/.exec(text);
+	const raw = match?.[1] ?? "";
+	return raw.replace(/\.$/, "");
+}
+
+/**
+ * One Director turn that trims the planted clip and exports it. The key
+ * stays in unlocked vault memory for this launch only.
+ */
+async function runDirectorExport({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "director-export", watchdogMs: 720_000 });
+	let step = "read NVIDIA_API_KEY";
+	try {
+		const apiKey = (await readSandboxText({ root, name: "NVIDIA_API_KEY" })).split(/\s+/)[0] ?? "";
+		if (!apiKey) {
+			if (guard.claim()) log("VERDICT phase=director-export SKIP no NVIDIA_API_KEY");
+			return;
+		}
+		step = "unlock vault";
+		useVaultStore.setState({
+			isConfigured: true,
+			isUnlocked: true,
+			keys: { nvidia: apiKey },
+			activePin: null,
+			error: null,
+		});
+		useAIDirectorStore.getState().setSelectedProvider("nvidia");
+		useAIDirectorStore.setState({ messages: [], isStreaming: false, pendingPlan: null });
+
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: "Autotest Director Export" });
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => proxyPlantedMedia({ bridge, params }),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			throw new Error(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+		}
+		const video = imported[0];
+		if (!video) throw new Error("import returned no video");
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+		const clipId = editor.scenes.getActiveScene().tracks.main.elements[0]?.id ?? "";
+		if (!clipId) throw new Error("planted video did not land on the main track");
+		log("clip", clipId);
+
+		step = "director turn";
+		log("step:", step);
+		const reply = await askAIDirector(
+			`The main track has one clip, id ${clipId}. This is one clear request. Do not call propose_plan. Call trim_clip with clip_id ${clipId}, edge end, and boundary_seconds 4. Then call export_video with quality high. Do not call any other tools.`,
+			{ editor },
+		);
+		const failedReply =
+			reply.startsWith("Couldn't reach") ||
+			reply.startsWith("NVIDIA timed out") ||
+			reply.startsWith("NVIDIA never answered") ||
+			reply.startsWith("NVIDIA rejected") ||
+			reply.startsWith("No NVIDIA") ||
+			reply.startsWith("The Key Vault") ||
+			reply.startsWith("Could not export");
+		if (failedReply) throw new Error(reply);
+		const tools = useAIDirectorStore.getState().messages.filter((message) => message.toolName);
+		for (const message of tools) log(`tool ${message.toolName}: ${message.content.replace(/\s+/g, " ").slice(0, 180)}`);
+		const trim = tools.find((message) => message.toolName === "trim_clip");
+		if (!trim?.content.startsWith("Trimmed")) {
+			throw new Error(`trim_clip did not run (${trim?.content ?? reply})`);
+		}
+		const exported = tools.find((message) => message.toolName === "export_video");
+		if (!exported?.content.startsWith("Exported ")) {
+			throw new Error(`export_video did not run (${exported?.content ?? reply})`);
+		}
+		const outputUrl = exportUriFromToolText(exported.content);
+		if (!outputUrl) throw new Error(`export_video returned no file (${exported.content})`);
+
+		step = "read export";
+		log("step:", step, outputUrl);
+		let bytes: ArrayBuffer | null = null;
+		let lastFetchError = "";
+		for (let attempt = 0; attempt < 4; attempt++) {
+			try {
+				bytes = await fetch(outputUrl).then((response) => response.arrayBuffer());
+				break;
+			} catch (error) {
+				lastFetchError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+		if (!bytes) throw new Error(`output mp4 missing (${lastFetchError}) url=${outputUrl}`);
+		if (bytes.byteLength < 10_000) throw new Error(`suspiciously small output (${bytes.byteLength}B)`);
+
+		step = "probe duration";
+		const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
+		const probe = new Input({
+			source: new BlobSource(new Blob([bytes])),
+			formats: ALL_FORMATS,
+		});
+		const track = await probe.getPrimaryVideoTrack();
+		if (!track) throw new Error("output has no video track");
+		const duration = await track.computeDuration();
+		if (!(duration > 2.5 && duration < 5.5)) {
+			throw new Error(`output duration ${duration.toFixed(2)}s (expected about 4s after the trim)`);
+		}
+
+		step = "sample frame";
+		const sample = await frameImageData({ bytes, timeSeconds: 1, label: "director-export" });
+		const lit = litPixelRatio(sample.image);
+		log(`diag: nonBlack=${lit.toFixed(3)} duration=${duration.toFixed(2)}s`);
+		if (lit < 0.1) throw new Error(`export frame is black nonBlack=${lit.toFixed(3)}`);
+		const model = useAIDirectorStore.getState().selectedModel;
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=director-export PASS model=${model} export=${Math.round(bytes.byteLength / 1024)}KB duration=${duration.toFixed(2)}s nonBlack=${lit.toFixed(3)} sampled=${sample.image.width}x${sample.image.height}`,
+			);
+		}
+	} catch (error) {
+		guard.note(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+		);
+		if (error instanceof Error && error.stack) log(error.stack);
+	} finally {
+		guard.close();
+	}
+}
+
+const DOUBLE_IMPORT_BUDGET_MS = 90_000;
+
+function absoluteFileUrl(path: string): string {
+	const encoded = path
+		.split("/")
+		.map((part) => encodeURIComponent(part))
+		.join("/");
+	return `file://${encoded}`;
+}
+
+function timelineVideoCount(editor: EditorCore): number {
+	const scene = editor.scenes.getActiveScene();
+	const overlay = scene.tracks.overlay.reduce(
+		(count, track) => count + track.elements.filter((element) => element.type === "video").length,
+		0,
+	);
+	return (
+		scene.tracks.main.elements.filter((element) => element.type === "video").length + overlay
+	);
+}
+
+async function plantedFileHasBytes({
+	bridge,
+	root,
+	relative,
+}: {
+	bridge: Awaited<ReturnType<typeof getNativeBridge>>;
+	root: string;
+	relative: string;
+}): Promise<boolean> {
+	try {
+		const response = await fetch(bridge.toPlaybackUri(`file://${root}/${relative}`));
+		if (!(response.ok || response.status === 0)) return false;
+		const bytes = await response.arrayBuffer();
+		return bytes.byteLength > 0;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * One custody copy + the real generateProxy stream + a main-track clip.
+ * `peak` must hit 100 and the clip must land inside `DOUBLE_IMPORT_BUDGET_MS`.
+ */
+async function importDoubleVideo({
+	editor,
+	bridge,
+	sourcePath,
+	fileName,
+}: {
+	editor: EditorCore;
+	bridge: Awaited<ReturnType<typeof getNativeBridge>>;
+	sourcePath: string;
+	fileName: string;
+}): Promise<number> {
+	const started = Date.now();
+	let peak = 0;
+	const copied = await bridge.importRemoteMedia({
+		url: absoluteFileUrl(sourcePath),
+		kind: "video",
+		fileName,
+	});
+	const handle: NativeMediaHandle = {
+		id: copied.id,
+		uri: copied.uri,
+		kind: copied.kind,
+		fileName: copied.fileName,
+		sizeBytes: copied.sizeBytes,
+		durationMicros: copied.durationMicros,
+		width: copied.width,
+		height: copied.height,
+		hasAudio: copied.hasAudio,
+		codec: copied.codec,
+		frameRate: copied.frameRate,
+		rotationDegrees: copied.rotationDegrees,
+	};
+	const source: NativeMediaSource = {
+		pickMedia: async () => [handle],
+		generateProxy: (params) => proxyPlantedMedia({ bridge, params }),
+		toPlaybackUri: bridge.toPlaybackUri,
+		getMediaRoot: () => bridge.getMediaRoot(),
+	};
+	const before = timelineVideoCount(editor);
+	const { imported, failed } = await importMediaFromNative({
+		editor,
+		projectId: editor.project.getActive().metadata.id,
+		source,
+		kinds: ["video"],
+		allowMultiple: false,
+		onProgress: (progress) => {
+			const fraction = Math.min(1, Math.max(0, progress.fraction));
+			const percent = Math.round(
+				((progress.index + fraction) / Math.max(1, progress.total)) * 100,
+			);
+			peak = Math.max(peak, progress.stage === "done" ? 100 : percent);
+			log(`double-import ${fileName} ${progress.stage} ${percent}%`);
+		},
+	});
+	const elapsed = Date.now() - started;
+	if (failed.length > 0 || imported.length !== 1) {
+		throw new Error(
+			`${fileName}: ${failed[0]?.error ?? `imported ${imported.length}`}`,
+		);
+	}
+	if (peak < 100) throw new Error(`${fileName} peaked at ${peak}%`);
+	if (elapsed > DOUBLE_IMPORT_BUDGET_MS) {
+		throw new Error(`${fileName} took ${elapsed}ms (budget ${DOUBLE_IMPORT_BUDGET_MS}ms)`);
+	}
+	const asset = imported[0];
+	if (!asset) throw new Error(`${fileName} produced no asset`);
+	editor.command.execute({
+		command: new InsertElementCommand({
+			element: buildElementFromMedia({
+				mediaId: asset.id,
+				mediaType: asset.type,
+				name: asset.name,
+				duration: mediaTimeFromSeconds({ seconds: asset.duration || 3 }),
+				startTime: mediaTimeFromSeconds({ seconds: 0 }),
+			}),
+			placement: { mode: "auto", trackType: "video" },
+		}),
+	});
+	const after = timelineVideoCount(editor);
+	if (after !== before + 1) {
+		throw new Error(`${fileName} did not land on the timeline (${before} -> ${after})`);
+	}
+	log(`double-import landed ${fileName} ${elapsed}ms timeline=${after}`);
+	return elapsed;
+}
+
+/**
+ * Multi-select: both custody copies exist, then both `generateProxy`
+ * streams are started together. The native decode queue runs one session
+ * at a time, so the second waits and both still reach 100%.
+ */
+async function importDoublePairTogether({
+	editor,
+	bridge,
+	movPath,
+	mp4Path,
+}: {
+	editor: EditorCore;
+	bridge: Awaited<ReturnType<typeof getNativeBridge>>;
+	movPath: string;
+	mp4Path: string;
+}): Promise<{ mov: number; mp4: number }> {
+	await editor.project.createNewProject({ name: "Autotest Double Multi" });
+	videoCache.clearAll();
+	const movCopied = await bridge.importRemoteMedia({
+		url: absoluteFileUrl(movPath),
+		kind: "video",
+		fileName: "multi-a.mov",
+	});
+	const mp4Copied = await bridge.importRemoteMedia({
+		url: absoluteFileUrl(mp4Path),
+		kind: "video",
+		fileName: "multi-b.mp4",
+	});
+	const toHandle = (
+		copied: typeof movCopied,
+		fileName: string,
+	): NativeMediaHandle => ({
+		id: copied.id,
+		uri: copied.uri,
+		kind: copied.kind,
+		fileName,
+		sizeBytes: copied.sizeBytes,
+		durationMicros: copied.durationMicros,
+		width: copied.width,
+		height: copied.height,
+		hasAudio: copied.hasAudio,
+		codec: copied.codec,
+		frameRate: copied.frameRate,
+		rotationDegrees: copied.rotationDegrees,
+	});
+	const sourceFor = (handle: NativeMediaHandle): NativeMediaSource => ({
+		pickMedia: async () => [handle],
+		generateProxy: (params) => proxyPlantedMedia({ bridge, params }),
+		toPlaybackUri: bridge.toPlaybackUri,
+		getMediaRoot: () => bridge.getMediaRoot(),
+	});
+	const movHandle = toHandle(movCopied, "multi-a.mov");
+	const mp4Handle = toHandle(mp4Copied, "multi-b.mp4");
+	const started = Date.now();
+	const peaks = { mov: 0, mp4: 0 };
+	const doneAt = { mov: 0, mp4: 0 };
+	log("double-import multi-select starting both");
+	const [movPrepared, mp4Prepared] = await Promise.all([
+		prepareNativeMedia({
+			source: sourceFor(movHandle),
+			handles: [movHandle],
+			onProgress: (progress) => {
+				const fraction = Math.min(1, Math.max(0, progress.fraction));
+				const percent = Math.round(fraction * 100);
+				peaks.mov = Math.max(peaks.mov, progress.stage === "done" ? 100 : percent);
+				if (progress.stage === "done") doneAt.mov = Date.now() - started;
+				log(`double-import multi-a.mov ${progress.stage} ${percent}%`);
+			},
+		}),
+		prepareNativeMedia({
+			source: sourceFor(mp4Handle),
+			handles: [mp4Handle],
+			onProgress: (progress) => {
+				const fraction = Math.min(1, Math.max(0, progress.fraction));
+				const percent = Math.round(fraction * 100);
+				peaks.mp4 = Math.max(peaks.mp4, progress.stage === "done" ? 100 : percent);
+				if (progress.stage === "done") doneAt.mp4 = Date.now() - started;
+				log(`double-import multi-b.mp4 ${progress.stage} ${percent}%`);
+			},
+		}),
+	]);
+	const budget = DOUBLE_IMPORT_BUDGET_MS * 2;
+	const movFailed = movPrepared.failed[0]?.error;
+	const mp4Failed = mp4Prepared.failed[0]?.error;
+	if (movFailed || mp4Failed || movPrepared.prepared.length !== 1 || mp4Prepared.prepared.length !== 1) {
+		throw new Error(`multi-select: ${movFailed ?? mp4Failed ?? "missing proxy"}`);
+	}
+	if (peaks.mov < 100 || peaks.mp4 < 100) {
+		throw new Error(`multi-select peaked at mov=${peaks.mov}% mp4=${peaks.mp4}%`);
+	}
+	if (doneAt.mov > budget || doneAt.mp4 > budget) {
+		throw new Error(
+			`multi-select took mov=${doneAt.mov}ms mp4=${doneAt.mp4}ms (budget ${budget}ms)`,
+		);
+	}
+	const imported = commitPreparedMedia({
+		editor,
+		projectId: editor.project.getActive().metadata.id,
+		prepared: [...movPrepared.prepared, ...mp4Prepared.prepared],
+		toPlaybackUri: bridge.toPlaybackUri,
+		mediaRoot: movPrepared.mediaRoot,
+	});
+	if (imported.length !== 2) throw new Error(`multi-select committed ${imported.length}`);
+	for (const asset of imported) {
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: asset.id,
+					mediaType: asset.type,
+					name: asset.name,
+					duration: mediaTimeFromSeconds({ seconds: asset.duration || 3 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+	}
+	const timeline = timelineVideoCount(editor);
+	if (timeline !== 2) throw new Error(`multi-select timeline=${timeline}`);
+	log(`double-import multi-select landed mov=${doneAt.mov}ms mp4=${doneAt.mp4}ms timeline=${timeline}`);
+	return { mov: doneAt.mov, mp4: doneAt.mp4 };
+}
+
+async function runDoubleImport({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "double-import", watchdogMs: 720_000 });
+	const bridge = await getNativeBridge();
+	let step = "start";
+	try {
+		const mp4Path = `${root}/${SOURCE_RELATIVE}`;
+		const movRelative = "Media/autotest-source.mov";
+		const movPlanted = await plantedFileHasBytes({ bridge, root, relative: movRelative });
+		const movPath = movPlanted ? `${root}/${movRelative}` : mp4Path;
+		const movSource = movPlanted ? "planted" : "copied-mp4";
+		log(`double-import movSource=${movSource}`);
+
+		step = "blank mov";
+		await editor.project.createNewProject({ name: "Autotest Double Blank" });
+		videoCache.clearAll();
+		const blankMov = await importDoubleVideo({
+			editor,
+			bridge,
+			sourcePath: movPath,
+			fileName: "double-a.mov",
+		});
+		step = "blank mp4";
+		const blankMp4 = await importDoubleVideo({
+			editor,
+			bridge,
+			sourcePath: mp4Path,
+			fileName: "double-b.mp4",
+		});
+		if (timelineVideoCount(editor) < 2) throw new Error("blank pair did not leave two timeline videos");
+
+		step = "editor mov";
+		await editor.project.createNewProject({ name: "Autotest Double Editor" });
+		videoCache.clearAll();
+		const editorMov = await importDoubleVideo({
+			editor,
+			bridge,
+			sourcePath: movPath,
+			fileName: "double-a.mov",
+		});
+		step = "editor preview";
+		const warmAsset = editor.media.getAssets().find((asset) => asset.type === "video");
+		if (!warmAsset) throw new Error("editor variant has no video asset to preview");
+		try {
+			await withTimeout({
+				promise: videoCache.getFrameAt({
+					mediaId: warmAsset.id,
+					file: warmAsset.file,
+					url: warmAsset.url,
+					time: 0.2,
+				}),
+				ms: 15_000,
+				label: "editor-open preview",
+			});
+			log(`double-import editor-open sinks=${videoCache.getStats().totalSinks}`);
+		} catch (error) {
+			log(
+				`double-import editor-open preview ${error instanceof Error ? error.message : String(error)}`,
+			);
+			videoCache.clearAll();
+		}
+		step = "editor mp4";
+		const editorMp4 = await importDoubleVideo({
+			editor,
+			bridge,
+			sourcePath: mp4Path,
+			fileName: "double-b.mp4",
+		});
+		if (timelineVideoCount(editor) < 2) throw new Error("editor pair did not leave two timeline videos");
+
+		step = "multi-select";
+		const multi = await importDoublePairTogether({
+			editor,
+			bridge,
+			movPath,
+			mp4Path,
+		});
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=double-import PASS movSource=${movSource} blank=${blankMov}+${blankMp4}ms editor=${editorMov}+${editorMp4}ms multi=${multi.mov}+${multi.mp4}ms timeline=2`,
+			);
+		}
+	} catch (error) {
+		guard.note(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+		);
+		if (error instanceof Error && error.stack) log(error.stack);
+	} finally {
+		guard.close();
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -739,6 +2921,163 @@ export async function mountAutotest(): Promise<void> {
 		},
 	});
 	log("media root", root);
+
+	let doubleImport = window.location.hash.includes("double-import");
+	try {
+		const doubleFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-double-import.flag`));
+		if (doubleFlag.ok || doubleFlag.status === 0) doubleImport = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (doubleImport) {
+		log("phase: double-import");
+		await clearAutotestFlags({
+			names: ["autotest-double-import.flag", "autotest.flag"],
+		});
+		await runDoubleImport({ editor, root });
+		return;
+	}
+
+	let frameCapture = window.location.hash.includes("frame-capture");
+	try {
+		const frameFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-frame-capture.flag`));
+		if (frameFlag.ok || frameFlag.status === 0) frameCapture = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (frameCapture) {
+		log("phase: frame-capture");
+		await clearAutotestFlags({
+			names: ["autotest-frame-capture.flag", "autotest.flag"],
+		});
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runFrameCapture({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
+
+	let gradePixels = window.location.hash.includes("grade-pixels");
+	try {
+		const gradeFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-grade-pixels.flag`));
+		if (gradeFlag.ok || gradeFlag.status === 0) gradePixels = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (gradePixels) {
+		log("phase: grade-pixels");
+		await clearAutotestFlags({
+			names: ["autotest-grade-pixels.flag", "autotest.flag"],
+		});
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runGradePixels({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
+
+	let nvidiaDirector = window.location.hash.includes("nvidia-director");
+	try {
+		const nvidiaFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-nvidia-director.flag`));
+		if (nvidiaFlag.ok || nvidiaFlag.status === 0) nvidiaDirector = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (nvidiaDirector) {
+		log("phase: nvidia-director");
+		await clearAutotestFlags({
+			names: ["autotest-nvidia-director.flag", "autotest.flag"],
+		});
+		await runNvidiaDirector({ root });
+		return;
+	}
+
+	let directorExport = window.location.hash.includes("director-export");
+	try {
+		const directorExportFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-director-export.flag`));
+		if (directorExportFlag.ok || directorExportFlag.status === 0) directorExport = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (directorExport) {
+		log("phase: director-export");
+		await clearAutotestFlags({
+			names: ["autotest-director-export.flag", "autotest.flag"],
+		});
+		await runDirectorExport({ editor, root });
+		return;
+	}
+
+	let overlayPixels = window.location.hash.includes("overlay-pixels");
+	try {
+		const overlayFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-overlay-pixels.flag`));
+		if (overlayFlag.ok || overlayFlag.status === 0) overlayPixels = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (overlayPixels) {
+		log("phase: overlay-pixels");
+		await clearAutotestFlags({
+			names: ["autotest-overlay-pixels.flag", "autotest.flag"],
+		});
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runOverlayPixels({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
+
+	let custodyMedia = window.location.hash.includes("custody-media");
+	try {
+		const custodyFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-custody-media.flag`));
+		if (custodyFlag.ok || custodyFlag.status === 0) custodyMedia = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (custodyMedia) {
+		log("phase: custody-media");
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runCustodyMedia({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
+
+	let exportHonesty = window.location.hash.includes("export-honesty");
+	try {
+		const honestyFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-export-honesty.flag`));
+		if (honestyFlag.ok || honestyFlag.status === 0) exportHonesty = true;
+	} catch {
+		// No flag — the playback phases run.
+	}
+	if (exportHonesty) {
+		log("phase: export-honesty");
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runExportHonesty({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
 
 	// Opt-in device-profile mode: a runner-planted `<root>/autotest-fallback.flag`
 	// deletes WebCodecs AudioDecoder so the WebAudio remux fallback (the path

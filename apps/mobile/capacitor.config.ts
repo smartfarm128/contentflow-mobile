@@ -10,19 +10,18 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * produced by `bun run build` (Vite) from `src/`; nothing in this config
  * points at a dev server or a remote URL.
  *
- * `server.hostname` matches plan M3 item 3's literal wording — "Android
- * System WebView via WebViewAssetLoader over
- * https://appassets.androidplatform.net so we get a proper secure-context
- * origin, not file://". Capacitor's own Android bridge already serves local
- * assets through androidx's WebViewAssetLoader by default (over
- * https://localhost, also a secure context, also not file://); this just
- * makes the hostname match the plan's cited value exactly rather than rely
- * on Capacitor's default being "close enough."
+ * Do not set `server.hostname`. Capacitor applies that one field to every
+ * platform. Setting it to the Android asset host made iOS `convertFileSrc`
+ * emit `capacitor://appassets.androidplatform.net/_capacitor_file_/...`,
+ * and WKWebView fetch of a Director export at that URL threw
+ * `TypeError: Load failed` (director-export, 2026-10-13). iOS stays on
+ * Capacitor's default `capacitor://localhost`. Android stays on
+ * `https://localhost` via `androidScheme`, which is a secure context and
+ * not `file://` (plan M3 item 3).
  *
- * iOS needs no equivalent override: Capacitor's WKWebView integration
- * already satisfies Apple 2.5.6 (WKWebView, not the deprecated UIWebView) and
- * already avoids file:// by construction — there is no bundled iOS analogue
- * to appassets.androidplatform.net to opt into.
+ * iOS needs no hostname override: Capacitor's WKWebView integration
+ * already satisfies Apple 2.5.6 (WKWebView, not the deprecated UIWebView)
+ * and already avoids file:// by construction.
  */
 const config: CapacitorConfig = {
 	appId: "com.contentflow.app",
@@ -39,7 +38,6 @@ const config: CapacitorConfig = {
 		scrollEnabled: false,
 	},
 	server: {
-		hostname: "appassets.androidplatform.net",
 		androidScheme: "https",
 		// No `url` field: that is exactly the "remote loading" plan M3 item 2
 		// forbids. If this ever gets set to a remote URL, the app would be

@@ -1,4 +1,4 @@
-import { Copy, RotateCcw, Scissors, ScissorsLineDashed, Trash2 } from "lucide-react";
+import { Copy, Scissors, ScissorsLineDashed, Trash2 } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
@@ -120,12 +120,9 @@ export function EditPanel({
 						active={reversed}
 						onToggle={onToggleReverse}
 					/>
-					{reversed && (
-						<p className="cc-panel-note">
-							<RotateCcw size={12} strokeWidth={CC_ICON_STROKE} aria-hidden="true" /> Reverse state is saved with the
-							clip, but preview/export playback direction isn&apos;t implemented yet — see the M8 handoff.
-						</p>
-					)}
+					<p className="cc-panel-note">
+						Saved with the clip. Preview and export still play it forward.
+					</p>
 				</>
 			)}
 		</PanelSheet>

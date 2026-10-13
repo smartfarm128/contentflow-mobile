@@ -13,20 +13,58 @@
  * both; response parsing adapts to each provider's envelope.
  */
 import { useAIDirectorStore } from "./ai-store";
+import {
+	NVIDIA_FAST_MODEL,
+	modelForRequest,
+	providerLabel,
+	type AIProvider,
+} from "./director-models";
+import { transportFailureKind } from "@kneecap/native-bridge";
+import {
+	fetchNvidia,
+	NVIDIA_API_BASE,
+	NvidiaNetworkError,
+	NvidiaTimeoutError,
+	nvidiaTimeouts,
+} from "./nvidia-api";
 import { AI_TOOLS } from "./ai-tools";
 import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
 import { CREATIVE_DIRECTION } from "./creative-direction";
 import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
-import { getActiveAnthropicKey, getActiveAnselabsKey, useVaultStore } from "../vault/vault-store";
+import {
+	getActiveAnthropicKey,
+	getActiveAnselabsKey,
+	getActiveNvidiaKey,
+	useVaultStore,
+} from "../vault/vault-store";
 import { runApprovedPlan, buildPlanReviewPrompt } from "./plan-runner";
 
 export type ExecutionContext = ToolContext;
 
-/** Provider routing. "anthropic" → Anthropic Messages API; "anselabs" →
- *  OpenAI-compatible endpoint (e.g. api.ananselabs.org). */
-export type AIProvider = "anthropic" | "anselabs";
+/** Provider routing. "anthropic" → Anthropic Messages API. "anselabs" and
+ *  "nvidia" → OpenAI-compatible chat completions. NVIDIA tool calls use
+ *  `tools` plus `tool_choice: "auto"` (NIM requires both). */
+export type { AIProvider } from "./director-models";
 
 const ANSELABS_BASE = "https://api.ananselabs.org/v1";
+
+interface OpenAIRoute {
+	base: string;
+	toolChoice: boolean;
+}
+
+function openAIRoute(provider: AIProvider): OpenAIRoute | null {
+	if (provider === "anselabs") return { base: ANSELABS_BASE, toolChoice: false };
+	if (provider === "nvidia") return { base: NVIDIA_API_BASE, toolChoice: true };
+	return null;
+}
+
+function openAITools(): Array<Record<string, unknown>> {
+	return AI_TOOLS.map((tool) => ({
+		type: "function",
+		function: { name: tool.name, description: tool.description, parameters: tool.input_schema },
+	}));
+}
 
 /** Hard stop so a confused model can't loop forever on the user's phone. */
 const MAX_TURNS = 12;
@@ -36,13 +74,15 @@ const MAX_TOKENS = 8192;
 
 /** The selected provider's key. Keys live only in the encrypted Key Vault. */
 export function directorKey(provider: AIProvider): string {
-	return provider === "anselabs" ? getActiveAnselabsKey() : getActiveAnthropicKey();
+	if (provider === "anselabs") return getActiveAnselabsKey();
+	if (provider === "nvidia") return getActiveNvidiaKey();
+	return getActiveAnthropicKey();
 }
 
 /** Why the Director can't run, phrased for the creator — or null if it can. */
 function missingKeyMessage(provider: AIProvider): string | null {
 	if (directorKey(provider)) return null;
-	const name = provider === "anselabs" ? "Anselabs" : "Anthropic";
+	const name = providerLabel(provider);
 	const vault = useVaultStore.getState();
 	if (vault.isConfigured && !vault.isUnlocked) {
 		return `The Key Vault is locked. Tap the lock icon and enter your PIN so the Director can use your ${name} key.`;
@@ -154,6 +194,63 @@ export async function executeApprovedPlan(context: ExecutionContext): Promise<st
 /*  Agent loop                                                          */
 /* ------------------------------------------------------------------ */
 
+function isNvidiaServerError(status: number): boolean {
+	return status >= 500 && status <= 599;
+}
+
+function waitForNvidiaRetry(): Promise<void> {
+	const ms = nvidiaTimeouts.retryBackoffMs;
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
+
+/** One NVIDIA Director turn. A 5xx is retried once after a short pause.
+ *  If that retry is also a 5xx, the rest of the run uses gpt-oss-20b. */
+async function postNvidiaDirectorTurn({
+	model,
+	apiKey,
+	history,
+}: {
+	model: string;
+	apiKey: string;
+	history: ApiMessage[];
+}): Promise<{ response: Response; model: string; notice: string | null }> {
+	const send = (modelId: string) =>
+		fetchNvidia({
+			path: "/chat/completions",
+			init: {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+				},
+				body: JSON.stringify({
+					model: modelId,
+					max_tokens: MAX_TOKENS,
+					messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
+					tools: openAITools(),
+					tool_choice: "auto",
+				}),
+			},
+			timeoutMs: nvidiaTimeouts.requestMs,
+		});
+
+	let response = await send(model);
+	if (!isNvidiaServerError(response.status)) return { response, model, notice: null };
+
+	const firstStatus = response.status;
+	await waitForNvidiaRetry();
+	response = await send(model);
+	if (!isNvidiaServerError(response.status)) return { response, model, notice: null };
+	if (model === NVIDIA_FAST_MODEL) return { response, model, notice: null };
+
+	const notice = `NVIDIA returned ${firstStatus} from ${model}, then ${response.status} after a retry. Switching this run to ${NVIDIA_FAST_MODEL}.`;
+	response = await send(NVIDIA_FAST_MODEL);
+	return { response, model: NVIDIA_FAST_MODEL, notice };
+}
+
 async function driveAgentLoop({
 	history,
 	context,
@@ -166,47 +263,82 @@ async function driveAgentLoop({
 
 	let finalText = "";
 
+	// One key for the whole run. Reading the vault again on each turn dropped
+	// the key to "" once the old 60s lock fired mid-loop, so later turns went
+	// out unauthenticated. Backgrounding or the idle lock can still clear the
+	// vault while this function is awaiting the network; this snapshot is what
+	// those later turns send.
+	const provider: AIProvider = store.selectedProvider || "anthropic";
+	let requestModel = modelForRequest({ provider, model: store.selectedModel });
+	const apiKey = directorKey(provider);
+	const openAI = openAIRoute(provider);
+
 	try {
 		for (let turn = 0; turn < MAX_TURNS; turn++) {
-			const provider: AIProvider = store.selectedProvider || "anthropic";
-			const res = provider === "anthropic"
-				? await fetch("https://api.anthropic.com/v1/messages", {
+			const openAIBody = JSON.stringify({
+				model: requestModel,
+				max_tokens: MAX_TOKENS,
+				messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
+				tools: openAITools(),
+				...(openAI?.toolChoice ? { tool_choice: "auto" } : {}),
+			});
+			const openAIInit: RequestInit = {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+				},
+				body: openAIBody,
+			};
+			// NVIDIA has no CORS headers for capacitor://localhost, so that
+			// branch uses native HTTP. Anselabs and Anthropic send
+			// Access-Control-Allow-Origin: * (probed 2026-10-13), including
+			// Anthropic's browser-access header below. A 5xx from NVIDIA is
+			// retried once, then this run switches to the fast model.
+			let res: Response;
+			if (provider === "nvidia") {
+				const nvidiaTurn = await postNvidiaDirectorTurn({
+					model: requestModel,
+					apiKey,
+					history,
+				});
+				if (nvidiaTurn.notice) {
+					store.addMessage({ role: "assistant", content: nvidiaTurn.notice, local: true });
+				}
+				requestModel = nvidiaTurn.model;
+				res = nvidiaTurn.response;
+			} else if (openAI) {
+				res = await fetch(`${openAI.base}/chat/completions`, openAIInit);
+			} else {
+				res = await fetch("https://api.anthropic.com/v1/messages", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
-						"x-api-key": directorKey("anthropic"),
+						"x-api-key": apiKey,
 						"anthropic-version": "2023-06-01",
 						"anthropic-dangerous-direct-browser-access": "true",
 					},
 					body: JSON.stringify({
-						model: store.selectedModel || "claude-sonnet-5-5",
+						model: requestModel,
 						max_tokens: MAX_TOKENS,
 						system: buildSystemPrompt(),
 						tools: AI_TOOLS,
 						messages: history,
 					}),
-				})
-				: await fetch(`${ANSELABS_BASE}/chat/completions`, {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"Authorization": `Bearer ${directorKey("anselabs")}`,
-					},
-					body: JSON.stringify({
-						model: store.selectedModel || "hst-coding-beta",
-						max_tokens: MAX_TOKENS,
-						messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
-						tools: AI_TOOLS.map((t) => ({
-							type: "function",
-							function: { name: t.name, description: t.description, parameters: t.input_schema },
-						})),
-					}),
 				});
+			}
 
 			if (!res.ok) {
 				const body = await res.text();
+				if (res.status === 401 || res.status === 403) {
+					throw new DirectorAuthError({
+						provider,
+						status: res.status,
+						detail: body.slice(0, 180),
+					});
+				}
 				throw new Error(
-					`${provider === "anthropic" ? "Anthropic" : "Anselabs"} API ${res.status}: ${body.slice(0, 200)}`,
+					`${providerLabel(provider)} API ${res.status}: ${body.slice(0, 200)}`,
 				);
 			}
 
@@ -297,11 +429,56 @@ async function driveAgentLoop({
 		return finalText || "Done.";
 	} catch (error) {
 		console.error("[AIDirector]", error);
-		const msg = `Couldn't reach the AI Director: ${error instanceof Error ? error.message : String(error)}. Check your connection and API key, then try again.`;
+		const msg = directorFailureMessage({ error, provider });
 		store.addMessage({ role: "assistant", content: msg, local: true });
 		store.setIsStreaming(false);
 		return msg;
 	}
+}
+
+class DirectorAuthError extends Error {
+	constructor({
+		provider,
+		status,
+		detail,
+	}: {
+		provider: AIProvider;
+		status: number;
+		detail: string;
+	}) {
+		const extra = detail.trim();
+		super(
+			extra
+				? `${providerLabel(provider)} rejected this API key (${status}). ${extra}`
+				: `${providerLabel(provider)} rejected this API key (${status}).`,
+		);
+		this.name = "DirectorAuthError";
+	}
+}
+
+function directorFailureMessage({
+	error,
+	provider,
+}: {
+	error: unknown;
+	provider: AIProvider;
+}): string {
+	if (
+		error instanceof NvidiaTimeoutError ||
+		error instanceof NvidiaNetworkError ||
+		error instanceof DirectorAuthError
+	) {
+		return error.message;
+	}
+	const detail = error instanceof Error ? error.message : String(error);
+	const kind = transportFailureKind(error);
+	if (kind === "network") {
+		return `${providerLabel(provider)} never answered (network or CORS). This is not a rejected key and not a timeout. ${detail}`;
+	}
+	if (kind === "timeout") {
+		return `${providerLabel(provider)} timed out. ${detail}`;
+	}
+	return `Couldn't reach the AI Director: ${detail}. Check your connection and API key, then try again.`;
 }
 
 /* ------------------------------------------------------------------ */

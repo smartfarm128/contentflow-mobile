@@ -29,8 +29,14 @@ export type Platform = "ios" | "android" | "web";
 export interface ExportOverlayFrame {
 	startTicks: number;
 	endTicks: number;
-	/** Base64 PNG (no `data:` prefix) at the export resolution. */
+	/**
+	 * Base64 PNG (no `data:` prefix) at the export resolution.
+	 * Empty when `pngPath` is set — the bytes were written to the sandbox
+	 * one frame at a time so a long timeline does not ride in this payload.
+	 */
 	pngBase64: string;
+	/** Raw sandbox path from `writeOverlayPng`. Native reads the file. */
+	pngPath?: string;
 }
 
 export type MediaKind = "video" | "audio" | "image";
@@ -76,6 +82,18 @@ export interface PickMediaOptions {
 	onProgress?: (progress: PickProgress) => void;
 }
 
+/** A remote file to copy into media custody. GET for a stock URL;
+ *  POST (headers + JSON body) for ElevenLabs. `file://` copies a file
+ *  the app can already read — the device harness uses that for fixtures. */
+export interface ImportRemoteMediaRequest {
+	url: string;
+	kind: MediaKind;
+	fileName: string;
+	method?: "GET" | "POST";
+	headers?: Record<string, string>;
+	body?: string;
+}
+
 /**
  * What native custody hands back after an import. `uri` is a native handle
  * (an app-sandbox path or a persisted `content://`/`ph://`-style URI) — NEVER
@@ -105,7 +123,7 @@ export interface ProxySpec {
 	shortGop: boolean;
 }
 
-export type ProxyStage = "queued" | "transcoding" | "done" | "error";
+export type ProxyStage = "queued" | "transcoding" | "thumbnails" | "done" | "error";
 
 export interface ProxyProgress {
 	assetId: string;
@@ -373,9 +391,39 @@ export interface NativeBridge {
 		 *  the native exporter composites these instead of re-rasterizing
 		 *  text and captions itself — one implementation, so preview and
 		 *  export cannot drift. Omitted (older callers, the standalone
-		 *  verify harness) → the native CoreText path still applies. */
+		 *  verify harness) → the native CoreText path still applies.
+		 *  Frames may name a sandbox `pngPath` instead of inline bytes. */
 		overlayFrames?: ExportOverlayFrame[];
 	}): AsyncGenerator<ExportProgress>;
+	/**
+	 * Writes one overlay PNG into the sandbox and returns its raw path.
+	 * The export rasterizer calls this per finished frame so a 30s+ timeline
+	 * never ships every PNG in a single `exportProject` payload. Web
+	 * fallback rejects with UNSUPPORTED — there is no sandbox there.
+	 */
+	writeOverlayPng(params: { pngBase64: string }): Promise<{ path: string }>;
+	/** Deletes overlay PNGs written by `writeOverlayPng`. Call after the
+	 *  exporter has finished reading them. */
+	clearOverlayPngs(): Promise<void>;
+	/**
+	 * Deletes one planted autotest flag (`autotest.flag`,
+	 * `autotest-overlay-pixels.flag`, …) from the media root. The name is
+	 * a basename, never a path. A missing file resolves. Web fallback
+	 * resolves without touching the filesystem.
+	 */
+	removeAutotestFlag(params: { name: string }): Promise<void>;
+	/**
+	 * One JPEG of the video at `path` and `timeSeconds`, long edge at most
+	 * `maxEdge` (default 768). iOS uses `AVAssetImageGenerator` with the
+	 * track transform applied. Android uses `MediaMetadataRetriever`.
+	 * Web fallback rejects with UNSUPPORTED. `path` may be a raw sandbox
+	 * path or a `file://` / Capacitor playback URL.
+	 */
+	grabVideoFrame(params: {
+		path: string;
+		timeSeconds: number;
+		maxEdge?: number;
+	}): Promise<{ jpegBase64: string; width: number; height: number }>;
 	transcribe(params: {
 		handle: MediaHandle;
 		opts: TranscribeOptions;
@@ -398,5 +446,13 @@ export interface NativeBridge {
 	 * handle. Rejects with UNSUPPORTED where no offline voice exists.
 	 */
 	speak(opts: SpeakOptions): Promise<SpeechResult>;
+	/**
+	 * Download (or copy a `file://` URL) into the same media-custody
+	 * directory `pickMedia` uses, then probe it. Pexels B-roll and
+	 * ElevenLabs voiceovers go through this so the file, its real
+	 * duration, and `hasAudio` survive export and a project reopen.
+	 * `uri` on the result is a sandbox path, never a `blob:` URL.
+	 */
+	importRemoteMedia(request: ImportRemoteMediaRequest): Promise<MediaHandle>;
 	capabilities(): Promise<DeviceCapabilities>;
 }

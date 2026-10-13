@@ -1,5 +1,7 @@
 package dev.kneecap.app
 
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
@@ -177,6 +179,89 @@ class NativeBridgePlugin : Plugin() {
 				call.reject(error.message ?: "Speech synthesis failed", code)
 			},
 		)
+	}
+
+	/**
+	 * Pexels GET / ElevenLabs POST / a `file://` fixture. The file lands in
+	 * the same custody directory as a picked clip and comes back probed
+	 * (`durationMicros`, `hasAudio`), never as a blob URL.
+	 */
+	@PluginMethod
+	fun importRemoteMedia(call: PluginCall) {
+		val urlString = call.getString("url")
+		if (urlString.isNullOrBlank()) {
+			call.reject("importRemoteMedia requires a url", "IO_ERROR")
+			return
+		}
+		val kind = call.getString("kind") ?: "video"
+		val fileName = call.getString("fileName") ?: "media"
+		val method = (call.getString("method") ?: "GET").uppercase()
+		val body = call.getString("body")
+		if (method != "GET" && method != "POST") {
+			call.reject("importRemoteMedia method must be GET or POST", "IO_ERROR")
+			return
+		}
+		val uri = Uri.parse(urlString)
+		val scheme = uri.scheme?.lowercase()
+		if (scheme != "https" && scheme != "http" && scheme != "file") {
+			call.reject("importRemoteMedia only accepts https, http, or file URLs", "IO_ERROR")
+			return
+		}
+		val headers = linkedMapOf<String, String>()
+		val headerObj = call.getObject("headers")
+		if (headerObj != null) {
+			val keys = headerObj.keys()
+			while (keys.hasNext()) {
+				val key = keys.next()
+				val value = headerObj.optString(key, "")
+				if (value.isNotEmpty()) headers[key] = value
+			}
+		}
+		val mimeHint = when (kind) {
+			"audio" -> "audio/mpeg"
+			"image" -> "image/jpeg"
+			else -> "video/mp4"
+		}
+		Thread {
+			var imported: MediaImporter.ImportedFile? = null
+			try {
+				val file = if (scheme == "file") {
+					val path = uri.path
+					if (path.isNullOrBlank()) throw IllegalStateException("file URL has no path")
+					MediaImporter.copyLocalFile(context, File(path), fileName, mimeHint)
+				} else {
+					MediaImporter.downloadInto(
+						context,
+						urlString,
+						method,
+						headers,
+						body,
+						fileName,
+						mimeHint,
+					)
+				}
+				imported = file
+				val probed = try {
+					MediaProbe.probe(file.file, file.mimeType)
+				} catch (error: Exception) {
+					if (kind != "image") throw error
+					MediaProbe.ProbedMedia(
+						kind = "image",
+						durationMicros = 0L,
+						width = 0,
+						height = 0,
+						rotationDegrees = 0,
+						hasAudio = false,
+						codec = "image",
+						frameRate = null,
+					)
+				}
+				call.resolve(mediaHandleToJson(file, probed))
+			} catch (error: Exception) {
+				imported?.file?.let { MediaImporter.delete(it) }
+				call.reject(error.message ?: "import failed", "IO_ERROR")
+			}
+		}.start()
 	}
 
 	@PluginMethod
@@ -548,10 +633,26 @@ class NativeBridgePlugin : Plugin() {
 		call.getArray("overlayFrames")?.let { array ->
 			for (index in 0 until array.length()) {
 				val entry = array.optJSONObject(index) ?: continue
+				val pngPath = entry.optString("pngPath", "")
 				val base64 = entry.optString("pngBase64", "")
 				val startTicks = entry.optLong("startTicks", -1)
 				val endTicks = entry.optLong("endTicks", -1)
-				if (base64.isEmpty() || endTicks <= startTicks) continue
+				if (endTicks <= startTicks) continue
+				val startUs = ticksToUs(startTicks, edl.meta.ticksPerSecond)
+				val endUs = ticksToUs(endTicks, edl.meta.ticksPerSecond)
+				// Path frames stay on disk. PrerenderedOverlay decodes the
+				// one file the compositor is sampling, not the whole timeline.
+				if (pngPath.isNotEmpty()) {
+					overlayFrames.add(
+						PrerenderedOverlay.Frame(
+							startUs = startUs,
+							endUs = endUs,
+							pngPath = pngPath,
+						),
+					)
+					continue
+				}
+				if (base64.isEmpty()) continue
 				val bytes = try {
 					android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
 				} catch (error: IllegalArgumentException) {
@@ -576,8 +677,8 @@ class NativeBridgePlugin : Plugin() {
 				}
 				overlayFrames.add(
 					PrerenderedOverlay.Frame(
-						startUs = ticksToUs(startTicks, edl.meta.ticksPerSecond),
-						endUs = ticksToUs(endTicks, edl.meta.ticksPerSecond),
+						startUs = startUs,
+						endUs = endUs,
 						bitmap = bitmap,
 					),
 				)
@@ -597,6 +698,141 @@ class NativeBridgePlugin : Plugin() {
 			overlayFrames = overlayFrames,
 		) { event ->
 			notifyListeners("exportProgress", exportEventToJson(exportId, event))
+		}
+	}
+
+	/** One overlay PNG into `noBackupFilesDir/overlay-frames`. The returned
+	 *  path is absolute. `exportProject` passes it through; `PrerenderedOverlay`
+	 *  decodes the file for the sample it is drawing. */
+	@PluginMethod
+	fun writeOverlayPng(call: PluginCall) {
+		val base64 = call.getString("pngBase64")
+		if (base64.isNullOrEmpty()) {
+			call.reject("writeOverlayPng requires pngBase64", "IO_ERROR")
+			return
+		}
+		val bytes = try {
+			android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+		} catch (error: IllegalArgumentException) {
+			call.reject("writeOverlayPng could not decode png", "IO_ERROR")
+			return
+		}
+		val dir = File(context.noBackupFilesDir, "overlay-frames")
+		if (!dir.exists() && !dir.mkdirs()) {
+			call.reject("writeOverlayPng could not create overlay directory", "IO_ERROR")
+			return
+		}
+		val file = File(dir, "${UUID.randomUUID()}.png")
+		try {
+			file.writeBytes(bytes)
+		} catch (error: java.io.IOException) {
+			call.reject(error.message ?: "writeOverlayPng failed", "IO_ERROR")
+			return
+		}
+		val ack = JSObject()
+		ack.put("path", file.absolutePath)
+		call.resolve(ack)
+	}
+
+	@PluginMethod
+	fun clearOverlayPngs(call: PluginCall) {
+		val dir = File(context.noBackupFilesDir, "overlay-frames")
+		if (dir.exists()) {
+			dir.listFiles()?.forEach { file -> file.delete() }
+		}
+		call.resolve()
+	}
+
+	/** Deletes one planted `<mediaRoot>/autotest*.flag`. Basename only, and
+	 *  only a direct child of the media root. A missing file is success. */
+	@PluginMethod
+	fun removeAutotestFlag(call: PluginCall) {
+		val name = call.getString("name")
+		if (name == null || !Regex("""^autotest[\w.-]*\.flag$""").matches(name)) {
+			call.reject("removeAutotestFlag requires an autotest flag basename", "IO_ERROR")
+			return
+		}
+		val root = context.noBackupFilesDir.canonicalFile
+		val target = File(root, name).canonicalFile
+		if (target.parentFile != root) {
+			call.reject("removeAutotestFlag refused a path outside the media root", "IO_ERROR")
+			return
+		}
+		if (target.exists() && !target.delete()) {
+			call.reject("removeAutotestFlag could not delete $name", "IO_ERROR")
+			return
+		}
+		call.resolve()
+	}
+
+	/** One JPEG of a sandbox video at `timeSeconds`. The webview composites
+	 *  it under the overlay raster. `path` may be raw, `file://`, or a
+	 *  Capacitor playback URL. */
+	@PluginMethod
+	fun grabVideoFrame(call: PluginCall) {
+		val raw = call.getString("path")
+		if (raw.isNullOrEmpty()) {
+			call.reject("grabVideoFrame requires path", "IO_ERROR")
+			return
+		}
+		val timeSeconds = call.getDouble("timeSeconds") ?: 0.0
+		val maxEdge = (call.getDouble("maxEdge") ?: 768.0).toInt().coerceIn(64, 1920)
+		val path = filesystemPath(raw)
+		Thread {
+			val retriever = MediaMetadataRetriever()
+			try {
+				retriever.setDataSource(path)
+				val frame = retriever.getFrameAtTime(
+					(timeSeconds.coerceAtLeast(0.0) * 1_000_000.0).toLong(),
+					MediaMetadataRetriever.OPTION_CLOSEST,
+				)
+				if (frame == null) {
+					call.reject("grabVideoFrame produced no frame", "IO_ERROR")
+					return@Thread
+				}
+				val longEdge = maxOf(frame.width, frame.height)
+				val scaled = if (longEdge <= maxEdge || longEdge == 0) {
+					frame
+				} else {
+					val scale = maxEdge.toFloat() / longEdge
+					Bitmap.createScaledBitmap(
+						frame,
+						(frame.width * scale).toInt().coerceAtLeast(1),
+						(frame.height * scale).toInt().coerceAtLeast(1),
+						true,
+					)
+				}
+				val width = scaled.width
+				val height = scaled.height
+				val bytes = java.io.ByteArrayOutputStream()
+				scaled.compress(Bitmap.CompressFormat.JPEG, 80, bytes)
+				if (scaled !== frame) frame.recycle()
+				scaled.recycle()
+				val result = JSObject()
+				result.put(
+					"jpegBase64",
+					android.util.Base64.encodeToString(bytes.toByteArray(), android.util.Base64.NO_WRAP),
+				)
+				result.put("width", width)
+				result.put("height", height)
+				call.resolve(result)
+			} catch (error: Exception) {
+				call.reject(error.message ?: "grabVideoFrame failed", "IO_ERROR")
+			} finally {
+				retriever.release()
+			}
+		}.start()
+	}
+
+	private fun filesystemPath(raw: String): String {
+		val marker = "/_capacitor_file_"
+		val index = raw.indexOf(marker)
+		val stripped = if (index >= 0) raw.substring(index + marker.length) else raw
+		val noScheme = if (stripped.startsWith("file://")) stripped.removePrefix("file://") else stripped
+		return try {
+			java.net.URLDecoder.decode(noScheme, "UTF-8")
+		} catch (error: Exception) {
+			noScheme
 		}
 	}
 

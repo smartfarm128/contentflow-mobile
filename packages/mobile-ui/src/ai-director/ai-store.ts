@@ -1,4 +1,40 @@
 import { create } from "zustand";
+import {
+	defaultModelFor,
+	modelForRequest,
+	parseDirectorProvider,
+	type AIProvider,
+} from "./director-models";
+
+const PROVIDER_KEY = "cf_director_provider";
+const MODEL_KEY = "cf_director_model";
+
+function readStorage(key: string): string | null {
+	try {
+		if (typeof localStorage === "undefined") return null;
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function writeStorage({ key, value }: { key: string; value: string }): void {
+	try {
+		if (typeof localStorage === "undefined") return;
+		localStorage.setItem(key, value);
+	} catch {
+		// Private mode and bun tests without storage still keep the in-memory pick.
+	}
+}
+
+function loadSelection(): { selectedProvider: AIProvider; selectedModel: string } {
+	const selectedProvider = parseDirectorProvider(readStorage(PROVIDER_KEY) ?? "");
+	const selectedModel = modelForRequest({
+		provider: selectedProvider,
+		model: readStorage(MODEL_KEY) ?? "",
+	});
+	return { selectedProvider, selectedModel };
+}
 
 export interface ChatMessage {
   id: string;
@@ -44,14 +80,14 @@ export interface PendingPlan {
 
 interface AIDirectorState {
   selectedModel: string;
-  selectedProvider: "anthropic" | "anselabs";
+  selectedProvider: AIProvider;
   messages: ChatMessage[];
   isStreaming: boolean;
   /** The plan awaiting the user's review, if any. Only ever one at a time —
    *  a second proposal replaces the first rather than stacking approvals. */
   pendingPlan: PendingPlan | null;
   setSelectedModel: (model: string) => void;
-  setSelectedProvider: (provider: "anthropic" | "anselabs") => void;
+  setSelectedProvider: (provider: AIProvider) => void;
   addMessage: (message: Omit<ChatMessage, "id" | "timestamp">) => void;
   setIsStreaming: (streaming: boolean) => void;
   setPendingPlan: (plan: PendingPlan | null) => void;
@@ -62,8 +98,7 @@ interface AIDirectorState {
 }
 
 export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
-  selectedModel: "claude-sonnet-5-5",
-  selectedProvider: "anthropic" as const,
+  ...loadSelection(),
   // Starts empty: every message in the feed is either the user's or the
   // model's. A scripted greeting would be sent to the API as something the
   // model "said".
@@ -71,9 +106,23 @@ export const useAIDirectorStore = create<AIDirectorState>()((set) => ({
   isStreaming: false,
   pendingPlan: null,
 
-  setSelectedModel: (selectedModel: string) => set({ selectedModel }),
+  setSelectedModel: (requested: string) =>
+    set((state) => {
+      const selectedModel = modelForRequest({
+        provider: state.selectedProvider,
+        model: requested,
+      });
+      if (selectedModel !== requested) return state;
+      writeStorage({ key: MODEL_KEY, value: selectedModel });
+      return { selectedModel };
+    }),
 
-  setSelectedProvider: (selectedProvider: "anthropic" | "anselabs") => set({ selectedProvider }),
+  setSelectedProvider: (selectedProvider: AIProvider) => {
+    const selectedModel = defaultModelFor(selectedProvider);
+    writeStorage({ key: PROVIDER_KEY, value: selectedProvider });
+    writeStorage({ key: MODEL_KEY, value: selectedModel });
+    set({ selectedProvider, selectedModel });
+  },
 
 
   addMessage: (msg) => {
