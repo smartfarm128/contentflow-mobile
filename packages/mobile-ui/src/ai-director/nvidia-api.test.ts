@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { NVIDIA_DEFAULT_MODEL } from "./director-models";
+import { NVIDIA_DEFAULT_MODEL, NVIDIA_FAST_MODEL } from "./director-models";
 import { NVIDIA_API_BASE, fetchNvidiaToolModels, validateNvidiaApiKey } from "./nvidia-api";
 
 const ORIGINAL_FETCH = globalThis.fetch;
@@ -29,7 +29,8 @@ describe("NVIDIA key check", () => {
 		const fetchMock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 			calls.push(String(input));
 			const body = typeof init?.body === "string" ? init.body : "";
-			expect(body).toContain(NVIDIA_DEFAULT_MODEL);
+			expect(body).toContain(NVIDIA_FAST_MODEL);
+			expect(body).not.toContain(NVIDIA_DEFAULT_MODEL);
 			expect(body).toContain('"max_tokens":1');
 			expect(body).not.toContain("tools");
 			expect(bearer(init)).toBe("Bearer nvapi-bad");
@@ -64,6 +65,20 @@ describe("NVIDIA key check", () => {
 		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
 		expect(await validateNvidiaApiKey({ apiKey: "nvapi-ok" })).toEqual({ ok: true });
 	});
+
+	test("a hung key check reports a timeout", async () => {
+		// eslint-disable-next-line opencut/prefer-object-params -- stand-in for global fetch, whose signature is positional.
+		const fetchMock = (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> =>
+			new Promise((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => {
+					reject(Object.assign(new Error("The operation was aborted"), { name: "AbortError" }));
+				});
+			});
+		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
+		const result = await validateNvidiaApiKey({ apiKey: "nvapi-slow", timeoutMs: 20 });
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.error).toContain("NVIDIA timed out after");
+	});
 });
 
 describe("NVIDIA model catalog", () => {
@@ -88,6 +103,7 @@ describe("NVIDIA model catalog", () => {
 		const models = await fetchNvidiaToolModels();
 		expect(models.map((model) => model.id)).toEqual([
 			NVIDIA_DEFAULT_MODEL,
+			NVIDIA_FAST_MODEL,
 			"nvidia/nemotron-3-super-120b-a12b",
 		]);
 	});

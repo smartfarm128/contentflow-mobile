@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { askAIDirector } from "./ai-agent";
 import { AI_TOOLS } from "./ai-tools";
 import { useAIDirectorStore } from "./ai-store";
-import { NVIDIA_API_BASE } from "./nvidia-api";
+import { NVIDIA_API_BASE, NVIDIA_REQUEST_TIMEOUT_MS, nvidiaTimeouts } from "./nvidia-api";
 import { NVIDIA_DEFAULT_MODEL, resetNvidiaCatalog } from "./director-models";
 import type { ToolContext } from "./ai-executors";
 import { resetVaultStorage } from "../vault/crypto-vault";
@@ -52,6 +52,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	globalThis.fetch = ORIGINAL_FETCH;
+	nvidiaTimeouts.requestMs = NVIDIA_REQUEST_TIMEOUT_MS;
 	disarmIdleTimer();
 	useVaultStore.getState().lock();
 });
@@ -115,5 +116,25 @@ describe("NVIDIA Director tool calling", () => {
 
 		useVaultStore.getState().lock();
 		expect(getActiveNvidiaKey()).toBe("");
+	});
+
+	it("turns a hung NVIDIA call into a timeout message and clears the thinking state", async () => {
+		await useVaultStore.getState().setupVault("2468", { nvidia: "nvapi-slow" });
+		disarmIdleTimer();
+		nvidiaTimeouts.requestMs = 20;
+		// eslint-disable-next-line opencut/prefer-object-params -- stand-in for global fetch, whose signature is positional.
+		const fetchMock = (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> =>
+			new Promise((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => {
+					reject(Object.assign(new Error("The operation was aborted"), { name: "AbortError" }));
+				});
+			});
+		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
+
+		const reply = await askAIDirector("Add a title", context);
+		expect(reply).toContain("NVIDIA timed out after");
+		expect(reply).not.toContain("Couldn't reach");
+		expect(useAIDirectorStore.getState().isStreaming).toBe(false);
+		nvidiaTimeouts.requestMs = NVIDIA_REQUEST_TIMEOUT_MS;
 	});
 });

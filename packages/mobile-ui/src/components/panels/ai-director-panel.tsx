@@ -3,6 +3,7 @@ import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { useAIDirectorStore } from "../../ai-director/ai-store";
 import {
+  NVIDIA_DEFAULT_MODEL,
   modelsForProvider,
   providerLabel,
   rememberNvidiaCatalog,
@@ -62,6 +63,12 @@ export function AIDirectorPanel({
       : selectedProvider === "anselabs"
         ? "Anselabs"
         : selectedModel;
+  const thinkingLabel =
+    selectedProvider === "nvidia" && selectedModel === NVIDIA_DEFAULT_MODEL
+      ? "NVIDIA is thinking. Nemotron Ultra can take a few minutes."
+      : selectedProvider === "nvidia"
+        ? "NVIDIA is thinking…"
+        : "Director is thinking and reviewing footage…";
   const hasProviderKey = Boolean(
     selectedProvider === "anselabs"
       ? vaultAnselabsKey
@@ -133,7 +140,7 @@ export function AIDirectorPanel({
         <div className="cc-director__status-bar">
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <Sparkles size={14} strokeWidth={CC_ICON_STROKE} />
-            <span>Director Mode · {statusModel}</span>
+            <span>{isStreaming ? `Thinking… ${statusModel}` : `Director Mode · ${statusModel}`}</span>
           </div>
           <button
             type="button"
@@ -275,14 +282,9 @@ export function AIDirectorPanel({
           />
 
           {isStreaming && (
-            <div
-              className="cc-director__bubble cc-director__bubble--ai"
-              style={{ display: "flex", alignItems: "center", gap: "8px" }}
-            >
-              <Sparkles size={13} className="animate-spin" style={{ color: "var(--cc-accent)" }} />
-              <span style={{ fontSize: "12px", color: "var(--cc-text-secondary)" }}>
-                Director is thinking & reviewing footage…
-              </span>
+            <div className="cc-director__thinking" role="status" aria-live="polite">
+              <span className="cc-director__thinking-dot" aria-hidden="true" />
+              <span>{thinkingLabel}</span>
             </div>
           )}
           <div ref={messagesEndRef} />

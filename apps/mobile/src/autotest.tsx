@@ -69,8 +69,9 @@
  *      `<mediaRoot>/autotest-nvidia-director.flag`): reads a one-line key
  *      from `<mediaRoot>/NVIDIA_API_KEY`. With no key the verdict is SKIP.
  *      With a key, the vault is unlocked in memory only (the encrypted file
- *      is not rewritten) and one Director turn is sent to NVIDIA. The phase
- *      flag is deleted first.
+ *      is not rewritten) and one Director turn is sent to NVIDIA. Nemotron
+ *      Ultra can use most of the 180s request timeout, so this phase waits
+ *      300s before its watchdog. The phase flag is deleted first.
  *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
@@ -1272,7 +1273,13 @@ const SAMPLE_MAX_EDGE = 640;
  * an unhandled rejection, or a watchdog. `close` stops further verdicts
  * so a later cleanup error cannot replace a line that already printed.
  */
-function installPhaseGuard({ phase }: { phase: string }): {
+function installPhaseGuard({
+	phase,
+	watchdogMs = 240_000,
+}: {
+	phase: string;
+	watchdogMs?: number;
+}): {
 	note: (detail: string) => void;
 	claim: () => boolean;
 	close: () => void;
@@ -1294,8 +1301,8 @@ function installPhaseGuard({ phase }: { phase: string }): {
 	window.addEventListener("error", onError);
 	window.addEventListener("unhandledrejection", onRejection);
 	const timer = window.setTimeout(() => {
-		note("watchdog: no verdict after 240s");
-	}, 240_000);
+		note(`watchdog: no verdict after ${Math.round(watchdogMs / 1000)}s`);
+	}, watchdogMs);
 	return {
 		note,
 		/** True when this caller should print the success verdict. A
@@ -2276,7 +2283,7 @@ async function readSandboxText({ root, name }: { root: string; name: string }): 
  * The key stays in the unlocked vault memory for this launch only.
  */
 async function runNvidiaDirector({ root }: { root: string }): Promise<void> {
-	const guard = installPhaseGuard({ phase: "nvidia-director" });
+	const guard = installPhaseGuard({ phase: "nvidia-director", watchdogMs: 300_000 });
 	let step = "read NVIDIA_API_KEY";
 	try {
 		const apiKey = (await readSandboxText({ root, name: "NVIDIA_API_KEY" })).split(/\s+/)[0] ?? "";
@@ -2302,6 +2309,7 @@ async function runNvidiaDirector({ root }: { root: string }): Promise<void> {
 		);
 		const failed =
 			reply.startsWith("Couldn't reach") ||
+			reply.startsWith("NVIDIA timed out") ||
 			reply.startsWith("No NVIDIA") ||
 			reply.startsWith("The Key Vault");
 		if (failed) throw new Error(reply);

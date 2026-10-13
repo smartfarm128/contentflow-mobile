@@ -14,7 +14,7 @@
  */
 import { useAIDirectorStore } from "./ai-store";
 import { modelForRequest, providerLabel, type AIProvider } from "./director-models";
-import { NVIDIA_API_BASE } from "./nvidia-api";
+import { fetchNvidia, NVIDIA_API_BASE, NvidiaTimeoutError, nvidiaTimeouts } from "./nvidia-api";
 import { AI_TOOLS } from "./ai-tools";
 import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
 import { CREATIVE_DIRECTION } from "./creative-direction";
@@ -206,21 +206,29 @@ async function driveAgentLoop({
 
 	try {
 		for (let turn = 0; turn < MAX_TURNS; turn++) {
-			const res = openAI
-				? await fetch(`${openAI.base}/chat/completions`, {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${apiKey}`,
-					},
-					body: JSON.stringify({
-						model,
-						max_tokens: MAX_TOKENS,
-						messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
-						tools: openAITools(),
-						...(openAI.toolChoice ? { tool_choice: "auto" } : {}),
-					}),
+			const openAIBody = JSON.stringify({
+				model,
+				max_tokens: MAX_TOKENS,
+				messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
+				tools: openAITools(),
+				...(openAI?.toolChoice ? { tool_choice: "auto" } : {}),
+			});
+			const openAIInit: RequestInit = {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+				},
+				body: openAIBody,
+			};
+			const res = provider === "nvidia"
+				? await fetchNvidia({
+					path: "/chat/completions",
+					init: openAIInit,
+					timeoutMs: nvidiaTimeouts.requestMs,
 				})
+				: openAI
+				? await fetch(`${openAI.base}/chat/completions`, openAIInit)
 				: await fetch("https://api.anthropic.com/v1/messages", {
 					method: "POST",
 					headers: {
@@ -332,7 +340,9 @@ async function driveAgentLoop({
 		return finalText || "Done.";
 	} catch (error) {
 		console.error("[AIDirector]", error);
-		const msg = `Couldn't reach the AI Director: ${error instanceof Error ? error.message : String(error)}. Check your connection and API key, then try again.`;
+		const msg = error instanceof NvidiaTimeoutError
+			? error.message
+			: `Couldn't reach the AI Director: ${error instanceof Error ? error.message : String(error)}. Check your connection and API key, then try again.`;
 		store.addMessage({ role: "assistant", content: msg, local: true });
 		store.setIsStreaming(false);
 		return msg;

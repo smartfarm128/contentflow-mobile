@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
 	NVIDIA_DEFAULT_MODEL,
+	NVIDIA_FAST_MODEL,
 	defaultModelFor,
 	modelForRequest,
 	modelsForProvider,
@@ -44,7 +45,12 @@ describe("director model coupling", () => {
 		expect(modelsForProvider("anselabs").map((model) => model.id)).toEqual([
 			"hst-coding-beta",
 		]);
-		expect(modelsForProvider("nvidia")[0]?.id).toBe(NVIDIA_DEFAULT_MODEL);
+		expect(modelsForProvider("nvidia").map((model) => model.id).slice(0, 2)).toEqual([
+			NVIDIA_DEFAULT_MODEL,
+			NVIDIA_FAST_MODEL,
+		]);
+		expect(modelsForProvider("nvidia")[0]?.label).toContain("Best");
+		expect(modelsForProvider("nvidia")[1]?.label).toContain("Fast");
 		expect(modelsForProvider("anthropic").some((model) => model.id === "hst-coding-beta")).toBe(
 			false,
 		);
@@ -108,9 +114,11 @@ describe("director model coupling", () => {
 		]);
 		expect(models.map((model) => model.id)).toEqual([
 			NVIDIA_DEFAULT_MODEL,
+			NVIDIA_FAST_MODEL,
 			"meta/llama-3.2-90b-vision-instruct",
 			"mistralai/mistral-large-2-instruct",
 		]);
-		expect(models[0]?.label).toContain("Recommended");
+		expect(models[0]?.label).toContain("Best");
+		expect(models[1]?.label).toContain("Fast");
 	});
 });

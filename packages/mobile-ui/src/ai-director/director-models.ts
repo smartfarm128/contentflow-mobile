@@ -6,17 +6,26 @@ export interface DirectorModel {
 }
 
 /**
- * Live on integrate.api.nvidia.com as of 2026-10-13, and marked tool-calling
- * in NVIDIA's NIM model table. The previous Nemotron Super 49B default
- * answers 410 (retired 2026-08-26).
+ * Best tool-calling model on the live catalog. A real-key probe returned an
+ * OpenAI-style `split_clip` call from this id. kimi, glm, and deepseek did
+ * not. It is slow, so Director requests wait several minutes.
  */
-export const NVIDIA_DEFAULT_MODEL = "openai/gpt-oss-20b";
+export const NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
+
+/** Smaller tool-calling model kept in the menu when Ultra is too slow. */
+export const NVIDIA_FAST_MODEL = "openai/gpt-oss-20b";
+
+export function nvidiaModelLabel(id: string): string {
+	if (id === NVIDIA_DEFAULT_MODEL) return `${id} (Best)`;
+	if (id === NVIDIA_FAST_MODEL) return `${id} (Fast)`;
+	return id;
+}
 
 /** Used before /v1/models returns, and when that list has no tool-calling chat model. */
 export const NVIDIA_FALLBACK_MODELS: readonly DirectorModel[] = [
-	{ id: NVIDIA_DEFAULT_MODEL, label: `${NVIDIA_DEFAULT_MODEL} (Recommended)` },
+	{ id: NVIDIA_DEFAULT_MODEL, label: nvidiaModelLabel(NVIDIA_DEFAULT_MODEL) },
+	{ id: NVIDIA_FAST_MODEL, label: nvidiaModelLabel(NVIDIA_FAST_MODEL) },
 	{ id: "nvidia/nemotron-3-super-120b-a12b", label: "nvidia/nemotron-3-super-120b-a12b" },
-	{ id: "nvidia/llama-3.1-nemotron-70b-instruct", label: "nvidia/llama-3.1-nemotron-70b-instruct" },
 ];
 
 const STATIC_MODELS: Record<Exclude<AIProvider, "nvidia">, readonly DirectorModel[]> = {
@@ -93,16 +102,19 @@ export function nvidiaModelSupportsTools(id: string): boolean {
 	return false;
 }
 
+function nvidiaModelRank(id: string): number {
+	if (id === NVIDIA_DEFAULT_MODEL) return 0;
+	if (id === NVIDIA_FAST_MODEL) return 1;
+	return 2;
+}
+
 export function nvidiaModelsFromCatalog(ids: readonly string[]): readonly DirectorModel[] {
 	const unique = [...new Set(ids.filter(nvidiaModelSupportsTools))];
+	if (!unique.includes(NVIDIA_DEFAULT_MODEL)) unique.push(NVIDIA_DEFAULT_MODEL);
+	if (!unique.includes(NVIDIA_FAST_MODEL)) unique.push(NVIDIA_FAST_MODEL);
 	unique.sort((left, right) => {
-		if (left === NVIDIA_DEFAULT_MODEL) return -1;
-		if (right === NVIDIA_DEFAULT_MODEL) return 1;
-		return left.localeCompare(right);
+		const byRank = nvidiaModelRank(left) - nvidiaModelRank(right);
+		return byRank !== 0 ? byRank : left.localeCompare(right);
 	});
-	const chosen = unique.length > 0 ? unique : NVIDIA_FALLBACK_MODELS.map((model) => model.id);
-	return chosen.map((id) => ({
-		id,
-		label: id === NVIDIA_DEFAULT_MODEL ? `${id} (Recommended)` : id,
-	}));
+	return unique.map((id) => ({ id, label: nvidiaModelLabel(id) }));
 }

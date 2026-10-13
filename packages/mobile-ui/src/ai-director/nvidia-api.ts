@@ -1,5 +1,5 @@
 import {
-	NVIDIA_DEFAULT_MODEL,
+	NVIDIA_FAST_MODEL,
 	nvidiaModelsFromCatalog,
 	type DirectorModel,
 } from "./director-models";
@@ -7,6 +7,53 @@ import {
 /** OpenAI-compatible NVIDIA NIM. GET /v1/models is public; a key is checked
  *  with POST /v1/chat/completions, which returns 401 or 403 for a bad key. */
 export const NVIDIA_API_BASE = "https://integrate.api.nvidia.com/v1";
+
+/** Nemotron Ultra often takes longer than a minute. Each Director turn waits this long. */
+export const NVIDIA_REQUEST_TIMEOUT_MS = 180_000;
+
+/** The save-time key check uses the fast model, so it does not wait on Ultra. */
+export const NVIDIA_KEY_CHECK_TIMEOUT_MS = 45_000;
+
+/** Tests lower `requestMs` so a hung fetch fails immediately. Production stays at 3 minutes. */
+export const nvidiaTimeouts = {
+	requestMs: NVIDIA_REQUEST_TIMEOUT_MS,
+	keyCheckMs: NVIDIA_KEY_CHECK_TIMEOUT_MS,
+};
+
+export class NvidiaTimeoutError extends Error {
+	readonly timeoutMs: number;
+
+	constructor({ timeoutMs }: { timeoutMs: number }) {
+		const seconds = Math.max(1, Math.round(timeoutMs / 1000));
+		const waited = seconds === 1 ? "1 second" : `${seconds} seconds`;
+		super(
+			`NVIDIA timed out after ${waited}. Nemotron Ultra is slow. Try again, or switch to gpt-oss-20b (Fast) in Settings.`,
+		);
+		this.name = "NvidiaTimeoutError";
+		this.timeoutMs = timeoutMs;
+	}
+}
+
+export async function fetchNvidia({
+	path,
+	init,
+	timeoutMs,
+}: {
+	path: string;
+	init: RequestInit;
+	timeoutMs: number;
+}): Promise<Response> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		return await fetch(`${NVIDIA_API_BASE}${path}`, { ...init, signal: controller.signal });
+	} catch (error) {
+		if (controller.signal.aborted) throw new NvidiaTimeoutError({ timeoutMs });
+		throw error;
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,24 +85,33 @@ async function readErrorDetail(response: Response): Promise<string> {
  */
 export async function validateNvidiaApiKey({
 	apiKey,
+	timeoutMs = nvidiaTimeouts.keyCheckMs,
 }: {
 	apiKey: string;
+	timeoutMs?: number;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
 	let response: Response;
 	try {
-		response = await fetch(`${NVIDIA_API_BASE}/chat/completions`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${apiKey}`,
+		response = await fetchNvidia({
+			path: "/chat/completions",
+			timeoutMs,
+			init: {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+				},
+				body: JSON.stringify({
+					model: NVIDIA_FAST_MODEL,
+					messages: [{ role: "user", content: "ping" }],
+					max_tokens: 1,
+				}),
 			},
-			body: JSON.stringify({
-				model: NVIDIA_DEFAULT_MODEL,
-				messages: [{ role: "user", content: "ping" }],
-				max_tokens: 1,
-			}),
 		});
-	} catch {
+	} catch (error) {
+		if (error instanceof NvidiaTimeoutError) {
+			return { ok: false, error: error.message };
+		}
 		return { ok: false, error: "Could not reach NVIDIA to check this key." };
 	}
 
