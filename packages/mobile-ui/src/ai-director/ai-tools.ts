@@ -414,6 +414,88 @@ export const AI_TOOLS: ClaudeTool[] = [
 		},
 	},
 	{
+		name: "trim_clip",
+		description:
+			"Trim a clip's start or end to a timeline time in seconds. boundary_seconds is the new edge, not a delta. " +
+			"Use when the user asks to shorten, cut the head, or cut the tail of a clip.",
+		input_schema: {
+			type: "object",
+			properties: {
+				clip_id: { type: "string", description: "Clip to trim. Get ids from get_timeline." },
+				edge: { type: "string", enum: ["start", "end"], description: "Which edge to move." },
+				boundary_seconds: { type: "number", description: "New edge time on the timeline, in seconds." },
+			},
+			required: ["clip_id", "edge", "boundary_seconds"],
+		},
+	},
+	{
+		name: "move_clip",
+		description:
+			"Move a clip so it starts at start_seconds. Main-track clips stay butted, so a move there reorders them. " +
+			"Overlay clips slide on their own track. Optional track_id moves the clip onto another existing track.",
+		input_schema: {
+			type: "object",
+			properties: {
+				clip_id: { type: "string" },
+				start_seconds: { type: "number", description: "New start time in seconds." },
+				track_id: { type: "string", description: "Destination track id from get_timeline. Omit to stay on the same track." },
+			},
+			required: ["clip_id", "start_seconds"],
+		},
+	},
+	{
+		name: "set_transition",
+		description:
+			"Set the transition after a main-track clip. kind is none, fade, slide, or zoom. " +
+			"Fade, slide, and zoom all play as a cross-fade in preview and export. none removes it. " +
+			"apply_to_all writes the same transition after every main clip except the last.",
+		input_schema: {
+			type: "object",
+			properties: {
+				after_clip_id: { type: "string", description: "The main-track clip the transition follows." },
+				kind: { type: "string", enum: ["none", "fade", "slide", "zoom"] },
+				duration_seconds: { type: "number", description: "Overlap length in seconds. Ignored for none. Default 0.4." },
+				apply_to_all: { type: "boolean", description: "Apply to every main-track cut. Default false." },
+			},
+			required: ["after_clip_id", "kind"],
+		},
+	},
+	{
+		name: "transform_clip",
+		description:
+			"Move, scale, or rotate a clip. position_x and position_y are canvas pixels from center. " +
+			"scale is a multiplier (1 = original) applied to both axes. rotation is degrees. " +
+			"Omit any field you are not changing.",
+		input_schema: {
+			type: "object",
+			properties: {
+				clip_id: { type: "string" },
+				position_x: { type: "number" },
+				position_y: { type: "number" },
+				scale: { type: "number" },
+				rotation: { type: "number", description: "Degrees clockwise." },
+			},
+			required: ["clip_id"],
+		},
+	},
+	{
+		name: "export_video",
+		description:
+			"Export the current project with the same native encoder as the Export button. " +
+			"Call only when the user asks to export. Report the file path it returns, or the error if the shell cannot encode.",
+		input_schema: {
+			type: "object",
+			properties: {
+				quality: {
+					type: "string",
+					enum: ["low", "medium", "high", "very_high"],
+					description: "Default high.",
+				},
+			},
+			required: [],
+		},
+	},
+	{
 		name: "set_aspect_ratio",
 		description:
 			"Set the project canvas aspect ratio. Use 9:16 for TikTok/Reels/Shorts, 16:9 for YouTube, 1:1 for feed posts.",

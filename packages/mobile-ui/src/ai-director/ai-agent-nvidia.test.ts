@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 describe("NVIDIA Director tool calling", () => {
-	it("sends all 28 tools in OpenAI format and feeds the tool result back", async () => {
+	it("sends every Director tool in OpenAI format and feeds the tool result back", async () => {
 		await useVaultStore.getState().setupVault("2468", { nvidia: "nvapi-test" });
 		expect(getActiveNvidiaKey()).toBe("nvapi-test");
 		disarmIdleTimer();
@@ -105,7 +105,7 @@ describe("NVIDIA Director tool calling", () => {
 		expect(Array.isArray(tools)).toBe(true);
 		const names = Array.isArray(tools) ? tools.map(toolName) : [];
 		expect(names).toEqual(AI_TOOLS.map((tool) => tool.name));
-		expect(names).toHaveLength(28);
+		expect(names).toHaveLength(AI_TOOLS.length);
 
 		const second = requests[1]?.body.messages;
 		expect(Array.isArray(second)).toBe(true);
