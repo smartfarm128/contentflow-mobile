@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
 	defaultModelFor,
 	modelForRequest,
+	parseDirectorProvider,
 	type AIProvider,
 } from "./director-models";
 
@@ -27,8 +28,7 @@ function writeStorage({ key, value }: { key: string; value: string }): void {
 }
 
 function loadSelection(): { selectedProvider: AIProvider; selectedModel: string } {
-	const stored = readStorage(PROVIDER_KEY);
-	const selectedProvider: AIProvider = stored === "anselabs" ? "anselabs" : "anthropic";
+	const selectedProvider = parseDirectorProvider(readStorage(PROVIDER_KEY) ?? "");
 	const selectedModel = modelForRequest({
 		provider: selectedProvider,
 		model: readStorage(MODEL_KEY) ?? "",

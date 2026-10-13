@@ -109,6 +109,11 @@ const ALLOWED_HOSTS = new Set([
 	// Anselabs, supplied their own key, and sends a prompt. No key => zero
 	// requests.
 	"api.ananselabs.org",
+	// AI Director, NVIDIA provider (OpenAI-compatible NIM at
+	// integrate.api.nvidia.com/v1/chat/completions). Contacted only when the
+	// user selects NVIDIA, saves their own key (a one-token check), and sends
+	// a prompt. GET /v1/models is the catalog refresh. No key => zero chat calls.
+	"integrate.api.nvidia.com",
 	// ContentFlow Pexels B-Roll: optional user-initiated stock video/photo
 	// search. Contacted ONLY when the user searches Pexels with their API key.
 	"api.pexels.com",
