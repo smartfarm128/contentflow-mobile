@@ -111,13 +111,33 @@ export default defineConfig(({ mode }) => ({
 		outDir: "www",
 		emptyOutDir: true,
 		target: "esnext",
-		// Keep this readable in `git diff`-adjacent debugging for now; revisit
-		// once this harness is replaced by the real M2-item-6 SPA bundle.
-		minify: false,
+		minify: true,
 		rollupOptions: {
 			input: {
 				main: "index.html",
 				...(mode === "production" ? {} : { spike: "spike.html" }),
+			},
+			output: {
+				manualChunks(id) {
+					const path = id.replaceAll("\\", "/");
+					if (path.includes("/node_modules/three/")) return "vendor-three";
+					if (path.includes("/node_modules/d3/") || path.includes("/node_modules/d3-")) return "vendor-d3";
+					if (path.includes("/node_modules/remotion/") || path.includes("/node_modules/@remotion/")) {
+						return "vendor-remotion";
+					}
+					if (path.includes("/motion-templates/catalog/openchatcut-templates.compiled")) {
+						return "openchatcut-catalog";
+					}
+					if (
+						path.includes("/motion-templates/registry") ||
+						path.includes("/motion-templates/templates/") ||
+						path.includes("/motion-templates/catalog-loader") ||
+						path.includes("/motion-templates/template-host")
+					) {
+						return "template-registry";
+					}
+					return undefined;
+				},
 			},
 		},
 	},

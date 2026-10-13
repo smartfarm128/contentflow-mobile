@@ -3,9 +3,8 @@ import { blurEffectDefinition } from "./blur";
 import { adjustEffectDefinition } from "./adjust";
 import { filterEffectDefinition } from "./filter";
 
-// M8: adjust + filter registered alongside blur. See each definition's own
-// header for the honest scope note (real params/state, no Rust WGSL pass
-// yet — preview does not visibly change).
+// Adjust and filter both emit the `color-adjust` pass. Blur emits the
+// gaussian pass. Native export mirrors those three on iOS.
 const defaultEffects = [
 	blurEffectDefinition,
 	adjustEffectDefinition,

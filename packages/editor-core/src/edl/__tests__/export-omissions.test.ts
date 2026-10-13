@@ -40,10 +40,22 @@ describe("listNativeExportOmissions", () => {
 		expect(omissions).toEqual([]);
 	});
 
-	test("Android still leaves brightness out, because that mapper does not apply it yet", () => {
+	test("Android renders brightness and still lists blur", () => {
 		const edl = buildFixtureEdl();
 		const omissions = listNativeExportOmissions({ edl, platform: "android" });
-		expect(omissions.some((item) => item.message.includes('Effect "brightness"'))).toBe(true);
+		expect(omissions.some((item) => item.message.includes('Effect "brightness"'))).toBe(false);
+		const main = edl.tracks[0]?.clips[0];
+		if (!main) throw new Error("fixture has no main clip");
+		main.effects.push({
+			effectId: "fx-blur",
+			type: "blur",
+			enabled: true,
+			params: { intensity: 20 },
+		});
+		const withBlur = listNativeExportOmissions({ edl, platform: "android" }).map((item) => item.message);
+		expect(withBlur.some((message) => message.includes('Effect "blur"'))).toBe(true);
+		const ios = listNativeExportOmissions({ edl, platform: "ios" }).map((item) => item.message);
+		expect(ios.some((message) => message.includes("blur"))).toBe(false);
 	});
 
 	test("names a motion template, a blob asset, a filter, a mask and reverse", () => {
@@ -125,10 +137,20 @@ describe("listNativeExportOmissions", () => {
 		expect(messages.some((message) => message.includes('"Pexels b-roll"') && message.includes("sandbox"))).toBe(
 			true,
 		);
-		expect(messages.some((message) => message.startsWith("Filter on"))).toBe(true);
-		expect(messages.some((message) => message.startsWith("Mask on"))).toBe(true);
+		expect(messages.some((message) => message.startsWith("Filter on"))).toBe(false);
+		expect(messages.some((message) => message.startsWith("Mask on"))).toBe(false);
 		expect(messages.some((message) => message.startsWith("Reverse on"))).toBe(true);
-		// Brightness on the second fixture clip is actually rendered on iOS.
+		graded.masks.push({ maskId: "m-heart", type: "heart", params: {} });
+		const withHeart = listNativeExportOmissions({
+			edl,
+			platform: "ios",
+			uncapturedClipIds: new Set(["template-clip", "shape-clip", "sticker-clip"]),
+		}).map((item) => item.message);
+		expect(withHeart.some((message) => message.startsWith("Mask on"))).toBe(true);
+		const android = listNativeExportOmissions({ edl, platform: "android" }).map((item) => item.message);
+		expect(android.some((message) => message.startsWith("Filter on"))).toBe(false);
+		expect(android.some((message) => message.startsWith("Mask on"))).toBe(true);
+		// Brightness on the second fixture clip is rendered on iOS and Android.
 		expect(messages.some((message) => message.includes("brightness"))).toBe(false);
 	});
 

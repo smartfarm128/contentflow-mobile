@@ -1,4 +1,5 @@
 import type { EffectDefinition } from "@/effects/types";
+import { filterShaderGrade, shaderGradeUniforms } from "@/effects/grade";
 
 /**
  * M8 "Filters" panel — corpus `04` §3.7: "categorized [filters], plus...
@@ -13,10 +14,9 @@ import type { EffectDefinition } from "@/effects/types";
  * mobile cannot import custom LUTs," so there is no LUT-import surface to
  * replicate. Zero-cost/local-first: no remote filter packs, no CDN.
  *
- * Same honest scope note as `adjust.ts`: real, persisted, undoable effect
- * state; no Rust WGSL pass exists for any of these presets yet, so
- * `buildPasses` returns `[]` and the preview does not visibly change. UI
- * wiring is fully real; GPU rendering is out of scope for M8.
+ * Each preset is one `color-adjust` pass (the same WGSL the Adjust panel
+ * uses). Intensity lerps the look back to identity. `none` and intensity 0
+ * emit no pass. Native export applies the same matrix.
  */
 export const FILTER_EFFECT_TYPE = "filter";
 
@@ -54,6 +54,10 @@ export const filterEffectDefinition: EffectDefinition = {
 	],
 	renderer: {
 		passes: [],
-		buildPasses: () => [],
+		buildPasses: ({ effectParams }) => {
+			const grade = filterShaderGrade({ params: effectParams });
+			if (!grade) return [];
+			return [{ shader: "color-adjust", uniforms: shaderGradeUniforms(grade) }];
+		},
 	},
 };

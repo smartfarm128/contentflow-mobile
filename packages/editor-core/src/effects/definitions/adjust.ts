@@ -1,4 +1,5 @@
 import type { EffectDefinition } from "@/effects/types";
+import { adjustShaderGrade, shaderGradeUniforms } from "@/effects/grade";
 
 /**
  * M8 "Adjust" panel — plan §8.4: "basic sliders in v1; HSL and curves
@@ -82,40 +83,9 @@ export const adjustEffectDefinition: EffectDefinition = {
 		// (TransitionCompositor.swift's AdjustSettings) so preview and
 		// export agree. Neutral params contribute no pass at all.
 		buildPasses: ({ effectParams }) => {
-			const value = (key: string) => {
-				const raw = effectParams[key];
-				return typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
-			};
-			const brightness = value("brightness");
-			const contrast = value("contrast");
-			const saturation = value("saturation");
-			const temperature = value("temperature");
-			const tint = value("tint");
-			const sharpen = value("sharpen");
-			const vignette = value("vignette");
-			const neutral =
-				brightness === 0 &&
-				contrast === 0 &&
-				saturation === 0 &&
-				temperature === 0 &&
-				tint === 0 &&
-				sharpen === 0 &&
-				vignette === 0;
-			if (neutral) return [];
-			return [
-				{
-					shader: "color-adjust",
-					uniforms: {
-						u_brightness: (brightness / 100) * 0.35,
-						u_contrast: 1 + (contrast / 100) * 0.6,
-						u_saturation: Math.max(0, 1 + saturation / 100),
-						u_temperature: temperature / 100,
-						u_tint: tint / 100,
-						u_sharpen: sharpen / 100,
-						u_vignette: vignette / 100,
-					},
-				},
-			];
+			const grade = adjustShaderGrade({ params: effectParams });
+			if (!grade) return [];
+			return [{ shader: "color-adjust", uniforms: shaderGradeUniforms(grade) }];
 		},
 	},
 };

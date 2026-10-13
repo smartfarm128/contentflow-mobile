@@ -29,9 +29,9 @@
  *   5. EXPORT-HONESTY phase (`#/autotest/export-honesty`, or a planted
  *      `<mediaRoot>/autotest-export-honesty.flag` next to `autotest.flag`):
  *      a project with the planted video PLUS a motion template, a blob-only
- *      asset and a filter. The verdict requires the export to succeed and
- *      the omission list to name all three. It does not run the playback
- *      phases.
+ *      asset, a heart mask and reverse. The filter is rendered, so it must
+ *      not be listed. The verdict requires the export to succeed and the
+ *      omission list to name the template, the blob, the mask and reverse.
  *
  *   6. CUSTODY-MEDIA phase (`#/autotest/custody-media`, or
  *      `<mediaRoot>/autotest-custody-media.flag`): imports the planted mp4
@@ -59,6 +59,12 @@
  *      be unchanged. A throw, window error, or the 240s watchdog logs
  *      `VERDICT phase=frame-capture FAIL`.
  *
+ *   9. GRADE-PIXELS phase (`#/autotest/grade-pixels`, or
+ *      `<mediaRoot>/autotest-grade-pixels.flag`): exports the planted mp4
+ *      with a mono filter, a blur, and an ellipse mask. A sampled export
+ *      frame is compared to the preview/WGSL grade of the same source frame
+ *      (`renderPreviewGradeFrame`). The phase flag is deleted first.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -84,6 +90,12 @@ import {
 import { buildElementFromMedia, buildTextElement } from "@kneecap/editor-core/timeline";
 import { AddClipEffectCommand, AddMediaAssetCommand, InsertElementCommand, UpdateElementsCommand } from "@kneecap/editor-core/commands";
 import { buildEdl, listNativeExportOmissions } from "@kneecap/editor-core/edl";
+import {
+	boxMaskContains,
+	filterShaderGrade,
+	renderPreviewGradeFrame,
+	sampledBlurSigma,
+} from "@kneecap/editor-core/effects/grade";
 import { loadFontAtlas } from "@kneecap/editor-core/fonts/local-fonts";
 import {
 	EditorShell,
@@ -777,10 +789,10 @@ function fixtureFileUrl({ root, relative }: { root: string; relative: string }):
 }
 
 /**
- * Exports a project that contains one real planted clip plus the three
- * things the native exporters still cannot render: a motion template, a
- * blob-only asset, and a filter. PASS means the file encodes AND the
- * omission list names each of those three.
+ * Exports a project that contains one real planted clip plus things the
+ * native exporters still cannot render: a motion template (no painter, so
+ * it stays uncaptured), a blob-only asset, a heart mask, and reverse. The
+ * filter is rendered now, so the omission list must NOT name it.
  */
 async function runExportHonesty({
 	editor,
@@ -844,6 +856,38 @@ async function runExportHonesty({
 				trackId: main.id,
 				elementId: mainEl.id,
 				effectType: "filter",
+			}),
+		});
+		editor.command.execute({
+			command: new UpdateElementsCommand({
+				updates: [
+					{
+						trackId: main.id,
+						elementId: mainEl.id,
+						patch: {
+							params: { ...mainEl.params, reversed: true },
+							masks: [
+								{
+									id: "honesty-heart",
+									type: "heart",
+									params: {
+										centerX: 0,
+										centerY: 0,
+										width: 0.4,
+										height: 0.4,
+										rotation: 0,
+										scale: 1,
+										feather: 0,
+										inverted: false,
+										strokeColor: "#ffffff",
+										strokeWidth: 0,
+										strokeAlign: "center",
+									},
+								},
+							],
+						},
+					},
+				],
 			}),
 		});
 
@@ -927,9 +971,11 @@ async function runExportHonesty({
 			(message) => message.includes("Pexels b-roll") && /sandbox|in-memory/i.test(message),
 		);
 		const reportedFilter = messages.some((message) => message.startsWith("Filter on"));
-		if (!reportedTemplate || !reportedBlob || !reportedFilter) {
+		const reportedMask = messages.some((message) => message.startsWith("Mask on"));
+		const reportedReverse = messages.some((message) => message.startsWith("Reverse on"));
+		if (!reportedTemplate || !reportedBlob || !reportedMask || !reportedReverse || reportedFilter) {
 			fail(
-				`omissions incomplete template=${reportedTemplate} blob=${reportedBlob} filter=${reportedFilter} count=${messages.length}`,
+				`omissions incomplete template=${reportedTemplate} blob=${reportedBlob} mask=${reportedMask} reverse=${reportedReverse} filterListed=${reportedFilter} count=${messages.length}`,
 			);
 			return;
 		}
@@ -960,7 +1006,7 @@ async function runExportHonesty({
 		const track = await probe.getPrimaryVideoTrack();
 		if (!track) throw new Error("output has no video track");
 		log(
-			`VERDICT phase=export-honesty PASS export=${Math.round(bytes.byteLength / 1024)}KB omitted=${messages.length} template=yes blob=yes filter=yes`,
+			`VERDICT phase=export-honesty PASS export=${Math.round(bytes.byteLength / 1024)}KB omitted=${messages.length} template=yes blob=yes mask=yes reverse=yes filter=rendered`,
 		);
 	} catch (error) {
 		fail(error instanceof Error ? error.message : String(error));
@@ -1934,6 +1980,276 @@ async function runFrameCapture({
 	}
 }
 
+const GRADE_PROJECT = "Autotest Grade Pixels";
+const GRADE_BLUR_INTENSITY = 80;
+const GRADE_MASK = {
+	type: "ellipse" as const,
+	centerX: 0,
+	centerY: 0,
+	width: 0.5,
+	height: 0.5,
+	rotation: 0,
+	inverted: false,
+};
+
+/**
+ * Exports the planted clip with a mono filter, a blur, and an ellipse, then
+ * compares one export frame to the preview/WGSL rendering of the source
+ * frame (`renderPreviewGradeFrame` — the color-adjust matrix, the separable
+ * gaussian, and the ellipse).
+ */
+async function runGradePixels({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "grade-pixels" });
+	const fail = (detail: string, error?: unknown) => {
+		guard.note(detail);
+		if (error instanceof Error && error.stack) log(error.stack);
+	};
+	let step = "start";
+	try {
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: GRADE_PROJECT });
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => bridge.generateProxy(params as Parameters<typeof bridge.generateProxy>[0]),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			fail(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+			return;
+		}
+		const video = imported[0];
+		if (!video) {
+			fail("import returned no video");
+			return;
+		}
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+		const scene = editor.scenes.getActiveScene();
+		const main = scene.tracks.main;
+		const mainEl = main.elements[0];
+		if (!mainEl) {
+			fail("planted video did not land on the main track");
+			return;
+		}
+		step = "apply filter blur mask";
+		log("step:", step);
+		editor.command.execute({
+			command: new UpdateElementsCommand({
+				updates: [
+					{
+						trackId: main.id,
+						elementId: mainEl.id,
+						patch: {
+							effects: [
+								{
+									id: "grade-filter",
+									type: "filter",
+									enabled: true,
+									params: { preset: "mono", intensity: 100 },
+								},
+								{
+									id: "grade-blur",
+									type: "blur",
+									enabled: true,
+									params: { intensity: GRADE_BLUR_INTENSITY },
+								},
+							],
+							masks: [
+								{
+									id: "grade-ellipse",
+									type: "ellipse",
+									params: {
+										...GRADE_MASK,
+										scale: 1,
+										feather: 0,
+										strokeColor: "#ffffff",
+										strokeWidth: 0,
+										strokeAlign: "center",
+									},
+								},
+							],
+						},
+					},
+				],
+			}),
+		});
+
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 4_000_000,
+				includeAudio: true,
+			},
+		});
+		const platform = bridge.platform === "ios" || bridge.platform === "android" ? bridge.platform : "web";
+		const omissions = listNativeExportOmissions({ edl, platform }).map((item) => item.message);
+		for (const message of omissions) log("omission:", message);
+		const listedFilter = omissions.some((message) => message.startsWith("Filter on"));
+		const listedBlur = omissions.some((message) => message.includes('Effect "blur"'));
+		const listedMask = omissions.some((message) => message.startsWith("Mask on"));
+		log(`diag: platform=${platform} filterListed=${listedFilter} blurListed=${listedBlur} maskListed=${listedMask}`);
+		if (platform === "ios" && (listedFilter || listedBlur || listedMask)) {
+			fail(`iOS still lists a rendered grade filter=${listedFilter} blur=${listedBlur} mask=${listedMask}`);
+			return;
+		}
+		if (platform === "android" && listedFilter) {
+			fail("Android still lists the filter");
+			return;
+		}
+
+		step = "sample source frame";
+		log("step:", step);
+		const sourceUrl = bridge.toPlaybackUri(`file://${root}/${SOURCE_RELATIVE}`);
+		const sourceBytes = await fetch(sourceUrl).then((response) => response.arrayBuffer());
+		log(`diag: source bytes=${sourceBytes.byteLength}`);
+		const sourceSample = await frameImageData({ bytes: sourceBytes, timeSeconds: 1, label: "source" });
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		step = "export graded clip";
+		log("step:", step);
+		const exportedBytes = await exportEdlBytes({ editor, overlayFrames: [] });
+		log(
+			`diag: export bytes=${exportedBytes.byteLength} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
+		);
+		step = "sample export frame";
+		log("step:", step);
+		const exportSample = await frameImageData({ bytes: exportedBytes, timeSeconds: 1, label: "graded" });
+		const sourceFrame = sourceSample.image;
+		const exportFrame = exportSample.image;
+		if (sourceFrame.width !== exportFrame.width || sourceFrame.height !== exportFrame.height) {
+			fail(
+				`frame size source=${sourceFrame.width}x${sourceFrame.height} export=${exportFrame.width}x${exportFrame.height}`,
+			);
+			return;
+		}
+		const grade = filterShaderGrade({ params: { preset: "mono", intensity: 100 } });
+		if (!grade) {
+			fail("mono filter produced no grade");
+			return;
+		}
+		const width = sourceFrame.width;
+		const height = sourceFrame.height;
+		const reference = renderPreviewGradeFrame({
+			pixels: sourceFrame.data,
+			width,
+			height,
+			grades: [grade],
+			blurSigma: sampledBlurSigma({ intensity: GRADE_BLUR_INTENSITY, sampleWidth: width }),
+			mask: GRADE_MASK,
+		});
+		let inside = 0;
+		let outside = 0;
+		let maeCount = 0;
+		let maeSum = 0;
+		let outsideLuma = 0;
+		let insideChroma = 0;
+		let refEdge = 0;
+		let expEdge = 0;
+		let edgeCount = 0;
+		const margin = 4;
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const contained = boxMaskContains({ x, y, width, height, mask: GRADE_MASK });
+				const offset = (y * width + x) * 4;
+				const er = exportFrame.data[offset] ?? 0;
+				const eg = exportFrame.data[offset + 1] ?? 0;
+				const eb = exportFrame.data[offset + 2] ?? 0;
+				if (!contained) {
+					outside += 1;
+					outsideLuma += (er + eg + eb) / 3;
+					continue;
+				}
+				inside += 1;
+				insideChroma += Math.max(er, eg, eb) - Math.min(er, eg, eb);
+				const nearEdge =
+					x < margin ||
+					y < margin ||
+					x >= width - margin ||
+					y >= height - margin ||
+					!boxMaskContains({ x: x + margin, y, width, height, mask: GRADE_MASK }) ||
+					!boxMaskContains({ x: x - margin, y, width, height, mask: GRADE_MASK }) ||
+					!boxMaskContains({ x, y: y + margin, width, height, mask: GRADE_MASK }) ||
+					!boxMaskContains({ x, y: y - margin, width, height, mask: GRADE_MASK });
+				if (nearEdge) continue;
+				maeCount += 1;
+				const rr = reference[offset] ?? 0;
+				const rg = reference[offset + 1] ?? 0;
+				const rb = reference[offset + 2] ?? 0;
+				maeSum += Math.abs(er - rr) + Math.abs(eg - rg) + Math.abs(eb - rb);
+				if (x + 1 < width) {
+					const next = offset + 4;
+					refEdge += Math.abs(rr - (reference[next] ?? 0)) + Math.abs(rg - (reference[next + 1] ?? 0));
+					expEdge += Math.abs(er - (exportFrame.data[next] ?? 0)) + Math.abs(eg - (exportFrame.data[next + 1] ?? 0));
+					edgeCount += 1;
+				}
+			}
+		}
+		const mae = maeCount > 0 ? maeSum / (maeCount * 3) / 255 : 1;
+		const outsideMean = outside > 0 ? outsideLuma / outside / 255 : 1;
+		const chroma = inside > 0 ? insideChroma / inside / 255 : 1;
+		const edgeRatio = expEdge / Math.max(refEdge, 1);
+		log(
+			`diag: inside=${inside} outside=${outside} mae=${mae.toFixed(3)} outsideLuma=${outsideMean.toFixed(3)} chroma=${chroma.toFixed(3)} edgeRatio=${edgeRatio.toFixed(3)} edges=${edgeCount} sigma=${sampledBlurSigma({ intensity: GRADE_BLUR_INTENSITY, sampleWidth: width }).toFixed(2)}`,
+		);
+		if (inside < 100 || outside < 100) {
+			fail(`mask coverage inside=${inside} outside=${outside}`);
+			return;
+		}
+		if (mae > 0.22 || outsideMean > 0.1 || chroma > 0.12 || edgeRatio > 1.6 || edgeRatio < 0.35) {
+			fail(
+				`grade mismatch mae=${mae.toFixed(3)} outsideLuma=${outsideMean.toFixed(3)} chroma=${chroma.toFixed(3)} edgeRatio=${edgeRatio.toFixed(3)}`,
+			);
+			return;
+		}
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=grade-pixels PASS mae=${mae.toFixed(3)} outsideLuma=${outsideMean.toFixed(3)} chroma=${chroma.toFixed(3)} edgeRatio=${edgeRatio.toFixed(2)} sampled=${width}x${height} decoded=${exportSample.decodedWidth}x${exportSample.decodedHeight} encode=${edl.output.resolution.width}x${edl.output.resolution.height}`,
+			);
+		}
+	} catch (error) {
+		fail(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+			error,
+		);
+	} finally {
+		guard.close();
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -1979,6 +2295,29 @@ export async function mountAutotest(): Promise<void> {
 			<EditorShell
 				bootstrap={async () => {
 					await runFrameCapture({ editor, root });
+				}}
+			/>,
+		);
+		return;
+	}
+
+	let gradePixels = window.location.hash.includes("grade-pixels");
+	try {
+		const gradeFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-grade-pixels.flag`));
+		if (gradeFlag.ok || gradeFlag.status === 0) gradePixels = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (gradePixels) {
+		log("phase: grade-pixels");
+		await clearAutotestFlags({
+			names: ["autotest-grade-pixels.flag", "autotest.flag"],
+		});
+		container.innerHTML = "";
+		createRoot(container).render(
+			<EditorShell
+				bootstrap={async () => {
+					await runGradePixels({ editor, root });
 				}}
 			/>,
 		);

@@ -72,13 +72,13 @@ export { bootstrapDemoProject, resetDemoProjectBootstrap, type DemoProjectRefs }
 export { KeyVaultSheet } from "./components/panels/key-vault-sheet";
 export * from "./vault/vault-store";
 export {
-	getAllHtmlTemplates,
-	getHtmlTemplate,
+	getAllHtmlTemplateMeta,
+	getHtmlTemplateMeta,
 	getHtmlTemplateDefaultValues,
-	HTML_TEMPLATES,
-} from "./motion-templates/registry";
+} from "./motion-templates/template-meta";
+export { loadHtmlTemplate, loadHtmlTemplates } from "./motion-templates/load-template";
 export { TemplateThumbnail } from "./motion-templates/ui/template-thumbnail";
 export { createHtmlOverlayPainter, htmlOverlayStepSeconds } from "./motion-templates/rasterize-for-export";
 export { captureFrameAt, captureFramesAcross } from "./ai-director/frame-capture";
 export { clearSpilledOverlayPngs, spillOverlayFrame } from "./export/spill-overlay-frame";
-export type { HtmlTemplate } from "./motion-templates/types";
+export type { HtmlTemplate, HtmlTemplateMeta } from "./motion-templates/types";

@@ -8,15 +8,16 @@ import { validateEdl } from "./validate";
  * aspirational v1 effect list). This is the honesty layer on top of it: the
  * export sheet shows these sentences before export, and both native mappers
  * skip the same items instead of failing the whole file. It does not promise
- * that a later PR will render them — filters, masks and reverse are still
- * preview-only. Motion templates, stickers and shapes are rasterized into
- * the overlay frames both exporters already composite. They are listed only
- * when `uncapturedClipIds` names them (the rasterizer could not capture
- * that clip).
+ * that a later PR will render them. Motion templates, stickers and shapes
+ * are rasterized into the overlay frames both exporters already composite.
+ * They are listed only when `uncapturedClipIds` names them (the rasterizer
+ * could not capture that clip).
  *
- * Platform split that exists today: iOS composites `adjust` and `brightness`.
- * Android composites none of those yet, so on Android and on the web
- * fallback every effect is listed.
+ * Platform split: iOS composites adjust, brightness, filter presets, blur,
+ * and ellipse/rectangle/diamond masks. Android composites the color part of
+ * adjust, brightness, and filter presets through a Media3 RGB matrix.
+ * Sharpen, vignette, blur, masks, and reverse stay listed on Android.
+ * The web fallback lists every effect and mask.
  */
 export type NativeExportPlatform = "ios" | "android" | "web";
 
@@ -26,7 +27,25 @@ export interface NativeExportOmission {
 	message: string;
 }
 
-const IOS_RENDERED_EFFECTS: ReadonlySet<string> = new Set(["adjust", "brightness"]);
+const IOS_RENDERED_EFFECTS: ReadonlySet<string> = new Set([
+	"adjust",
+	"brightness",
+	"filter",
+	"blur",
+]);
+
+const ANDROID_RENDERED_EFFECTS: ReadonlySet<string> = new Set([
+	"adjust",
+	"brightness",
+	"filter",
+]);
+
+/** Mask bodies the iOS compositor draws. Other types stay on the list. */
+const IOS_RENDERED_MASKS: ReadonlySet<string> = new Set([
+	"ellipse",
+	"rectangle",
+	"diamond",
+]);
 
 const SHAPE_DEFINITION_IDS: ReadonlySet<string> = new Set([
 	"rectangle",
@@ -80,7 +99,13 @@ export function listNativeExportOmissions({
 	};
 
 	const assetById = new Map(edl.assets.map((asset) => [asset.assetId, asset]));
-	const renderedEffects = platform === "ios" ? IOS_RENDERED_EFFECTS : new Set<string>();
+	const renderedEffects =
+		platform === "ios"
+			? IOS_RENDERED_EFFECTS
+			: platform === "android"
+				? ANDROID_RENDERED_EFFECTS
+				: new Set<string>();
+	const renderedMasks = platform === "ios" ? IOS_RENDERED_MASKS : new Set<string>();
 
 	for (const [ti, track] of edl.tracks.entries()) {
 		if (track.hidden) continue;
@@ -131,7 +156,28 @@ export function listNativeExportOmissions({
 			}
 
 			for (const [ei, effect] of clip.effects.entries()) {
-				if (!effect.enabled || renderedEffects.has(effect.type)) continue;
+				if (!effect.enabled) continue;
+				if (renderedEffects.has(effect.type)) {
+					// Android's matrix covers the color sliders. Sharpen and
+					// vignette are spatial and have no Media3 effect here.
+					if (platform === "android" && effect.type === "adjust") {
+						const sharpen = effect.params.sharpen;
+						const vignette = effect.params.vignette;
+						if (typeof sharpen === "number" && sharpen > 0) {
+							push({
+								path: `${path}.effects[${ei}].sharpen`,
+								message: `Sharpen on "${label}" will be left out of the export.`,
+							});
+						}
+						if (typeof vignette === "number" && vignette > 0) {
+							push({
+								path: `${path}.effects[${ei}].vignette`,
+								message: `Vignette on "${label}" will be left out of the export.`,
+							});
+						}
+					}
+					continue;
+				}
 				const kindLabel = effect.type === "filter" ? "Filter" : `Effect "${effect.type}"`;
 				push({
 					path: `${path}.effects[${ei}]`,
@@ -139,10 +185,22 @@ export function listNativeExportOmissions({
 				});
 			}
 
-			if (clip.masks.length > 0) {
+			const unsupportedMasks = clip.masks.filter((mask) => !renderedMasks.has(mask.type));
+			if (unsupportedMasks.length > 0) {
 				push({
 					path: `${path}.masks`,
 					message: `Mask on "${label}" will be left out of the export.`,
+				});
+			}
+			const stroked = clip.masks.some((mask) => {
+				if (!renderedMasks.has(mask.type)) return false;
+				const stroke = mask.params.strokeWidth;
+				return typeof stroke === "number" && stroke > 0;
+			});
+			if (stroked) {
+				push({
+					path: `${path}.masks`,
+					message: `Mask stroke on "${label}" will be left out of the export.`,
 				});
 			}
 
