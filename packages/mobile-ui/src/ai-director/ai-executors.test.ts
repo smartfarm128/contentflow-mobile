@@ -306,6 +306,24 @@ describe("AI Director executors against a real editor", () => {
 		expect(out.text).toContain("native shell");
 	});
 
+	it("add_text uses lime, refuses a logo, and a reel warns against a music bed", async () => {
+		const refused = await executeTool("add_text", { content: "the OpenAI logo" }, stubCtx);
+		expect(refused.text).toContain("did not draw a logo");
+
+		const { editor, ctx } = await loadFixture();
+		const out = await executeTool("add_text", { content: "AI for real work" }, ctx);
+		expect(out.text).toContain("#D8F34A");
+		expect(out.text.toLowerCase()).toContain("face");
+		const added = editor.scenes
+			.getActiveScene()
+			.tracks.overlay.flatMap((track) => (track.type === "text" ? track.elements : []))
+			.find((element) => element.params.content === "AI for real work");
+		expect(added?.params.color).toBe("#D8F34A");
+
+		const reel = await executeTool("set_aspect_ratio", { preset: "9:16" }, ctx);
+		expect(reel.text).toContain("No music bed");
+	});
+
 	it("generate_captions fails honestly instead of laying the sample transcript down", async () => {
 		const { editor, ctx } = await loadFixture();
 		const { getAllCaptions } = await import("../editor/captions-actions");

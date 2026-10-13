@@ -30,6 +30,9 @@ import {
 import { AI_TOOLS } from "./ai-tools";
 import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
 import { CREATIVE_DIRECTION } from "./creative-direction";
+import { playbookPromptForRequest } from "./playbook/prompt";
+import { honestDirectorClose } from "./playbook/rules";
+import { resetPlaybookTurn } from "./playbook/turn";
 import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store";
 import {
 	getActiveAnthropicKey,
@@ -122,12 +125,44 @@ export const AI_DIRECTOR_PROMPT = CREATIVE_DIRECTION;
  * — if the creator captured a style, every subsequent edit should be judged
  * against it.
  */
+function latestUserText(): string {
+	const turns = conversationHistory();
+	for (let index = turns.length - 1; index >= 0; index -= 1) {
+		const turn = turns[index];
+		if (turn && turn.role === "user" && typeof turn.content === "string") return turn.content;
+	}
+	return "";
+}
+
+function closeDirectorReply({ reply, toolResults }: { reply: string; toolResults: string[] }): string {
+	const honest = honestDirectorClose({ reply, toolResults });
+	if (honest === reply) return reply;
+	const messages = useAIDirectorStore.getState().messages;
+	let index = -1;
+	for (let cursor = messages.length - 1; cursor >= 0; cursor -= 1) {
+		const message = messages[cursor];
+		if (message && !message.toolName && !message.local && message.role === "assistant" && message.content === reply) {
+			index = cursor;
+			break;
+		}
+	}
+	if (index >= 0) {
+		const next = messages.slice();
+		const current = next[index];
+		if (current) next[index] = { ...current, content: honest };
+		useAIDirectorStore.setState({ messages: next });
+	}
+	return honest;
+}
+
 function buildSystemPrompt(): string {
+	const playbook = playbookPromptForRequest({ request: latestUserText() });
+	const direction = `${playbook}\n\n${AI_DIRECTOR_PROMPT}`;
 	const profiles = useStyleProfileStore.getState().profiles;
-	if (profiles.length === 0) return AI_DIRECTOR_PROMPT;
+	if (profiles.length === 0) return direction;
 	const block = profiles.map((p) => `[id: ${p.id}]\n${formatStyleProfile(p)}`).join("\n\n");
 	return (
-		`${AI_DIRECTOR_PROMPT}\n\n` +
+		`${direction}\n\n` +
 		`## Reference styles this creator has captured\n\n${block}\n\n` +
 		`When the user asks for an edit "like the reference" or names one of these, plan against that profile ` +
 		`and pass its id as propose_plan's style_profile_id. Match the SPECIFICS — cut rhythm, caption look, ` +
@@ -260,8 +295,10 @@ async function driveAgentLoop({
 }): Promise<string> {
 	const store = useAIDirectorStore.getState();
 	store.setIsStreaming(true);
+	resetPlaybookTurn();
 
 	let finalText = "";
+	const toolResults: string[] = [];
 
 	// One key for the whole run. Reading the vault again on each turn dropped
 	// the key to "" once the old 60s lock fired mid-loop, so later turns went
@@ -393,6 +430,7 @@ async function driveAgentLoop({
 					content: outcome.text,
 					toolName: call.name,
 				});
+				toolResults.push(outcome.text);
 
 				// Vision tools hand back captured frames — send them as real
 				// image blocks so the model SEES the composited result.
@@ -421,12 +459,15 @@ async function driveAgentLoop({
 			// the PlanCard take over.
 			if (toolUses.some((c) => c.name === "propose_plan")) {
 				store.setIsStreaming(false);
-				return finalText || "Proposed a plan for you to review.";
+				return closeDirectorReply({
+					reply: finalText || "Proposed a plan for you to review.",
+					toolResults,
+				});
 			}
 		}
 
 		store.setIsStreaming(false);
-		return finalText || "Done.";
+		return closeDirectorReply({ reply: finalText || "Done.", toolResults });
 	} catch (error) {
 		console.error("[AIDirector]", error);
 		const msg = directorFailureMessage({ error, provider });

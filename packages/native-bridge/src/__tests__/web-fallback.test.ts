@@ -57,6 +57,13 @@ describe("createWebFallbackBridge", () => {
 		]);
 	});
 
+	test("detectFaces reports unavailable in the browser instead of inventing boxes", async () => {
+		const scan = await bridge.detectFaces({ path: "/tmp/clip.mp4", timeSeconds: 1 });
+		expect(scan.available).toBe(false);
+		expect(scan.faces).toEqual([]);
+		expect(scan.warning ?? "").toContain("Face detection");
+	});
+
 	test("writeOverlayPng is unsupported without a sandbox, and clear is a no-op", async () => {
 		await expect(bridge.clearOverlayPngs()).resolves.toBeUndefined();
 		await expect(bridge.removeAutotestFlag({ name: "autotest.flag" })).resolves.toBeUndefined();

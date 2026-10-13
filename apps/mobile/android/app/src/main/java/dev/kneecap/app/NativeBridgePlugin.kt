@@ -836,6 +836,104 @@ class NativeBridgePlugin : Plugin() {
 		}
 	}
 
+	/** Face boxes in one video frame. Normalised, origin top-left.
+	 *  ML Kit's bundled model, on device, no API key. A failure resolves
+	 *  with available=false so the editor can warn instead of guessing. */
+	@PluginMethod
+	fun detectFaces(call: PluginCall) {
+		val raw = call.getString("path")
+		if (raw.isNullOrEmpty()) {
+			call.reject("detectFaces requires path", "IO_ERROR")
+			return
+		}
+		val timeSeconds = call.getDouble("timeSeconds") ?: 0.0
+		val path = filesystemPath(raw)
+		Thread {
+			val retriever = MediaMetadataRetriever()
+			var frame: Bitmap? = null
+			var scaled: Bitmap? = null
+			try {
+				retriever.setDataSource(path)
+				frame = retriever.getFrameAtTime(
+					(timeSeconds.coerceAtLeast(0.0) * 1_000_000.0).toLong(),
+					MediaMetadataRetriever.OPTION_CLOSEST,
+				)
+				val source = frame
+				if (source == null) {
+					call.reject("detectFaces produced no frame", "IO_ERROR")
+					return@Thread
+				}
+				val maxEdge = 768
+				val longEdge = maxOf(source.width, source.height)
+				scaled = if (longEdge <= maxEdge || longEdge == 0) {
+					source
+				} else {
+					val scale = maxEdge.toFloat() / longEdge
+					Bitmap.createScaledBitmap(
+						source,
+						(source.width * scale).toInt().coerceAtLeast(1),
+						(source.height * scale).toInt().coerceAtLeast(1),
+						true,
+					)
+				}
+				val bitmap = scaled ?: source
+				val options = com.google.mlkit.vision.face.FaceDetectorOptions.Builder()
+					.setPerformanceMode(com.google.mlkit.vision.face.FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+					.build()
+				val detector = com.google.mlkit.vision.face.FaceDetection.getClient(options)
+				val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
+				detector.process(image)
+					.addOnSuccessListener { faces ->
+						val arr = JSArray()
+						for (face in faces) {
+							val box = face.boundingBox
+							val obj = JSObject()
+							obj.put("x", box.left.toDouble() / bitmap.width)
+							obj.put("y", box.top.toDouble() / bitmap.height)
+							obj.put("width", box.width().toDouble() / bitmap.width)
+							obj.put("height", box.height().toDouble() / bitmap.height)
+							arr.put(obj)
+						}
+						val result = JSObject()
+						result.put("available", true)
+						result.put("width", bitmap.width)
+						result.put("height", bitmap.height)
+						result.put("faces", arr)
+						call.resolve(result)
+						recycleFaceBitmaps(source, bitmap)
+						detector.close()
+					}
+					.addOnFailureListener { error ->
+						val result = JSObject()
+						result.put("available", false)
+						result.put("width", bitmap.width)
+						result.put("height", bitmap.height)
+						result.put("faces", JSArray())
+						result.put(
+							"warning",
+							error.message ?: "Face detection failed, so text was not checked against faces.",
+						)
+						call.resolve(result)
+						recycleFaceBitmaps(source, bitmap)
+						detector.close()
+					}
+			} catch (error: Exception) {
+				call.reject(error.message ?: "detectFaces failed", "IO_ERROR")
+				val source = frame
+				val bitmap = scaled
+				if (source != null && bitmap != null) recycleFaceBitmaps(source, bitmap)
+				else source?.recycle()
+			} finally {
+				retriever.release()
+			}
+		}.start()
+	}
+
+	private fun recycleFaceBitmaps(source: Bitmap, bitmap: Bitmap) {
+		if (bitmap !== source) source.recycle()
+		bitmap.recycle()
+	}
+
 	/** Not part of the `NativeBridge` TS interface (that abstraction expresses
 	 * cancellation as the JS caller simply stopping iteration of the
 	 * `AsyncGenerator<ExportProgress>` `exportProject` returns) — this is the

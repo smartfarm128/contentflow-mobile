@@ -15,6 +15,7 @@ import {
 	registerHtmlTemplateGraphics,
 } from "../motion-templates/engine-bridge";
 import { getHtmlTemplateMeta } from "../motion-templates/template-meta";
+import { musicBedRefusal } from "../ai-director/playbook/rules";
 import {
 	DuplicateElementsCommand,
 	SplitElementsCommand,
@@ -1247,6 +1248,9 @@ export async function importAndPlaceAudio({
 	editor: EditorCore;
 	onProgress?: NativeImportProgressHandler;
 }): Promise<number> {
+	const canvas = editor.project.getActive().settings.canvasSize;
+	const musicRefusal = musicBedRefusal({ width: canvas.width, height: canvas.height });
+	if (musicRefusal) throw new Error(musicRefusal);
 	const bridge = await getNativeBridge();
 	const projectId = editor.project.getActive().metadata.id;
 	const { imported, failed } = await importMediaFromNative({

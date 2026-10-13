@@ -50,6 +50,9 @@ import { useStyleProfileStore, formatStyleProfile } from "./style-profile-store"
 import { findHtmlTemplateRef } from "../motion-templates/engine-bridge";
 import { AI_TOOL_NAMES } from "./ai-tools";
 import { useAIDirectorStore, type PlanStep } from "./ai-store";
+import { captionSampleTimes, clearanceForTimes } from "./playbook/face-scan";
+import { LIME, accentColorForText, musicBedRefusal, playbookToolRefusal } from "./playbook/rules";
+import { frameWasSeen, markFrameSeen } from "./playbook/turn";
 
 /**
  * Deliberately carries no playhead snapshot: a value captured when the turn
@@ -147,6 +150,8 @@ export async function executeTool(
 	if (!AI_TOOL_NAMES.has(name)) {
 		return { text: `Error: unknown tool "${name}". It does not exist in this app.` };
 	}
+	const refusal = playbookToolRefusal({ name, input, looked: frameWasSeen() });
+	if (refusal) return { text: refusal };
 	const { editor } = ctx;
 
 	switch (name) {
@@ -328,6 +333,7 @@ export async function executeTool(
 					text: "Could not render a frame — the preview compositor isn't running (no project open, or the GPU isn't available here). Judge from get_timeline instead, and say you could not look.",
 				};
 			}
+			if (frame.includesVideo) markFrameSeen();
 			const videoLine = frame.includesVideo
 				? `The ${frame.trace.videoDetail} video frame is underneath the overlays on a private canvas.`
 				: `The video frame was not composited (${frame.trace.videoDetail}). This still is overlays only.`;
@@ -348,6 +354,7 @@ export async function executeTool(
 				};
 			}
 			const withVideo = frames.filter((frame) => frame.includesVideo).length;
+			if (withVideo > 0) markFrameSeen();
 			const videoLine =
 				withVideo === frames.length
 					? "Each still composites the proxy video frame under the overlays and motion templates."
@@ -460,8 +467,18 @@ export async function executeTool(
 				return { text: `Could not generate captions: ${msg}` };
 			}
 			if (!result) return { text: "Could not generate captions — transcription produced no usable speech." };
+			const clearance = await clearanceForTimes({
+				editor,
+				timeSeconds: captionSampleTimes({ editor }),
+				preferred: "bottom",
+			});
+			for (const caption of getAllCaptions({ editor })) {
+				const ref = { trackId: caption.trackId, elementId: caption.element.id };
+				setElementParam({ editor, ref, key: "highlightColor", value: LIME });
+				if (clearance.band) setElementParam({ editor, ref, key: "position", value: clearance.band });
+			}
 			return {
-				text: `Generated ${result.elementIds.length} caption segments on-device${language ? ` (language: ${language})` : ""} and added them to the timeline.`,
+				text: `Generated ${result.elementIds.length} caption segments on-device${language ? ` (language: ${language})` : ""} and added them to the timeline. Spoken-word highlight is lime ${LIME}. ${clearance.note}`,
 			};
 		}
 
@@ -490,13 +507,21 @@ export async function executeTool(
 			if (!ref) return { text: `Could not add text overlay "${content}".` };
 			// insertTextElement moves the title later when every text lane is
 			// busy at the playhead, so report where it really landed.
+			const color = accentColorForText({ content });
+			setElementParam({ editor, ref, key: "color", value: color });
 			const placed = getElement({ editor, ref });
 			const at = placed ? mediaTimeToSeconds({ time: placed.startTime }) : playhead;
+			const clearance = await clearanceForTimes({ editor, timeSeconds: [at], preferred: "center" });
+			if (clearance.positionY !== null) {
+				setElementParam({ editor, ref, key: "transform.positionY", value: clearance.positionY });
+			}
 			const moved =
 				Math.abs(at - playhead) > 0.01
 					? ` — after the existing text, because every text lane was busy at the playhead (${playhead.toFixed(2)}s)`
 					: "";
-			return { text: `Added text overlay "${content}" at ${at.toFixed(2)}s${moved} (clip id ${ref.elementId}).` };
+			return {
+				text: `Added text overlay "${content}" at ${at.toFixed(2)}s${moved} (clip id ${ref.elementId}). Colour ${color}. ${clearance.note}`,
+			};
 		}
 
 		case "apply_motion_template": {
@@ -667,7 +692,10 @@ export async function executeTool(
 			const size = ASPECT_PRESETS[preset];
 			if (!size) return { text: `Error: unsupported preset "${preset}". Use 9:16, 16:9, 1:1 or 4:5.` };
 			setProjectResolution({ editor, canvasSize: size });
-			return { text: `Canvas set to ${preset} (${size.width}x${size.height}).` };
+			const music = musicBedRefusal({ width: size.width, height: size.height });
+			return {
+				text: `Canvas set to ${preset} (${size.width}x${size.height}).${music ? ` ${music}` : ""}`,
+			};
 		}
 
 		case "trim_clip": {

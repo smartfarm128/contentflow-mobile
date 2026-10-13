@@ -80,7 +80,7 @@ You can SEE the video. Use that.
 ## Voiceover
 - add_voiceover renders on-device, offline and free. Use it for intros, explainers, or missing narration.
 - Write for the ear: short sentences, contractions, one idea per line.
-- When narration plays over music, duck the music with set_clip_volume (-12 to -18 dB).
+- When narration plays over a long-form music bed, duck that bed with set_clip_volume (-12 to -18 dB). A reel has no music bed. Do not add one.
 
 ## Trim, move, transition, transform, export
 - trim_clip sets a new start or end on the timeline. boundary_seconds is the edge's new time, not how many seconds to remove.

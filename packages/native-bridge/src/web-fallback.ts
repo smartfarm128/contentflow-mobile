@@ -27,6 +27,7 @@ import type {
 	SpeakOptions,
 	SpeechResult,
 	SpeechVoice,
+	FaceScan,
 	ThumbnailStrip,
 	ThumbnailStripSpec,
 	TranscribeOptions,
@@ -233,6 +234,16 @@ export function createWebFallbackBridge(): NativeBridge {
 				message:
 					"Reading a video frame requires a native shell (AVAssetImageGenerator / MediaMetadataRetriever). Not available in the web-fallback bridge.",
 			});
+		},
+
+		async detectFaces(): Promise<FaceScan> {
+			return {
+				available: false,
+				width: 0,
+				height: 0,
+				faces: [],
+				warning: "Face detection needs the iOS or Android app (Vision or ML Kit).",
+			};
 		},
 
 		/**

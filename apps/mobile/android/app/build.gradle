@@ -125,6 +125,9 @@ dependencies {
     implementation "androidx.media3:media3-transformer:$media3Version"
     implementation "androidx.media3:media3-common:$media3Version"
     implementation "androidx.media3:media3-effect:$media3Version"
+    // On-device face boxes for the playbook rule "no text over a face".
+    // The bundled model needs no API key and no download.
+    implementation "com.google.mlkit:face-detection:16.1.7"
     testImplementation "junit:junit:$junitVersion"
     // kneecap M9 — see variables.gradle's orgJsonVersion doc comment.
     testImplementation "org.json:json:$orgJsonVersion"

@@ -47,6 +47,22 @@ export interface CapturedFrame {
 	trace: FrameCaptureTrace;
 }
 
+export function timelineVideoAt({
+	editor,
+	timeSeconds,
+}: {
+	editor: EditorCore;
+	timeSeconds: number;
+}): { path: string; sourceSeconds: number } | null {
+	const located = videoAt({
+		tracks: editor.scenes.getActiveScene().tracks,
+		mediaAssets: editor.media.getAssets(),
+		timeSeconds,
+	});
+	if (!located) return null;
+	return { path: located.path, sourceSeconds: located.sourceSeconds };
+}
+
 function videoAt({
 	tracks,
 	mediaAssets,
