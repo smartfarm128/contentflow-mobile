@@ -318,7 +318,13 @@ function importFailureKind(message: string): "stalled" | "failed" {
 	return /timed out|no progress/.test(message) ? "stalled" : "failed";
 }
 
-function logImportStall(step: string, fileName?: string): void {
+function logImportStall({
+	step,
+	fileName,
+}: {
+	step: string;
+	fileName?: string;
+}): void {
 	console.error(
 		fileName
 			? `[import] stalled at ${step} file=${fileName}`
@@ -339,7 +345,7 @@ export function withImportStepTimeout<T>({
 }): Promise<T> {
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
-			logImportStall(step, fileName);
+			logImportStall({ step, fileName });
 			reject(
 				new Error(
 					formatImportFailure({
@@ -415,7 +421,7 @@ export async function drainProxyEvents({
 			const outcome = await Promise.race([pending, timeout]);
 			if (timer !== undefined) clearTimeout(timer);
 			if (outcome.kind === "timeout") {
-				logImportStall(step, fileName);
+				logImportStall({ step, fileName });
 				release();
 				throw new Error(
 					formatImportFailure({
