@@ -20,6 +20,9 @@
  *   #/autotest/director-export (or `<mediaRoot>/autotest-director-export.flag`,
  *                    plus the same NVIDIA_API_KEY file)
  *                    -> one Director turn that trims and exports.
+ *   #/autotest/playbook-director (or `<mediaRoot>/autotest-playbook-director.flag`,
+ *                    plus the same NVIDIA_API_KEY file)
+ *                    -> one Director turn checked for lime text, no music, and faces.
  *
  * Both are dynamic imports so the diagnostics path stays out of the
  * editor's startup graph and vice versa. A hash flip between modes does a

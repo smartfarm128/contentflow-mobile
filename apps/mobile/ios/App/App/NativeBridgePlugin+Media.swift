@@ -1,8 +1,10 @@
 import AVFoundation
 import Foundation
 import Capacitor
+import ImageIO
 import PhotosUI
 import UniformTypeIdentifiers
+import Vision
 
 /// kneecap M4 — the native half of `NativeBridge.pickMedia()` and
 /// `NativeBridge.generateProxy()` (packages/native-bridge/src/capacitor-bridge.ts).
@@ -776,6 +778,58 @@ extension NativeBridgePlugin {
                 ])
             } catch {
                 call.reject("grabVideoFrame failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Face rectangles in one upright frame. Boxes are normalised with a
+    /// top-left origin. Vision's own boxes are bottom-left, so y is flipped.
+    /// No network and no API key — this is on-device Vision.
+    @objc func detectFaces(_ call: CAPPluginCall) {
+        guard let raw = call.getString("path"), !raw.isEmpty else {
+            call.reject("detectFaces requires path")
+            return
+        }
+        let timeSeconds = call.getDouble("timeSeconds") ?? 0
+        let path = Self.filesystemPath(from: raw)
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            call.reject("detectFaces file missing at \(url.path)")
+            return
+        }
+        Task {
+            do {
+                let grabbed = try await ThumbnailStripGenerator.grabFrame(
+                    sourceURL: url,
+                    timeSeconds: timeSeconds,
+                    maxEdge: 768
+                )
+                guard let data = Data(base64Encoded: grabbed.base64),
+                      let source = CGImageSourceCreateWithData(data as CFData, nil),
+                      let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                    call.reject("detectFaces could not read the frame")
+                    return
+                }
+                let request = VNDetectFaceRectanglesRequest()
+                let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
+                try handler.perform([request])
+                let faces: [[String: Double]] = (request.results ?? []).map { observation in
+                    let box = observation.boundingBox
+                    return [
+                        "x": Double(box.origin.x),
+                        "y": Double(1 - box.origin.y - box.height),
+                        "width": Double(box.width),
+                        "height": Double(box.height),
+                    ]
+                }
+                call.resolve([
+                    "available": true,
+                    "width": grabbed.width,
+                    "height": grabbed.height,
+                    "faces": faces,
+                ])
+            } catch {
+                call.reject("detectFaces failed: \(error.localizedDescription)")
             }
         }
     }

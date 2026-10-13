@@ -95,6 +95,11 @@
  *      180s because one decode session runs at a time. The phase flag is
  *      deleted first. The verdict is `VERDICT phase=double-import`.
  *
+ *  13. PLAYBOOK-DIRECTOR phase (`#/autotest/playbook-director`, or
+ *      `<mediaRoot>/autotest-playbook-director.flag`): same key file. With
+ *      no key the verdict is SKIP. One NVIDIA turn must add the lime title
+ *      "AI for real work", add no music, and report a face check.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -2894,6 +2899,137 @@ async function runDoubleImport({
 	}
 }
 
+function audioClipCount(editor: EditorCore): number {
+	return editor.scenes.getActiveScene().tracks.audio.reduce((sum, track) => sum + track.elements.length, 0);
+}
+
+function limeTitles(editor: EditorCore): number {
+	let count = 0;
+	for (const track of editor.scenes.getActiveScene().tracks.overlay) {
+		if (track.type !== "text") continue;
+		for (const element of track.elements) {
+			const color = element.params.color;
+			const content = element.params.content;
+			if (color === "#D8F34A" && typeof content === "string" && content.includes("AI for real work")) count += 1;
+		}
+	}
+	return count;
+}
+
+/**
+ * One Director turn on a reel. The title must be lime, no audio may be
+ * added, and the tool result must say what the face check found.
+ */
+async function runPlaybookDirector({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "playbook-director", watchdogMs: 420_000 });
+	let step = "read NVIDIA_API_KEY";
+	try {
+		const apiKey = (await readSandboxText({ root, name: "NVIDIA_API_KEY" })).split(/\s+/)[0] ?? "";
+		if (!apiKey) {
+			if (guard.claim()) log("VERDICT phase=playbook-director SKIP no NVIDIA_API_KEY");
+			return;
+		}
+		step = "unlock vault";
+		useVaultStore.setState({
+			isConfigured: true,
+			isUnlocked: true,
+			keys: { nvidia: apiKey },
+			activePin: null,
+			error: null,
+		});
+		useAIDirectorStore.getState().setSelectedProvider("nvidia");
+		useAIDirectorStore.setState({ messages: [], isStreaming: false, pendingPlan: null });
+
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: "Autotest Playbook" });
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => proxyPlantedMedia({ bridge, params }),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			throw new Error(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+		}
+		const video = imported[0];
+		if (!video) throw new Error("import returned no video");
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+		const clipId = editor.scenes.getActiveScene().tracks.main.elements[0]?.id ?? "";
+		if (!clipId) throw new Error("planted video did not land on the main track");
+		const audioBefore = audioClipCount(editor);
+
+		step = "director turn";
+		log("step:", step);
+		const reply = await askAIDirector(
+			`The main track has one clip, id ${clipId}. This is a TikTok reel. Call render_frame at 1 second. Then call add_text with content exactly "AI for real work". Do not add music, a music bed, or any audio. Do not call export_video, propose_plan, trim_clip, or any other tools.`,
+			{ editor },
+		);
+		const failedReply =
+			reply.startsWith("Couldn't reach") ||
+			reply.startsWith("NVIDIA timed out") ||
+			reply.startsWith("NVIDIA never answered") ||
+			reply.startsWith("NVIDIA rejected") ||
+			reply.startsWith("No NVIDIA") ||
+			reply.startsWith("The Key Vault");
+		if (failedReply) throw new Error(reply);
+		const tools = useAIDirectorStore.getState().messages.filter((message) => message.toolName);
+		for (const message of tools) log(`tool ${message.toolName}: ${message.content.replace(/\s+/g, " ").slice(0, 200)}`);
+		const title = tools.find((message) => message.toolName === "add_text");
+		if (!title?.content.startsWith("Added text overlay")) {
+			throw new Error(`add_text did not run (${title?.content ?? reply})`);
+		}
+		if (!title.content.includes("#D8F34A")) throw new Error(`title was not lime (${title.content})`);
+		if (!/face/i.test(title.content)) throw new Error(`face check missing (${title.content})`);
+		if (limeTitles(editor) < 1) throw new Error("timeline has no lime title");
+		const audioAfter = audioClipCount(editor);
+		if (audioAfter !== audioBefore) throw new Error(`music bed landed on the reel (audio clips ${audioBefore} -> ${audioAfter})`);
+		if (/\b(added|placed|mixed) (a |the )?(music bed|music|song)\b/i.test(reply) && !/\b(did not|didn't|no music)\b/i.test(reply)) {
+			throw new Error(`reply claims a music bed (${reply.slice(0, 180)})`);
+		}
+		const model = useAIDirectorStore.getState().selectedModel;
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=playbook-director PASS model=${model} lime=#D8F34A music=none faces=checked titles=${limeTitles(editor)}`,
+			);
+		}
+	} catch (error) {
+		guard.note(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+		);
+		if (error instanceof Error && error.stack) log(error.stack);
+	} finally {
+		guard.close();
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -3013,6 +3149,22 @@ export async function mountAutotest(): Promise<void> {
 			names: ["autotest-director-export.flag", "autotest.flag"],
 		});
 		await runDirectorExport({ editor, root });
+		return;
+	}
+
+	let playbookDirector = window.location.hash.includes("playbook-director");
+	try {
+		const playbookFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-playbook-director.flag`));
+		if (playbookFlag.ok || playbookFlag.status === 0) playbookDirector = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (playbookDirector) {
+		log("phase: playbook-director");
+		await clearAutotestFlags({
+			names: ["autotest-playbook-director.flag", "autotest.flag"],
+		});
+		await runPlaybookDirector({ editor, root });
 		return;
 	}
 

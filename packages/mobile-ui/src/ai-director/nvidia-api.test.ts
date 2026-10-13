@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { NVIDIA_DEFAULT_MODEL, NVIDIA_FAST_MODEL } from "./director-models";
-import { NVIDIA_API_BASE, fetchNvidiaToolModels, validateNvidiaApiKey } from "./nvidia-api";
+import { AI_TOOLS } from "./ai-tools";
+import { NVIDIA_API_BASE, fetchNvidiaToolModels, nvidiaToolSchemaProblems, validateNvidiaApiKey } from "./nvidia-api";
 
 const ORIGINAL_FETCH = globalThis.fetch;
 
@@ -112,5 +113,35 @@ describe("NVIDIA model catalog", () => {
 			NVIDIA_FAST_MODEL,
 			"nvidia/nemotron-3-super-120b-a12b",
 		]);
+	});
+});
+
+describe("NVIDIA tool schema", () => {
+	test("the Director tools stay inside the shapes NIM can compile", () => {
+		const tools = AI_TOOLS.map((tool) => ({
+			type: "function",
+			function: { name: tool.name, description: tool.description, parameters: tool.input_schema },
+		}));
+		expect(nvidiaToolSchemaProblems(tools)).toEqual([]);
+	});
+
+	test("anyOf and object additionalProperties are refused before send", () => {
+		const problems = nvidiaToolSchemaProblems([
+			{
+				type: "function",
+				function: {
+					name: "bad_tool",
+					parameters: {
+						type: "object",
+						properties: {
+							choice: { anyOf: [{ type: "string" }, { type: "number" }] },
+							meta: { additionalProperties: { type: "string" } },
+						},
+					},
+				},
+			},
+		]);
+		expect(problems).toContain("bad_tool.choice.anyOf");
+		expect(problems).toContain("bad_tool.meta.additionalProperties");
 	});
 });

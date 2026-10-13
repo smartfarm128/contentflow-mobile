@@ -94,6 +94,22 @@ export interface ImportRemoteMediaRequest {
 	body?: string;
 }
 
+/** One face, normalised 0..1, origin top-left. */
+export interface FaceBox {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+export interface FaceScan {
+	available: boolean;
+	width: number;
+	height: number;
+	faces: FaceBox[];
+	warning?: string;
+}
+
 /**
  * What native custody hands back after an import. `uri` is a native handle
  * (an app-sandbox path or a persisted `content://`/`ph://`-style URI) — NEVER
@@ -424,6 +440,12 @@ export interface NativeBridge {
 		timeSeconds: number;
 		maxEdge?: number;
 	}): Promise<{ jpegBase64: string; width: number; height: number }>;
+	/**
+	 * Face boxes in one video frame, normalised, origin top-left.
+	 * iOS: Vision. Android: ML Kit, model bundled in the app, no API key.
+	 * `available: false` when the platform cannot scan (web fallback).
+	 */
+	detectFaces(params: { path: string; timeSeconds: number }): Promise<FaceScan>;
 	transcribe(params: {
 		handle: MediaHandle;
 		opts: TranscribeOptions;

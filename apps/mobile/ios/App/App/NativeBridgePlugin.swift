@@ -95,6 +95,9 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // webview composites it under the overlay raster. See
         // NativeBridgePlugin+Media.swift.
         CAPPluginMethod(name: "grabVideoFrame", returnType: CAPPluginReturnPromise),
+        // Face boxes for the playbook rule "no text over a face". Vision,
+        // on device, no API key. See NativeBridgePlugin+Media.swift.
+        CAPPluginMethod(name: "detectFaces", returnType: CAPPluginReturnPromise),
         // M10 round 20: on-device captions via Apple Speech — see
         // NativeBridgePlugin+Transcribe.swift / NativeMedia/AppleSpeechTranscriber.swift.
         CAPPluginMethod(name: "transcribe", returnType: CAPPluginReturnPromise),

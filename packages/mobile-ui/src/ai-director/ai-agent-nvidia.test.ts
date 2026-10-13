@@ -101,6 +101,10 @@ describe("NVIDIA Director tool calling", () => {
 		expect(requests[0]?.url).toBe(`${NVIDIA_API_BASE}/chat/completions`);
 		expect(requests[0]?.body.model).toBe(NVIDIA_DEFAULT_MODEL);
 		expect(requests[0]?.body.tool_choice).toBe("auto");
+		expect(requests[0]?.body.chat_template_kwargs).toEqual({
+			enable_thinking: true,
+			force_nonempty_content: true,
+		});
 
 		const tools = requests[0]?.body.tools;
 		expect(Array.isArray(tools)).toBe(true);

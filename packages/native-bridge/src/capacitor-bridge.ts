@@ -87,6 +87,7 @@ import type {
 	DeviceCapabilities,
 	ExportOverlayFrame,
 	ExportProgress,
+	FaceScan,
 	MediaHandle,
 	MediaKind,
 	NativeBridge,
@@ -236,6 +237,16 @@ interface NativeBridgePluginSpec {
 		timeSeconds: number;
 		maxEdge?: number;
 	}): Promise<{ jpegBase64: string; width: number; height: number }>;
+	detectFaces(params: {
+		path: string;
+		timeSeconds: number;
+	}): Promise<{
+		available: boolean;
+		width: number;
+		height: number;
+		faces: Array<{ x: number; y: number; width: number; height: number }>;
+		warning?: string;
+	}>;
 	/** Plugin-private — NOT part of the public `NativeBridge` TS interface,
 	 * which expresses cancellation as the caller simply stopping iteration
 	 * of the `AsyncGenerator<ExportProgress>` `exportProject` returns. This
@@ -855,6 +866,48 @@ export function createCapacitorBridge({
 			} catch (err) {
 				if (err instanceof NativeBridgeError) throw err;
 				throw toNativeBridgeError({ err, method: "grabVideoFrame" });
+			}
+		},
+
+		async detectFaces({
+			path,
+			timeSeconds,
+		}: {
+			path: string;
+			timeSeconds: number;
+		}): Promise<FaceScan> {
+			const DETECT_TIMEOUT_MS = 12_000;
+			try {
+				const scan = await new Promise<FaceScan>((resolve, reject) => {
+					const timer = setTimeout(() => {
+						reject(
+							new NativeBridgeError({
+								code: "IO_ERROR",
+								message: `detectFaces timed out after ${DETECT_TIMEOUT_MS}ms; native did not answer`,
+							}),
+						);
+					}, DETECT_TIMEOUT_MS);
+					plugin.detectFaces({ path, timeSeconds }).then(
+						(value) => {
+							clearTimeout(timer);
+							resolve(value);
+						},
+						(err: unknown) => {
+							clearTimeout(timer);
+							reject(err);
+						},
+					);
+				});
+				return {
+					available: scan.available !== false,
+					width: scan.width ?? 0,
+					height: scan.height ?? 0,
+					faces: Array.isArray(scan.faces) ? scan.faces : [],
+					warning: scan.warning,
+				};
+			} catch (err) {
+				if (err instanceof NativeBridgeError) throw err;
+				throw toNativeBridgeError({ err, method: "detectFaces" });
 			}
 		},
 
