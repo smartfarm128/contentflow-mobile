@@ -111,6 +111,65 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Hosted Nemotron Ultra tool calls need both flags or the parser returns
+ * HTTP 500 while a no-tool chat still returns 200. Documented on the
+ * nemotron-3-ultra-550b model card (tool calls + reasoning parsing).
+ * Schema keywords below are the ones NIM's Outlines compiler 500s on
+ * instead of returning 400 (NVIDIA forums: "unhashable type: dict").
+ */
+export const NVIDIA_TOOL_TEMPLATE = {
+	enable_thinking: true,
+	force_nonempty_content: true,
+} as const;
+
+const NIM_SCHEMA_KEYS = ["anyOf", "oneOf", "allOf", "patternProperties"] as const;
+
+export function nvidiaToolSchemaProblems(tools: readonly unknown[]): string[] {
+	const problems: string[] = [];
+	tools.forEach((tool, index) => {
+		if (!isRecord(tool)) {
+			problems.push(`tools[${index}] is not an object`);
+			return;
+		}
+		const fn = isRecord(tool.function) ? tool.function : tool;
+		const name = typeof fn.name === "string" ? fn.name : `tools[${index}]`;
+		const parameters = isRecord(fn.parameters)
+			? fn.parameters
+			: isRecord(fn.input_schema)
+				? fn.input_schema
+				: null;
+		if (!parameters) {
+			problems.push(`${name} has no parameters schema`);
+			return;
+		}
+		walkNimSchema({ node: parameters, path: name, problems });
+	});
+	return problems;
+}
+
+function walkNimSchema({
+	node,
+	path,
+	problems,
+}: {
+	node: unknown;
+	path: string;
+	problems: string[];
+}): void {
+	if (!isRecord(node)) return;
+	for (const key of NIM_SCHEMA_KEYS) {
+		if (key in node) problems.push(`${path}.${key}`);
+	}
+	if (isRecord(node.additionalProperties)) problems.push(`${path}.additionalProperties`);
+	if (isRecord(node.properties)) {
+		for (const [key, value] of Object.entries(node.properties)) {
+			walkNimSchema({ node: value, path: `${path}.${key}`, problems });
+		}
+	}
+	if ("items" in node) walkNimSchema({ node: node.items, path: `${path}.items`, problems });
+}
+
 function readModelIds(data: unknown): string[] {
 	if (!isRecord(data) || !Array.isArray(data.data)) return [];
 	const ids: string[] = [];

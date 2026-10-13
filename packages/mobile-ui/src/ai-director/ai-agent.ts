@@ -23,9 +23,11 @@ import { transportFailureKind } from "@kneecap/native-bridge";
 import {
 	fetchNvidia,
 	NVIDIA_API_BASE,
+	NVIDIA_TOOL_TEMPLATE,
 	NvidiaNetworkError,
 	NvidiaTimeoutError,
 	nvidiaTimeouts,
+	nvidiaToolSchemaProblems,
 } from "./nvidia-api";
 import { AI_TOOLS } from "./ai-tools";
 import { executeTool, type ToolContext, type ToolOutcome } from "./ai-executors";
@@ -252,6 +254,13 @@ async function postNvidiaDirectorTurn({
 	apiKey: string;
 	history: ApiMessage[];
 }): Promise<{ response: Response; model: string; notice: string | null }> {
+	const tools = openAITools();
+	const schemaProblems = nvidiaToolSchemaProblems(tools);
+	if (schemaProblems.length > 0) {
+		throw new Error(
+			`NVIDIA tool schema is not sendable: ${schemaProblems.slice(0, 4).join("; ")}`,
+		);
+	}
 	const send = (modelId: string) =>
 		fetchNvidia({
 			path: "/chat/completions",
@@ -265,8 +274,9 @@ async function postNvidiaDirectorTurn({
 					model: modelId,
 					max_tokens: MAX_TOKENS,
 					messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
-					tools: openAITools(),
+					tools,
 					tool_choice: "auto",
+					chat_template_kwargs: NVIDIA_TOOL_TEMPLATE,
 				}),
 			},
 			timeoutMs: nvidiaTimeouts.requestMs,

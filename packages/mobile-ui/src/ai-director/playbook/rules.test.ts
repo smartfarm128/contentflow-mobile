@@ -121,6 +121,14 @@ describe("playbook prompt", () => {
 		expect(prompt).not.toContain("## Scripts");
 	});
 
+	test("a TikTok reel slice stays smaller than the prompt that 500'd", () => {
+		const request =
+			'The main track has one clip, id abc. This is a TikTok reel. Call render_frame at 1 second. Then call add_text with content exactly "AI for real work". Do not add music.';
+		const prompt = playbookPromptForRequest({ request });
+		expect(prompt.length).toBeLessThan(2_800);
+		expect(prompt).toContain("No music bed on a reel");
+	});
+
 	test("a script request includes the checklist and skips the reel default", () => {
 		const prompt = playbookPromptForRequest({ request: "write a script and a title" });
 		expect(prompt).toContain("## Scripts");
