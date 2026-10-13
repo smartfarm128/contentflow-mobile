@@ -2371,9 +2371,13 @@ function litPixelRatio(image: ImageData): number {
 	return count === 0 ? 0 : lit / count;
 }
 
-function exportUriFromToolText(text: string): string {
-	const match = /^Exported (\S+)/.exec(text);
-	return match?.[1]?.replace(/\.$/, "") ?? "";
+/** The tool text is `Exported ${uri}.` and the uri lives under
+ *  `Application Support`, so a non-whitespace match stops at the space and
+ *  fetch throws Load failed on a truncated path. */
+export function exportUriFromToolText(text: string): string {
+	const match = /^Exported (.+?)(?: Omissions:|$)/.exec(text);
+	const raw = match?.[1] ?? "";
+	return raw.replace(/\.$/, "");
 }
 
 /**

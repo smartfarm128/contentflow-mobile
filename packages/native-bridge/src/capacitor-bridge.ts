@@ -412,12 +412,91 @@ function fromWireMediaHandle(wire: WireMediaHandle): MediaHandle {
  * UrlSource retried the dead fetch forever. Android already returns
  * `file:///...` (`Uri.fromFile(...).toString()`), so the prefix is a
  * no-op there.
+ *
+ * iOS playback is then forced to `capacitor://localhost/_capacitor_file_`.
+ * `convertFileSrc` copies `server.hostname`, and a shared Android hostname
+ * produced `capacitor://appassets.androidplatform.net/_capacitor_file_/...`,
+ * which WKWebView would not load (director-export, 2026-10-13). Path
+ * segments are percent-encoded so the space in `Application Support` stays
+ * inside the URL.
  */
+const IOS_PLAYBACK_ORIGIN = "capacitor://localhost";
+const CAPACITOR_FILE_MARKER = "/_capacitor_file_";
+const ANDROID_ASSET_HOST = "appassets.androidplatform.net";
+
+export function playbackUriFromConverted({
+	nativeUri,
+	platform,
+	converted,
+}: {
+	nativeUri: string;
+	platform: string;
+	converted: string;
+}): string {
+	const normalized = nativeUri.startsWith("/") ? `file://${nativeUri}` : nativeUri;
+	if (platform === "ios") return iosPlaybackUri(normalized);
+	if (platform === "android" || converted.includes(ANDROID_ASSET_HOST)) {
+		return encodeCapacitorFileUrl(converted);
+	}
+	return converted;
+}
+
 function toPlaybackUri(nativeUri: string): string {
-	const normalized = nativeUri.startsWith("/")
-		? `file://${nativeUri}`
-		: nativeUri;
-	return Capacitor.convertFileSrc(normalized);
+	const normalized = nativeUri.startsWith("/") ? `file://${nativeUri}` : nativeUri;
+	return playbackUriFromConverted({
+		nativeUri: normalized,
+		platform: Capacitor.getPlatform(),
+		converted: Capacitor.convertFileSrc(normalized),
+	});
+}
+
+function iosPlaybackUri(fileUri: string): string {
+	const path = filesystemPath(fileUri);
+	return `${IOS_PLAYBACK_ORIGIN}${CAPACITOR_FILE_MARKER}${encodePath(path)}`;
+}
+
+function filesystemPath(fileUri: string): string {
+	if (fileUri.startsWith("file://")) {
+		try {
+			// Bun's URL.pathname keeps `%20`. Decode once so encodePath
+			// does not turn that into `%2520`.
+			return decodeURIComponent(new URL(fileUri).pathname);
+		} catch {
+			return fileUri.slice("file://".length);
+		}
+	}
+	const markerAt = fileUri.indexOf(CAPACITOR_FILE_MARKER);
+	if (markerAt !== -1) {
+		const rest = fileUri.slice(markerAt + CAPACITOR_FILE_MARKER.length);
+		try {
+			return decodeURIComponent(rest);
+		} catch {
+			return rest;
+		}
+	}
+	return fileUri.startsWith("/") ? fileUri : `/${fileUri}`;
+}
+
+function encodePath(path: string): string {
+	const withSlash = path.startsWith("/") ? path : `/${path}`;
+	return withSlash
+		.split("/")
+		.map((segment) => encodeURIComponent(segment))
+		.join("/");
+}
+
+function encodeCapacitorFileUrl(url: string): string {
+	const markerAt = url.indexOf(CAPACITOR_FILE_MARKER);
+	if (markerAt === -1) return url;
+	const prefix = url.slice(0, markerAt);
+	const rest = url.slice(markerAt + CAPACITOR_FILE_MARKER.length);
+	let path = rest;
+	try {
+		path = decodeURIComponent(rest);
+	} catch {
+		path = rest;
+	}
+	return `${prefix}${CAPACITOR_FILE_MARKER}${encodePath(path)}`;
 }
 
 /**

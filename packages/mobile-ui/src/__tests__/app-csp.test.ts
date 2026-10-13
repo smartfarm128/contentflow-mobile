@@ -39,6 +39,9 @@ const REQUIRED: Array<{ directive: string; origin: string; usedBy: string }> = [
 	// Downloaded stock media and ElevenLabs voiceovers become object URLs.
 	{ directive: "img-src", origin: "blob:", usedBy: "stock photos on the timeline" },
 	{ directive: "connect-src", origin: "blob:", usedBy: "object-URL media reads" },
+	{ directive: "connect-src", origin: "capacitor://localhost", usedBy: "iOS export and proxy fetch" },
+	{ directive: "img-src", origin: "capacitor://localhost", usedBy: "iOS thumbnail images" },
+	{ directive: "default-src", origin: "capacitor://localhost", usedBy: "iOS video playback" },
 ];
 
 describe("apps/mobile CSP", () => {

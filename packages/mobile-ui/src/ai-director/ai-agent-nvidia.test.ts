@@ -3,7 +3,7 @@ import { askAIDirector } from "./ai-agent";
 import { AI_TOOLS } from "./ai-tools";
 import { useAIDirectorStore } from "./ai-store";
 import { NVIDIA_API_BASE, NVIDIA_REQUEST_TIMEOUT_MS, nvidiaTimeouts } from "./nvidia-api";
-import { NVIDIA_DEFAULT_MODEL, resetNvidiaCatalog } from "./director-models";
+import { NVIDIA_DEFAULT_MODEL, NVIDIA_FAST_MODEL, resetNvidiaCatalog } from "./director-models";
 import type { ToolContext } from "./ai-executors";
 import { resetVaultStorage } from "../vault/crypto-vault";
 import { eraseLegacyPlaintextKeys, getActiveNvidiaKey, useVaultStore } from "../vault/vault-store";
@@ -53,6 +53,7 @@ beforeEach(() => {
 afterEach(() => {
 	globalThis.fetch = ORIGINAL_FETCH;
 	nvidiaTimeouts.requestMs = NVIDIA_REQUEST_TIMEOUT_MS;
+	nvidiaTimeouts.retryBackoffMs = 2_000;
 	disarmIdleTimer();
 	useVaultStore.getState().lock();
 });
@@ -171,5 +172,72 @@ describe("NVIDIA Director tool calling", () => {
 		expect(reply).not.toContain("network or CORS");
 		expect(reply).not.toContain("timed out");
 		expect(useAIDirectorStore.getState().isStreaming).toBe(false);
+	});
+
+	it("retries one NVIDIA 5xx and stays on the same model when the retry works", async () => {
+		await useVaultStore.getState().setupVault("2468", { nvidia: "nvapi-test" });
+		disarmIdleTimer();
+		nvidiaTimeouts.retryBackoffMs = 0;
+		const models: string[] = [];
+		const fetchMock = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+			const parsed: unknown = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
+			models.push(isRecord(parsed) && typeof parsed.model === "string" ? parsed.model : "");
+			if (models.length === 1) return new Response("Internal Server Error", { status: 500 });
+			return jsonResponse({
+				choices: [{ finish_reason: "stop", message: { role: "assistant", content: "Recovered." } }],
+			});
+		};
+		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
+
+		const reply = await askAIDirector("Say ready", context);
+		expect(reply).toContain("Recovered.");
+		expect(models).toEqual([NVIDIA_DEFAULT_MODEL, NVIDIA_DEFAULT_MODEL]);
+		const notice = useAIDirectorStore.getState().messages.some((message) => message.content.includes("Switching this run"));
+		expect(notice).toBe(false);
+	});
+
+	it("falls back to gpt-oss-20b when the NVIDIA retry is also a 5xx", async () => {
+		await useVaultStore.getState().setupVault("2468", { nvidia: "nvapi-test" });
+		disarmIdleTimer();
+		nvidiaTimeouts.retryBackoffMs = 0;
+		const models: string[] = [];
+		const fetchMock = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+			const parsed: unknown = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
+			models.push(isRecord(parsed) && typeof parsed.model === "string" ? parsed.model : "");
+			if (models.length < 3) return new Response("Internal Server Error", { status: 500 });
+			return jsonResponse({
+				choices: [{ finish_reason: "stop", message: { role: "assistant", content: "Fast model ready." } }],
+			});
+		};
+		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
+
+		const reply = await askAIDirector("Say ready", context);
+		expect(reply).toContain("Fast model ready.");
+		expect(models).toEqual([NVIDIA_DEFAULT_MODEL, NVIDIA_DEFAULT_MODEL, NVIDIA_FAST_MODEL]);
+		const notice = useAIDirectorStore
+			.getState()
+			.messages.find((message) => message.content.includes("Switching this run"));
+		expect(notice?.content).toContain(NVIDIA_FAST_MODEL);
+		expect(notice?.content).toContain("500");
+		expect(notice?.local).toBe(true);
+	});
+
+	it("does not fall back a second time when gpt-oss-20b also returns 5xx", async () => {
+		await useVaultStore.getState().setupVault("2468", { nvidia: "nvapi-test" });
+		disarmIdleTimer();
+		nvidiaTimeouts.retryBackoffMs = 0;
+		useAIDirectorStore.setState({ selectedModel: NVIDIA_FAST_MODEL });
+		let calls = 0;
+		const fetchMock = async (): Promise<Response> => {
+			calls += 1;
+			return new Response("Internal Server Error", { status: 502 });
+		};
+		globalThis.fetch = Object.assign(fetchMock, { preconnect: ORIGINAL_FETCH.preconnect });
+
+		const reply = await askAIDirector("Say ready", context);
+		expect(calls).toBe(2);
+		expect(reply).toContain("NVIDIA API 502");
+		const notice = useAIDirectorStore.getState().messages.some((message) => message.content.includes("Switching this run"));
+		expect(notice).toBe(false);
 	});
 });

@@ -22,10 +22,12 @@ export const NVIDIA_REQUEST_TIMEOUT_MS = 180_000;
 /** The save-time key check uses the fast model, so it does not wait on Ultra. */
 export const NVIDIA_KEY_CHECK_TIMEOUT_MS = 45_000;
 
-/** Tests lower `requestMs` so a hung fetch fails immediately. Production stays at 3 minutes. */
+/** Tests lower `requestMs` so a hung fetch fails immediately. Production stays at 3 minutes.
+ *  `retryBackoffMs` is the pause before the one automatic retry of a 5xx Director turn. */
 export const nvidiaTimeouts = {
 	requestMs: NVIDIA_REQUEST_TIMEOUT_MS,
 	keyCheckMs: NVIDIA_KEY_CHECK_TIMEOUT_MS,
+	retryBackoffMs: 2_000,
 };
 
 export class NvidiaTimeoutError extends Error {

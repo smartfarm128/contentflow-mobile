@@ -13,7 +13,12 @@
  * both; response parsing adapts to each provider's envelope.
  */
 import { useAIDirectorStore } from "./ai-store";
-import { modelForRequest, providerLabel, type AIProvider } from "./director-models";
+import {
+	NVIDIA_FAST_MODEL,
+	modelForRequest,
+	providerLabel,
+	type AIProvider,
+} from "./director-models";
 import { transportFailureKind } from "@kneecap/native-bridge";
 import {
 	fetchNvidia,
@@ -189,6 +194,63 @@ export async function executeApprovedPlan(context: ExecutionContext): Promise<st
 /*  Agent loop                                                          */
 /* ------------------------------------------------------------------ */
 
+function isNvidiaServerError(status: number): boolean {
+	return status >= 500 && status <= 599;
+}
+
+function waitForNvidiaRetry(): Promise<void> {
+	const ms = nvidiaTimeouts.retryBackoffMs;
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
+
+/** One NVIDIA Director turn. A 5xx is retried once after a short pause.
+ *  If that retry is also a 5xx, the rest of the run uses gpt-oss-20b. */
+async function postNvidiaDirectorTurn({
+	model,
+	apiKey,
+	history,
+}: {
+	model: string;
+	apiKey: string;
+	history: ApiMessage[];
+}): Promise<{ response: Response; model: string; notice: string | null }> {
+	const send = (modelId: string) =>
+		fetchNvidia({
+			path: "/chat/completions",
+			init: {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+				},
+				body: JSON.stringify({
+					model: modelId,
+					max_tokens: MAX_TOKENS,
+					messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
+					tools: openAITools(),
+					tool_choice: "auto",
+				}),
+			},
+			timeoutMs: nvidiaTimeouts.requestMs,
+		});
+
+	let response = await send(model);
+	if (!isNvidiaServerError(response.status)) return { response, model, notice: null };
+
+	const firstStatus = response.status;
+	await waitForNvidiaRetry();
+	response = await send(model);
+	if (!isNvidiaServerError(response.status)) return { response, model, notice: null };
+	if (model === NVIDIA_FAST_MODEL) return { response, model, notice: null };
+
+	const notice = `NVIDIA returned ${firstStatus} from ${model}, then ${response.status} after a retry. Switching this run to ${NVIDIA_FAST_MODEL}.`;
+	response = await send(NVIDIA_FAST_MODEL);
+	return { response, model: NVIDIA_FAST_MODEL, notice };
+}
+
 async function driveAgentLoop({
 	history,
 	context,
@@ -207,14 +269,14 @@ async function driveAgentLoop({
 	// vault while this function is awaiting the network; this snapshot is what
 	// those later turns send.
 	const provider: AIProvider = store.selectedProvider || "anthropic";
-	const model = modelForRequest({ provider, model: store.selectedModel });
+	let requestModel = modelForRequest({ provider, model: store.selectedModel });
 	const apiKey = directorKey(provider);
 	const openAI = openAIRoute(provider);
 
 	try {
 		for (let turn = 0; turn < MAX_TURNS; turn++) {
 			const openAIBody = JSON.stringify({
-				model,
+				model: requestModel,
 				max_tokens: MAX_TOKENS,
 				messages: [{ role: "system", content: buildSystemPrompt() }, ...toOpenAIMessages(history)],
 				tools: openAITools(),
@@ -231,16 +293,24 @@ async function driveAgentLoop({
 			// NVIDIA has no CORS headers for capacitor://localhost, so that
 			// branch uses native HTTP. Anselabs and Anthropic send
 			// Access-Control-Allow-Origin: * (probed 2026-10-13), including
-			// Anthropic's browser-access header below.
-			const res = provider === "nvidia"
-				? await fetchNvidia({
-					path: "/chat/completions",
-					init: openAIInit,
-					timeoutMs: nvidiaTimeouts.requestMs,
-				})
-				: openAI
-				? await fetch(`${openAI.base}/chat/completions`, openAIInit)
-				: await fetch("https://api.anthropic.com/v1/messages", {
+			// Anthropic's browser-access header below. A 5xx from NVIDIA is
+			// retried once, then this run switches to the fast model.
+			let res: Response;
+			if (provider === "nvidia") {
+				const nvidiaTurn = await postNvidiaDirectorTurn({
+					model: requestModel,
+					apiKey,
+					history,
+				});
+				if (nvidiaTurn.notice) {
+					store.addMessage({ role: "assistant", content: nvidiaTurn.notice, local: true });
+				}
+				requestModel = nvidiaTurn.model;
+				res = nvidiaTurn.response;
+			} else if (openAI) {
+				res = await fetch(`${openAI.base}/chat/completions`, openAIInit);
+			} else {
+				res = await fetch("https://api.anthropic.com/v1/messages", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
@@ -249,13 +319,14 @@ async function driveAgentLoop({
 						"anthropic-dangerous-direct-browser-access": "true",
 					},
 					body: JSON.stringify({
-						model,
+						model: requestModel,
 						max_tokens: MAX_TOKENS,
 						system: buildSystemPrompt(),
 						tools: AI_TOOLS,
 						messages: history,
 					}),
 				});
+			}
 
 			if (!res.ok) {
 				const body = await res.text();

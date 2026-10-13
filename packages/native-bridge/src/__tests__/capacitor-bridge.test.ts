@@ -17,6 +17,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
 	createCapacitorBridge,
 	mapNativeTranscribeResult,
+	playbackUriFromConverted,
 } from "../capacitor-bridge";
 import { NativeBridgeError } from "../types";
 import type {
@@ -125,6 +126,37 @@ describe("createCapacitorBridge (production path, real @capacitor/core, no nativ
 		// Already-schemed URIs (Android's Uri.fromFile output) pass through.
 		expect(bridge.toPlaybackUri("file:///data/user/0/x/proxy.mp4")).toBe(
 			"file:///data/user/0/x/proxy.mp4",
+		);
+	});
+
+	test("iOS playback uses capacitor://localhost and encodes Application Support", () => {
+		const native =
+			"/Users/example/Library/Application Support/kneecap/Exports/out.mp4";
+		const androidHostUrl =
+			"capacitor://appassets.androidplatform.net/_capacitor_file_" + native;
+		const uri = playbackUriFromConverted({
+			nativeUri: native,
+			platform: "ios",
+			converted: androidHostUrl,
+		});
+		expect(uri).toBe(
+			"capacitor://localhost/_capacitor_file_/Users/example/Library/Application%20Support/kneecap/Exports/out.mp4",
+		);
+		expect(uri).not.toContain("appassets.androidplatform.net");
+		expect(uri).not.toContain(" ");
+	});
+
+	test("Android playback keeps the asset host and encodes spaces", () => {
+		const converted =
+			"https://appassets.androidplatform.net/_capacitor_file_/data/user/0/Application Support/export.mp4";
+		expect(
+			playbackUriFromConverted({
+				nativeUri: "file:///data/user/0/Application Support/export.mp4",
+				platform: "android",
+				converted,
+			}),
+		).toBe(
+			"https://appassets.androidplatform.net/_capacitor_file_/data/user/0/Application%20Support/export.mp4",
 		);
 	});
 
