@@ -17,6 +17,9 @@
  *   #/autotest/nvidia-director (or `<mediaRoot>/autotest-nvidia-director.flag`,
  *                    plus a one-line `<mediaRoot>/NVIDIA_API_KEY`)
  *                    -> one AI Director turn through NVIDIA.
+ *   #/autotest/director-export (or `<mediaRoot>/autotest-director-export.flag`,
+ *                    plus the same NVIDIA_API_KEY file)
+ *                    -> one Director turn that trims and exports.
  *
  * Both are dynamic imports so the diagnostics path stays out of the
  * editor's startup graph and vice versa. A hash flip between modes does a

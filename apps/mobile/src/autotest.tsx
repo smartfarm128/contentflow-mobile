@@ -73,6 +73,14 @@
  *      Ultra can use most of the 180s request timeout, so this phase waits
  *      300s before its watchdog. The phase flag is deleted first.
  *
+ *  11. DIRECTOR-EXPORT phase (`#/autotest/director-export`, or
+ *      `<mediaRoot>/autotest-director-export.flag`): same key file. With no
+ *      key the verdict is SKIP. With a key, the planted mp4 is imported and
+ *      one Director turn must trim it and call export_video. The output mp4
+ *      must exist, last about 4 seconds, and contain a non-black frame.
+ *      Ultra plus the encode can use most of 12 minutes, so the watchdog is
+ *      720s. The phase flag is deleted first.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -132,6 +140,24 @@ const log = (...args: unknown[]) => console.error("[autotest]", ...args);
 /** Matches the clip the runner plants (ffmpeg testsrc2 1280x720@30, 6s,
  *  h264 + aac). generateProxy's native side probes the real file for
  *  everything that matters; these fields are the wire contract's metadata. */
+function proxyPlantedMedia({
+	bridge,
+	params,
+}: {
+	bridge: { generateProxy: (args: {
+		handle: NativeMediaHandle & { rotationDegrees: 0 | 90 | 180 | 270 };
+		spec: { targetHeight: number; shortGop: boolean };
+	}) => ReturnType<NativeMediaSource["generateProxy"]> };
+	params: Parameters<NativeMediaSource["generateProxy"]>[0];
+}): ReturnType<NativeMediaSource["generateProxy"]> {
+	const rotation = params.handle.rotationDegrees;
+	const rotationDegrees = rotation === 90 || rotation === 180 || rotation === 270 ? rotation : 0;
+	return bridge.generateProxy({
+		handle: { ...params.handle, rotationDegrees },
+		spec: params.spec,
+	});
+}
+
 function plantedHandle(root: string): NativeMediaHandle {
 	const handle: NativeMediaHandle = {
 		id: "autotest-src",
@@ -2331,6 +2357,173 @@ async function runNvidiaDirector({ root }: { root: string }): Promise<void> {
 	}
 }
 
+function litPixelRatio(image: ImageData): number {
+	const data = image.data;
+	let lit = 0;
+	let count = 0;
+	for (let index = 0; index < data.length; index += 4) {
+		const red = data[index] ?? 0;
+		const green = data[index + 1] ?? 0;
+		const blue = data[index + 2] ?? 0;
+		count += 1;
+		if (red + green + blue > 40) lit += 1;
+	}
+	return count === 0 ? 0 : lit / count;
+}
+
+function exportUriFromToolText(text: string): string {
+	const match = /^Exported (\S+)/.exec(text);
+	return match?.[1]?.replace(/\.$/, "") ?? "";
+}
+
+/**
+ * One Director turn that trims the planted clip and exports it. The key
+ * stays in unlocked vault memory for this launch only.
+ */
+async function runDirectorExport({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "director-export", watchdogMs: 720_000 });
+	let step = "read NVIDIA_API_KEY";
+	try {
+		const apiKey = (await readSandboxText({ root, name: "NVIDIA_API_KEY" })).split(/\s+/)[0] ?? "";
+		if (!apiKey) {
+			if (guard.claim()) log("VERDICT phase=director-export SKIP no NVIDIA_API_KEY");
+			return;
+		}
+		step = "unlock vault";
+		useVaultStore.setState({
+			isConfigured: true,
+			isUnlocked: true,
+			keys: { nvidia: apiKey },
+			activePin: null,
+			error: null,
+		});
+		useAIDirectorStore.getState().setSelectedProvider("nvidia");
+		useAIDirectorStore.setState({ messages: [], isStreaming: false, pendingPlan: null });
+
+		step = "create project";
+		log("step:", step);
+		await editor.project.createNewProject({ name: "Autotest Director Export" });
+		const bridge = await getNativeBridge();
+		const source: NativeMediaSource = {
+			pickMedia: async () => [plantedHandle(root)],
+			generateProxy: (params) => proxyPlantedMedia({ bridge, params }),
+			toPlaybackUri: bridge.toPlaybackUri,
+			getMediaRoot: () => bridge.getMediaRoot(),
+		};
+		step = "import planted video";
+		log("step:", step);
+		const { imported, failed } = await importMediaFromNative({
+			editor,
+			projectId: editor.project.getActive().metadata.id,
+			source,
+			kinds: ["video"],
+			allowMultiple: false,
+		});
+		if (failed.length > 0 || imported.length !== 1) {
+			throw new Error(`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`);
+		}
+		const video = imported[0];
+		if (!video) throw new Error("import returned no video");
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: video.id,
+					mediaType: video.type,
+					name: video.name,
+					duration: mediaTimeFromSeconds({ seconds: video.duration || 6 }),
+					startTime: mediaTimeFromSeconds({ seconds: 0 }),
+				}),
+				placement: { mode: "auto", trackType: "video" },
+			}),
+		});
+		const clipId = editor.scenes.getActiveScene().tracks.main.elements[0]?.id ?? "";
+		if (!clipId) throw new Error("planted video did not land on the main track");
+		log("clip", clipId);
+
+		step = "director turn";
+		log("step:", step);
+		const reply = await askAIDirector(
+			`The main track has one clip, id ${clipId}. This is one clear request. Do not call propose_plan. Call trim_clip with clip_id ${clipId}, edge end, and boundary_seconds 4. Then call export_video with quality high. Do not call any other tools.`,
+			{ editor },
+		);
+		const failedReply =
+			reply.startsWith("Couldn't reach") ||
+			reply.startsWith("NVIDIA timed out") ||
+			reply.startsWith("NVIDIA never answered") ||
+			reply.startsWith("NVIDIA rejected") ||
+			reply.startsWith("No NVIDIA") ||
+			reply.startsWith("The Key Vault") ||
+			reply.startsWith("Could not export");
+		if (failedReply) throw new Error(reply);
+		const tools = useAIDirectorStore.getState().messages.filter((message) => message.toolName);
+		for (const message of tools) log(`tool ${message.toolName}: ${message.content.replace(/\s+/g, " ").slice(0, 180)}`);
+		const trim = tools.find((message) => message.toolName === "trim_clip");
+		if (!trim?.content.startsWith("Trimmed")) {
+			throw new Error(`trim_clip did not run (${trim?.content ?? reply})`);
+		}
+		const exported = tools.find((message) => message.toolName === "export_video");
+		if (!exported?.content.startsWith("Exported ")) {
+			throw new Error(`export_video did not run (${exported?.content ?? reply})`);
+		}
+		const outputUrl = exportUriFromToolText(exported.content);
+		if (!outputUrl) throw new Error(`export_video returned no file (${exported.content})`);
+
+		step = "read export";
+		log("step:", step, outputUrl);
+		let bytes: ArrayBuffer | null = null;
+		let lastFetchError = "";
+		for (let attempt = 0; attempt < 4; attempt++) {
+			try {
+				bytes = await fetch(outputUrl).then((response) => response.arrayBuffer());
+				break;
+			} catch (error) {
+				lastFetchError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+		if (!bytes) throw new Error(`output mp4 missing (${lastFetchError}) url=${outputUrl}`);
+		if (bytes.byteLength < 10_000) throw new Error(`suspiciously small output (${bytes.byteLength}B)`);
+
+		step = "probe duration";
+		const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
+		const probe = new Input({
+			source: new BlobSource(new Blob([bytes])),
+			formats: ALL_FORMATS,
+		});
+		const track = await probe.getPrimaryVideoTrack();
+		if (!track) throw new Error("output has no video track");
+		const duration = await track.computeDuration();
+		if (!(duration > 2.5 && duration < 5.5)) {
+			throw new Error(`output duration ${duration.toFixed(2)}s (expected about 4s after the trim)`);
+		}
+
+		step = "sample frame";
+		const sample = await frameImageData({ bytes, timeSeconds: 1, label: "director-export" });
+		const lit = litPixelRatio(sample.image);
+		log(`diag: nonBlack=${lit.toFixed(3)} duration=${duration.toFixed(2)}s`);
+		if (lit < 0.1) throw new Error(`export frame is black nonBlack=${lit.toFixed(3)}`);
+		const model = useAIDirectorStore.getState().selectedModel;
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=director-export PASS model=${model} export=${Math.round(bytes.byteLength / 1024)}KB duration=${duration.toFixed(2)}s nonBlack=${lit.toFixed(3)} sampled=${sample.image.width}x${sample.image.height}`,
+			);
+		}
+	} catch (error) {
+		guard.note(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+		);
+		if (error instanceof Error && error.stack) log(error.stack);
+	} finally {
+		guard.close();
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -2418,6 +2611,22 @@ export async function mountAutotest(): Promise<void> {
 			names: ["autotest-nvidia-director.flag", "autotest.flag"],
 		});
 		await runNvidiaDirector({ root });
+		return;
+	}
+
+	let directorExport = window.location.hash.includes("director-export");
+	try {
+		const directorExportFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-director-export.flag`));
+		if (directorExportFlag.ok || directorExportFlag.status === 0) directorExport = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (directorExport) {
+		log("phase: director-export");
+		await clearAutotestFlags({
+			names: ["autotest-director-export.flag", "autotest.flag"],
+		});
+		await runDirectorExport({ editor, root });
 		return;
 	}
 
