@@ -2,9 +2,9 @@
  * Capacitor implementation of NativeBridge — plan §2.4 / M3, extended by
  * M4 (media custody) and M9 (export) on BOTH platforms.
  *
- * This is the ONE file (with its sibling `web-fallback.ts` and this
- * package's `types.ts`/`event-generator.ts`) allowed to import
- * `@capacitor/core`. Nothing else in the tree may — see
+ * This file, `native-http.ts`, `index.ts`, `spike-diagnostics.ts`, and
+ * the web-fallback selection in `index.ts` are the package files that
+ * import `@capacitor/core`. Nothing outside this package may — see
  * `scripts/invariants.sh`'s bridge-import gate and the
  * `no-restricted-imports` ESLint rule that mirrors it.
  *

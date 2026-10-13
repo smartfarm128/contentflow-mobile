@@ -2234,6 +2234,41 @@
 	border-bottom-right-radius: 4px;
 }
 
+.cc-director__thinking {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 4px 0 8px;
+	padding: 10px 12px;
+	border-radius: 12px;
+	background: rgba(118, 185, 0, 0.14);
+	color: var(--cc-text-primary);
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.cc-director__thinking-dot {
+	width: 8px;
+	height: 8px;
+	flex-shrink: 0;
+	border-radius: 50%;
+	background: #76b900;
+	animation: cc-director-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes cc-director-pulse {
+	0%,
+	100% {
+		opacity: 0.35;
+		transform: scale(0.85);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
 .cc-director__bubble--ai {
 	align-self: flex-start;
 	background: var(--cc-bg-raised, #2e2e2e);

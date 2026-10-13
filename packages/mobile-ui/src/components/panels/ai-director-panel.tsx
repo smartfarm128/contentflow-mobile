@@ -2,7 +2,14 @@ import React, { useState, useRef, useEffect } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { useAIDirectorStore } from "../../ai-director/ai-store";
-import { modelsForProvider } from "../../ai-director/director-models";
+import {
+  NVIDIA_DEFAULT_MODEL,
+  modelsForProvider,
+  providerLabel,
+  rememberNvidiaCatalog,
+  type AIProvider,
+} from "../../ai-director/director-models";
+import { fetchNvidiaToolModels } from "../../ai-director/nvidia-api";
 import { askAIDirector, executeApprovedPlan } from "../../ai-director/ai-agent";
 import { PlanCard } from "./plan-card";
 import type { EditorCore } from "@kneecap/editor-core";
@@ -47,8 +54,44 @@ export function AIDirectorPanel({
   const selectedProvider = useAIDirectorStore((s) => s.selectedProvider);
   const setSelectedProvider = useAIDirectorStore((s) => s.setSelectedProvider);
   const vaultAnselabsKey = useVaultStore((s) => s.keys.anselabs);
-  const providerName = selectedProvider === "anselabs" ? "Anselabs" : "Anthropic";
-  const hasProviderKey = Boolean(selectedProvider === "anselabs" ? vaultAnselabsKey : vaultAnthropicKey);
+  const vaultNvidiaKey = useVaultStore((s) => s.keys.nvidia);
+  const [nvidiaModels, setNvidiaModels] = useState(modelsForProvider("nvidia"));
+  const providerName = providerLabel(selectedProvider);
+  const statusModel =
+    selectedProvider === "anthropic"
+      ? selectedModel.replace("claude-", "")
+      : selectedProvider === "anselabs"
+        ? "Anselabs"
+        : selectedModel;
+  const thinkingLabel =
+    selectedProvider === "nvidia" && selectedModel === NVIDIA_DEFAULT_MODEL
+      ? "NVIDIA is thinking. Nemotron Ultra can take a few minutes."
+      : selectedProvider === "nvidia"
+        ? "NVIDIA is thinking…"
+        : "Director is thinking and reviewing footage…";
+  const hasProviderKey = Boolean(
+    selectedProvider === "anselabs"
+      ? vaultAnselabsKey
+      : selectedProvider === "nvidia"
+        ? vaultNvidiaKey
+        : vaultAnthropicKey,
+  );
+
+  useEffect(() => {
+    if (selectedProvider !== "nvidia") return;
+    let cancelled = false;
+    void fetchNvidiaToolModels().then((models) => {
+      if (cancelled) return;
+      rememberNvidiaCatalog(models);
+      setNvidiaModels(models);
+      const current = useAIDirectorStore.getState().selectedModel;
+      const next = models.some((model) => model.id === current) ? current : models[0]?.id;
+      if (next && next !== current) useAIDirectorStore.getState().setSelectedModel(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvider]);
 
   // Scroll the FEED only, by setting its own scrollTop — never
   // `scrollIntoView`. The sheet body (`.cc-sheet__body`) is also scrollable,
@@ -97,7 +140,7 @@ export function AIDirectorPanel({
         <div className="cc-director__status-bar">
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <Sparkles size={14} strokeWidth={CC_ICON_STROKE} />
-            <span>Director Mode · {selectedProvider === 'anselabs' ? 'Anselabs' : selectedModel.replace('claude-', '')}</span>
+            <span>{isStreaming ? `Thinking… ${statusModel}` : `Director Mode · ${statusModel}`}</span>
           </div>
           <button
             type="button"
@@ -154,11 +197,17 @@ export function AIDirectorPanel({
               <select
                 id="cc-director-provider"
                 value={selectedProvider}
-                onChange={(e) => setSelectedProvider(e.target.value === "anselabs" ? "anselabs" : "anthropic")}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  const provider: AIProvider =
+                    value === "anselabs" || value === "nvidia" ? value : "anthropic";
+                  setSelectedProvider(provider);
+                }}
                 className="cc-select"
               >
                 <option value="anthropic">Anthropic (Claude)</option>
                 <option value="anselabs">Anselabs (OpenAI-compatible)</option>
+                <option value="nvidia">NVIDIA</option>
               </select>
             </div>
             <div>
@@ -169,7 +218,7 @@ export function AIDirectorPanel({
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="cc-select"
               >
-                {modelsForProvider(selectedProvider).map((model) => (
+                {(selectedProvider === "nvidia" ? nvidiaModels : modelsForProvider(selectedProvider)).map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.label}
                   </option>
@@ -233,14 +282,9 @@ export function AIDirectorPanel({
           />
 
           {isStreaming && (
-            <div
-              className="cc-director__bubble cc-director__bubble--ai"
-              style={{ display: "flex", alignItems: "center", gap: "8px" }}
-            >
-              <Sparkles size={13} className="animate-spin" style={{ color: "var(--cc-accent)" }} />
-              <span style={{ fontSize: "12px", color: "var(--cc-text-secondary)" }}>
-                Director is thinking & reviewing footage…
-              </span>
+            <div className="cc-director__thinking" role="status" aria-live="polite">
+              <span className="cc-director__thinking-dot" aria-hidden="true" />
+              <span>{thinkingLabel}</span>
             </div>
           )}
           <div ref={messagesEndRef} />

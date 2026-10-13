@@ -17,7 +17,9 @@ import {
 	Film,
 	Delete,
 	Server,
+	Cpu,
 } from "lucide-react";
+import { validateNvidiaApiKey } from "../../ai-director/nvidia-api";
 import { CC_ICON_STROKE } from "../../tokens";
 
 interface KeyVaultSheetProps {
@@ -49,10 +51,14 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 	const [elevenlabsKey, setElevenlabsKey] = useState(keys.elevenlabs ?? "");
 	const [pexelsKey, setPexelsKey] = useState(keys.pexels ?? "");
 	const [anselabsKey, setAnselabsKey] = useState(keys.anselabs ?? "");
+	const [nvidiaKey, setNvidiaKey] = useState(keys.nvidia ?? "");
 	const [showAnthropic, setShowAnthropic] = useState(false);
 	const [showElevenlabs, setShowElevenlabs] = useState(false);
 	const [showPexels, setShowPexels] = useState(false);
 	const [showAnselabs, setShowAnselabs] = useState(false);
+	const [showNvidia, setShowNvidia] = useState(false);
+	const [saving, setSaving] = useState(false);
+	const [saveLabel, setSaveLabel] = useState<string | null>(null);
 	const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
 	// Sync local inputs when keys change
@@ -62,6 +68,7 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 			setElevenlabsKey(keys.elevenlabs ?? "");
 			setPexelsKey(keys.pexels ?? "");
 			setAnselabsKey(keys.anselabs ?? "");
+			setNvidiaKey(keys.nvidia ?? "");
 		}
 	}, [isUnlocked, keys]);
 
@@ -153,6 +160,7 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 				elevenlabs: elevenlabsKey,
 				pexels: pexelsKey,
 				anselabs: anselabsKey,
+				nvidia: nvidiaKey,
 			});
 			if (success) {
 				setPinInput("");
@@ -164,12 +172,29 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 
 	const handleSaveKeys = async () => {
 		touchActivity();
+		setSaving(true);
+		const nextNvidia = nvidiaKey.trim();
+		const previousNvidia = (keys.nvidia ?? "").trim();
+		const checkingNvidia = Boolean(nextNvidia && nextNvidia !== previousNvidia);
+		setSaveLabel(checkingNvidia ? "Checking NVIDIA key…" : "Encrypting…");
+		if (checkingNvidia) {
+			const check = await validateNvidiaApiKey({ apiKey: nextNvidia });
+			if (!check.ok) {
+				useVaultStore.setState({ error: check.error });
+				setSaving(false);
+				setSaveLabel(null);
+				return;
+			}
+		}
 		const success = await updateKeys({
 			anthropic: anthropicKey.trim(),
 			elevenlabs: elevenlabsKey.trim(),
 			pexels: pexelsKey.trim(),
 			anselabs: anselabsKey.trim(),
+			nvidia: nextNvidia,
 		});
+		setSaving(false);
+		setSaveLabel(null);
 		if (success) {
 			setSavedNotice("Keys encrypted & saved.");
 			setTimeout(() => setSavedNotice(null), 3000);
@@ -448,15 +473,50 @@ export function KeyVaultSheet({ onClose }: KeyVaultSheetProps) {
 							</div>
 						</div>
 
+						{/* 5. NVIDIA Key */}
+						<div className="cc-vault-card">
+							<div className="cc-vault-card__header">
+								<div className="cc-vault-card__icon-badge">
+									<Cpu size={14} color="#76b900" />
+								</div>
+								<div style={{ flex: 1 }}>
+									<h4 className="cc-vault-card__title">NVIDIA API</h4>
+									<p className="cc-vault-card__desc">AI Director through the NVIDIA OpenAI-compatible API. A new key is checked with a one-token call on save.</p>
+								</div>
+							</div>
+							<div className="cc-vault-input-row">
+								<input
+									type={showNvidia ? "text" : "password"}
+									value={nvidiaKey}
+									onChange={(e) => {
+										setNvidiaKey(e.target.value);
+										touchActivity();
+									}}
+									placeholder="nvapi-..."
+									className="cc-text-content-input"
+									autoComplete="off"
+								/>
+								<button
+									type="button"
+									onClick={() => setShowNvidia(!showNvidia)}
+									className="cc-vault-eye-btn"
+									aria-label={showNvidia ? "Hide" : "Show"}
+								>
+									{showNvidia ? <EyeOff size={16} /> : <Eye size={16} />}
+								</button>
+							</div>
+						</div>
+
 						{/* Save Button */}
 						<button
 							type="button"
-							onClick={handleSaveKeys}
+							onClick={() => void handleSaveKeys()}
 							className="cc-panel-cta"
 							style={{ marginTop: "8px" }}
+							disabled={saving}
 						>
 							<Check size={16} strokeWidth={CC_ICON_STROKE} />
-							<span>Encrypt & Save Keys</span>
+							<span>{saveLabel ?? "Encrypt & Save Keys"}</span>
 						</button>
 					</div>
 				)}

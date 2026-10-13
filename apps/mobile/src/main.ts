@@ -14,6 +14,9 @@
  *   #/autotest/overlay-pixels (or `<mediaRoot>/autotest-overlay-pixels.flag`)
  *                    -> CSS template, WebGL template and sticker pixels in
  *                    the exported file.
+ *   #/autotest/nvidia-director (or `<mediaRoot>/autotest-nvidia-director.flag`,
+ *                    plus a one-line `<mediaRoot>/NVIDIA_API_KEY`)
+ *                    -> one AI Director turn through NVIDIA.
  *
  * Both are dynamic imports so the diagnostics path stays out of the
  * editor's startup graph and vice versa. A hash flip between modes does a

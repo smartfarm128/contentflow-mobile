@@ -65,6 +65,14 @@
  *      frame is compared to the preview/WGSL grade of the same source frame
  *      (`renderPreviewGradeFrame`). The phase flag is deleted first.
  *
+ *  10. NVIDIA-DIRECTOR phase (`#/autotest/nvidia-director`, or
+ *      `<mediaRoot>/autotest-nvidia-director.flag`): reads a one-line key
+ *      from `<mediaRoot>/NVIDIA_API_KEY`. With no key the verdict is SKIP.
+ *      With a key, the vault is unlocked in memory only (the encrypted file
+ *      is not rewritten) and one Director turn is sent to NVIDIA. Nemotron
+ *      Ultra can use most of the 180s request timeout, so this phase waits
+ *      300s before its watchdog. The phase flag is deleted first.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -110,6 +118,9 @@ import {
 	spillOverlayFrame,
 	captureFrameAt,
 	toEdlMediaAssets,
+	useVaultStore,
+	askAIDirector,
+	useAIDirectorStore,
 } from "@kneecap/mobile-ui";
 import { getNativeBridge } from "@kneecap/native-bridge";
 
@@ -1262,7 +1273,13 @@ const SAMPLE_MAX_EDGE = 640;
  * an unhandled rejection, or a watchdog. `close` stops further verdicts
  * so a later cleanup error cannot replace a line that already printed.
  */
-function installPhaseGuard({ phase }: { phase: string }): {
+function installPhaseGuard({
+	phase,
+	watchdogMs = 240_000,
+}: {
+	phase: string;
+	watchdogMs?: number;
+}): {
 	note: (detail: string) => void;
 	claim: () => boolean;
 	close: () => void;
@@ -1284,8 +1301,8 @@ function installPhaseGuard({ phase }: { phase: string }): {
 	window.addEventListener("error", onError);
 	window.addEventListener("unhandledrejection", onRejection);
 	const timer = window.setTimeout(() => {
-		note("watchdog: no verdict after 240s");
-	}, 240_000);
+		note(`watchdog: no verdict after ${Math.round(watchdogMs / 1000)}s`);
+	}, watchdogMs);
 	return {
 		note,
 		/** True when this caller should print the success verdict. A
@@ -2250,6 +2267,70 @@ async function runGradePixels({
 	}
 }
 
+async function readSandboxText({ root, name }: { root: string; name: string }): Promise<string> {
+	try {
+		const bridge = await getNativeBridge();
+		const response = await fetch(bridge.toPlaybackUri(`file://${root}/${name}`));
+		if (!response.ok && response.status !== 0) return "";
+		return (await response.text()).trim();
+	} catch {
+		return "";
+	}
+}
+
+/**
+ * One real Director turn when the founder has planted NVIDIA_API_KEY.
+ * The key stays in the unlocked vault memory for this launch only.
+ */
+async function runNvidiaDirector({ root }: { root: string }): Promise<void> {
+	const guard = installPhaseGuard({ phase: "nvidia-director", watchdogMs: 300_000 });
+	let step = "read NVIDIA_API_KEY";
+	try {
+		const apiKey = (await readSandboxText({ root, name: "NVIDIA_API_KEY" })).split(/\s+/)[0] ?? "";
+		if (!apiKey) {
+			if (guard.claim()) log("VERDICT phase=nvidia-director SKIP no NVIDIA_API_KEY");
+			return;
+		}
+		step = "unlock vault";
+		useVaultStore.setState({
+			isConfigured: true,
+			isUnlocked: true,
+			keys: { nvidia: apiKey },
+			activePin: null,
+			error: null,
+		});
+		useAIDirectorStore.getState().setSelectedProvider("nvidia");
+		useAIDirectorStore.setState({ messages: [], isStreaming: false, pendingPlan: null });
+		const editor = EditorCore.getInstance();
+		step = "director turn";
+		const reply = await askAIDirector(
+			"Reply with exactly the word ready. Do not call any tools.",
+			{ editor },
+		);
+		const failed =
+			reply.startsWith("Couldn't reach") ||
+			reply.startsWith("NVIDIA timed out") ||
+			reply.startsWith("NVIDIA never answered") ||
+			reply.startsWith("NVIDIA rejected") ||
+			reply.startsWith("No NVIDIA") ||
+			reply.startsWith("The Key Vault");
+		if (failed) throw new Error(reply);
+		const assistant = useAIDirectorStore
+			.getState()
+			.messages.filter((message) => message.role === "assistant" && !message.local && !message.toolName);
+		if (assistant.length === 0) throw new Error(`no assistant text (${reply})`);
+		const model = useAIDirectorStore.getState().selectedModel;
+		const preview = reply.replace(/\s+/g, " ").slice(0, 80);
+		if (guard.claim()) log(`VERDICT phase=nvidia-director PASS model=${model} reply=${preview}`);
+	} catch (error) {
+		guard.note(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+		);
+	} finally {
+		guard.close();
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -2321,6 +2402,22 @@ export async function mountAutotest(): Promise<void> {
 				}}
 			/>,
 		);
+		return;
+	}
+
+	let nvidiaDirector = window.location.hash.includes("nvidia-director");
+	try {
+		const nvidiaFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-nvidia-director.flag`));
+		if (nvidiaFlag.ok || nvidiaFlag.status === 0) nvidiaDirector = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (nvidiaDirector) {
+		log("phase: nvidia-director");
+		await clearAutotestFlags({
+			names: ["autotest-nvidia-director.flag", "autotest.flag"],
+		});
+		await runNvidiaDirector({ root });
 		return;
 	}
 

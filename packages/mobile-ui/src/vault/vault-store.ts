@@ -21,6 +21,7 @@ export const LEGACY_KEY_ANTHROPIC = "cf_anthropic_api_key";
 export const LEGACY_KEY_ELEVENLABS = "cf_elevenlabs_api_key";
 export const LEGACY_KEY_PEXELS = "cf_pexels_api_key";
 export const LEGACY_KEY_ANSSELABS = "cf_anselabs_api_key";
+export const LEGACY_KEY_NVIDIA = "cf_nvidia_api_key";
 
 /**
  * Idle lock for an unlocked vault. Long enough for a working session
@@ -71,6 +72,7 @@ export function readLegacyPlaintextKeys(): VaultKeys {
 		elevenlabs: storage.getItem(LEGACY_KEY_ELEVENLABS) ?? "",
 		pexels: storage.getItem(LEGACY_KEY_PEXELS) ?? "",
 		anselabs: storage.getItem(LEGACY_KEY_ANSSELABS) ?? "",
+		nvidia: storage.getItem(LEGACY_KEY_NVIDIA) ?? "",
 	};
 }
 
@@ -80,6 +82,7 @@ export function eraseLegacyPlaintextKeys(): void {
 	storage.removeItem(LEGACY_KEY_ELEVENLABS);
 	storage.removeItem(LEGACY_KEY_PEXELS);
 	storage.removeItem(LEGACY_KEY_ANSSELABS);
+	storage.removeItem(LEGACY_KEY_NVIDIA);
 }
 
 export function hasLegacyPlaintextKeys(): boolean {
@@ -87,7 +90,8 @@ export function hasLegacyPlaintextKeys(): boolean {
 	return Boolean(
 		(legacy.anthropic && legacy.anthropic.trim().length > 0) ||
 		(legacy.elevenlabs && legacy.elevenlabs.trim().length > 0) ||
-		(legacy.pexels && legacy.pexels.trim().length > 0),
+		(legacy.pexels && legacy.pexels.trim().length > 0) ||
+		(legacy.nvidia && legacy.nvidia.trim().length > 0),
 	);
 }
 
@@ -114,6 +118,7 @@ export const useVaultStore = create<VaultStoreState>()((set, get) => ({
 				elevenlabs: initialKeys?.elevenlabs ?? legacy.elevenlabs ?? "",
 				pexels: initialKeys?.pexels ?? legacy.pexels ?? "",
 				anselabs: initialKeys?.anselabs ?? legacy.anselabs ?? "",
+				nvidia: initialKeys?.nvidia ?? legacy.nvidia ?? "",
 			};
 
 			await encryptAndSaveVault(pin, merged);
@@ -277,4 +282,10 @@ export function getActiveAnselabsKey(): string {
 	const vault = useVaultStore.getState();
 	if (!vault.isUnlocked) return "";
 	return vault.keys.anselabs ?? "";
+}
+
+export function getActiveNvidiaKey(): string {
+	const vault = useVaultStore.getState();
+	if (!vault.isUnlocked) return "";
+	return vault.keys.nvidia ?? "";
 }
