@@ -484,6 +484,29 @@
 	font-size: 12px;
 	text-align: left;
 	z-index: 40;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.cc-chrome-error__dismiss {
+	background: none;
+	border: 0;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	padding: 0;
+}
+
+.cc-chrome-error__retry {
+	background: #ff9c9c;
+	color: #3a1414;
+	border: 0;
+	border-radius: 6px;
+	font: inherit;
+	font-weight: 600;
+	padding: 6px 12px;
 }
 
 /* Same strip, neutral treatment — a verb that DECLINED (nothing to cut) or

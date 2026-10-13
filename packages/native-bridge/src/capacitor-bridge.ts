@@ -141,7 +141,7 @@ type WireMediaHandle = Omit<MediaHandle, "rotationDegrees"> & {
  * than platform-branched. */
 interface RawProxyProgress {
 	assetId: string;
-	stage: "queued" | "transcoding" | "done" | "error";
+	stage: "queued" | "transcoding" | "thumbnails" | "done" | "error";
 	fraction: number;
 	proxyUri?: string;
 	proxyWidth?: number;

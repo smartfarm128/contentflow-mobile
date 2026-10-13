@@ -46,6 +46,9 @@ public enum ProxyTranscodeError: Error, CustomStringConvertible {
 	case writerSetupFailed(String)
 	case readerFailed(String)
 	case writerFailed(String)
+	/// No transcode progress for the silence window. The reader is cancelled
+	/// so the hardware decoder is released instead of wedging the next import.
+	case stalled
 
 	public var description: String {
 		switch self {
@@ -54,7 +57,41 @@ public enum ProxyTranscodeError: Error, CustomStringConvertible {
 		case .writerSetupFailed(let m): return "writer setup failed: \(m)"
 		case .readerFailed(let m): return "reader failed: \(m)"
 		case .writerFailed(let m): return "writer failed: \(m)"
+		case .stalled: return "Import failed at proxy: no progress for 45s"
 		}
+	}
+}
+
+/// Holds the live `AVAssetReader` so a silence watchdog (and a later import)
+/// can `cancel()` it. Deinit without `cancel()` keeps the hardware decoder.
+final class ProxyReaderBox: @unchecked Sendable {
+	private let lock = NSLock()
+	private var reader: AVAssetReader?
+	func set(_ reader: AVAssetReader) {
+		lock.lock()
+		self.reader = reader
+		lock.unlock()
+	}
+	func cancel() {
+		lock.lock()
+		let reader = self.reader
+		lock.unlock()
+		reader?.cancel()
+	}
+}
+
+final class ProxyStallWatch: @unchecked Sendable {
+	private let lock = NSLock()
+	private var lastBump = Date()
+	func bump() {
+		lock.lock()
+		lastBump = Date()
+		lock.unlock()
+	}
+	func isStale(seconds: TimeInterval) -> Bool {
+		lock.lock()
+		defer { lock.unlock() }
+		return Date().timeIntervalSince(lastBump) >= seconds
 	}
 }
 
@@ -85,7 +122,59 @@ public enum ProxyTranscoder {
 		sourceURL: URL,
 		outputURL: URL,
 		spec: ProxySpec,
-		onProgress: (@Sendable (Double) -> Void)? = nil
+		onProgress: (@Sendable (Double) -> Void)? = nil,
+		onReader: ((AVAssetReader) -> Void)? = nil
+	) async throws -> ProxyResult {
+		let box = ProxyReaderBox()
+		let stall = ProxyStallWatch()
+		stall.bump()
+		return try await withThrowingTaskGroup(of: ProxyResult.self) { group in
+			group.addTask {
+				try await transcodeUnguarded(
+					sourceURL: sourceURL,
+					outputURL: outputURL,
+					spec: spec,
+					onProgress: { fraction in
+						stall.bump()
+						onProgress?(fraction)
+					},
+					onReader: onReader,
+					readerBox: box
+				)
+			}
+			group.addTask {
+				while !Task.isCancelled {
+					try await Task.sleep(nanoseconds: 5_000_000_000)
+					if Task.isCancelled { break }
+					if stall.isStale(seconds: 45) {
+						print("[import] stalled at proxy")
+						box.cancel()
+						throw ProxyTranscodeError.stalled
+					}
+				}
+				throw CancellationError()
+			}
+			do {
+				guard let result = try await group.next() else {
+					throw ProxyTranscodeError.stalled
+				}
+				group.cancelAll()
+				return result
+			} catch {
+				group.cancelAll()
+				box.cancel()
+				throw error
+			}
+		}
+	}
+
+	private static func transcodeUnguarded(
+		sourceURL: URL,
+		outputURL: URL,
+		spec: ProxySpec,
+		onProgress: (@Sendable (Double) -> Void)?,
+		onReader: ((AVAssetReader) -> Void)?,
+		readerBox: ProxyReaderBox
 	) async throws -> ProxyResult {
 		let asset = AVURLAsset(url: sourceURL)
 		let duration = try await asset.load(.duration)
@@ -243,6 +332,12 @@ public enum ProxyTranscoder {
 			}
 		}
 
+		readerBox.set(reader)
+		onReader?(reader)
+		// Always cancel, including after a normal finish. Releasing an
+		// AVAssetReader without cancel() keeps the hardware decoder, and the
+		// next import's AVAssetImageGenerator then never calls back.
+		defer { readerBox.cancel() }
 		guard reader.startReading() else {
 			throw ProxyTranscodeError.readerFailed(reader.error?.localizedDescription ?? "unknown")
 		}
@@ -346,16 +441,12 @@ public enum ProxyTranscoder {
 				while writerInput.isReadyForMoreMediaData {
 					if reader.status != .reading {
 						writerInput.markAsFinished()
-						finish(reader.status == .failed
-							? ProxyTranscodeError.readerFailed(reader.error?.localizedDescription ?? "unknown")
-							: nil)
+						finish(readerStopError(reader))
 						return
 					}
 					guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
 						writerInput.markAsFinished()
-						finish(reader.status == .failed
-							? ProxyTranscodeError.readerFailed(reader.error?.localizedDescription ?? "unknown")
-							: nil)
+						finish(readerStopError(reader))
 						return
 					}
 					// Frames arrive from AVAssetReaderVideoCompositionOutput
@@ -397,19 +488,30 @@ public enum ProxyTranscoder {
 				while writerInput.isReadyForMoreMediaData {
 					if reader.status != .reading {
 						writerInput.markAsFinished()
-						finish(reader.status == .failed
-							? ProxyTranscodeError.readerFailed(reader.error?.localizedDescription ?? "unknown")
-							: nil)
+						finish(readerStopError(reader))
 						return
 					}
 					guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
 						writerInput.markAsFinished()
-						finish(nil)
+						finish(readerStopError(reader))
 						return
 					}
 					_ = writerInput.append(sampleBuffer)
 				}
 			}
+		}
+	}
+
+	/// `.cancelled` is the silence watchdog (or a newer import) releasing the
+	/// decoder. Treat that as a stall, not as a clean end-of-stream.
+	private static func readerStopError(_ reader: AVAssetReader) -> Error? {
+		switch reader.status {
+		case .cancelled:
+			return ProxyTranscodeError.stalled
+		case .failed:
+			return ProxyTranscodeError.readerFailed(reader.error?.localizedDescription ?? "unknown")
+		default:
+			return nil
 		}
 	}
 

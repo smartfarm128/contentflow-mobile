@@ -123,7 +123,7 @@ export interface ProxySpec {
 	shortGop: boolean;
 }
 
-export type ProxyStage = "queued" | "transcoding" | "done" | "error";
+export type ProxyStage = "queued" | "transcoding" | "thumbnails" | "done" | "error";
 
 export interface ProxyProgress {
 	assetId: string;

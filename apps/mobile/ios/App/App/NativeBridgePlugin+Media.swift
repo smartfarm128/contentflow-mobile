@@ -12,6 +12,38 @@ import UniformTypeIdentifiers
 /// so that logic stays independently testable via
 /// `apps/mobile/ios/verify-media-pipeline` — this file's own job is just
 /// PHPickerViewController presentation and Capacitor call/event plumbing.
+
+/// One import's AVFoundation decode session. Import #2 calls `cancelAll()`
+/// before creating its own reader and image generator. Without that, the
+/// first import's uncancelled `AVAssetImageGenerator` keeps the hardware
+/// decoder and the second import's thumbnail callback never runs.
+final class LiveImportSession: @unchecked Sendable {
+	private let lock = NSLock()
+	private var reader: AVAssetReader?
+	private var generator: AVAssetImageGenerator?
+
+	func setReader(_ reader: AVAssetReader) {
+		lock.lock()
+		self.reader = reader
+		lock.unlock()
+	}
+
+	func setGenerator(_ generator: AVAssetImageGenerator) {
+		lock.lock()
+		self.generator = generator
+		lock.unlock()
+	}
+
+	func cancelAll() {
+		lock.lock()
+		let reader = self.reader
+		let generator = self.generator
+		lock.unlock()
+		reader?.cancel()
+		generator?.cancelAllCGImageGeneration()
+	}
+}
+
 extension NativeBridgePlugin {
 
     // MARK: - pickMedia
@@ -105,9 +137,22 @@ extension NativeBridgePlugin {
         // "proxyProgress" events keyed by `assetId`.
         call.resolve(["accepted": true])
 
+        let session = LiveImportSession()
+        // Import #1's reader/generator is still the thing import #2 blocks on.
+        // Cancel it before this task touches AVFoundation.
+        liveImportSession?.cancelAll()
+        liveImportSession = session
+
         Task { [weak self] in
             guard let self else { return }
+            defer {
+                session.cancelAll()
+                if self.liveImportSession === session {
+                    self.liveImportSession = nil
+                }
+            }
             do {
+                print("[import] step proxy asset=\(assetId)")
                 self.emitProxyProgress(assetId: assetId, stage: "transcoding", fraction: 0)
 
                 let proxyURL = try MediaSandbox.proxyURL(assetId: assetId)
@@ -125,15 +170,27 @@ extension NativeBridgePlugin {
                         DispatchQueue.main.async {
                             self?.emitProxyProgress(assetId: assetId, stage: "transcoding", fraction: fraction)
                         }
-                    }
+                    },
+                    onReader: { session.setReader($0) }
                 )
 
-                self.emitProxyProgress(assetId: assetId, stage: "transcoding", fraction: 0.95)
+                // 0.95 is the first event of the thumbnail step — the UI
+                // percent for a one-file import. Copy and transcode have
+                // already returned. This is where import #2 used to hang.
+                print("[import] step thumbnails asset=\(assetId) frames=\(importThumbnailCount)")
+                self.emitProxyProgress(assetId: assetId, stage: "thumbnails", fraction: 0.95)
                 let thumbDir = try MediaSandbox.thumbnailDirectory(assetId: assetId)
                 let thumbURLs = try await ThumbnailStripGenerator.generate(
                     sourceURL: sourceURL,
                     outputDirectory: thumbDir,
-                    count: 500
+                    count: importThumbnailCount,
+                    onProgress: { [weak self] fraction in
+                        let mapped = 0.95 + 0.04 * min(1, max(0, fraction))
+                        DispatchQueue.main.async {
+                            self?.emitProxyProgress(assetId: assetId, stage: "thumbnails", fraction: mapped)
+                        }
+                    },
+                    onGenerator: { session.setGenerator($0) }
                 )
 
                 self.emitProxyProgress(
@@ -146,11 +203,15 @@ extension NativeBridgePlugin {
                     thumbnailUris: thumbURLs.map { $0.path }
                 )
             } catch {
+                let message = String(describing: error)
+                if message.contains("Import failed at ") {
+                    print("[import] stalled asset=\(assetId): \(message)")
+                }
                 self.emitProxyProgress(
                     assetId: assetId,
                     stage: "error",
                     fraction: 1,
-                    error: String(describing: error)
+                    error: message
                 )
             }
         }
@@ -456,8 +517,15 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
             ])
         }
 
-        guard let probed = try? await MediaProbe.probe(url: custodyURL) else {
-            return .failed("probe failed — unsupported or corrupt media")
+        let probed: ProbedMedia
+        do {
+            probed = try await withImportStepTimeout(step: "probe", seconds: 30) {
+                try await MediaProbe.probe(url: custodyURL)
+            }
+        } catch let timeout as ImportStepTimeout {
+            return .failed(timeout.description)
+        } catch {
+            return .failed("Import failed at probe: unsupported or corrupt media")
         }
         let attrs = try? FileManager.default.attributesOfItem(atPath: custodyURL.path)
         let sizeBytes = (attrs?[.size] as? Int) ?? 0

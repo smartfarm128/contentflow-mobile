@@ -81,6 +81,17 @@
  *      Ultra plus the encode can use most of 12 minutes, so the watchdog is
  *      720s. The phase flag is deleted first.
  *
+ *  12. DOUBLE-IMPORT phase (`#/autotest/double-import`, or
+ *      `<mediaRoot>/autotest-double-import.flag`): imports two videos back
+ *      to back through the real proxy path. The first is a planted
+ *      `Media/autotest-source.mov` when that file exists, otherwise the
+ *      planted mp4 copied into custody as `.mov`. The second is
+ *      `Media/autotest-source.mp4`, started only after the first reaches
+ *      100% and is on the timeline. A second pair repeats that with a
+ *      preview frame requested (editor open) before the mp4 import. Each
+ *      import has a 90s budget. The phase flag is deleted first. The
+ *      verdict is `VERDICT phase=double-import`.
+ *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
@@ -2528,6 +2539,225 @@ async function runDirectorExport({
 	}
 }
 
+const DOUBLE_IMPORT_BUDGET_MS = 90_000;
+
+function absoluteFileUrl(path: string): string {
+	const encoded = path
+		.split("/")
+		.map((part) => encodeURIComponent(part))
+		.join("/");
+	return `file://${encoded}`;
+}
+
+function timelineVideoCount(editor: EditorCore): number {
+	const scene = editor.scenes.getActiveScene();
+	const overlay = scene.tracks.overlay.reduce(
+		(count, track) => count + track.elements.filter((element) => element.type === "video").length,
+		0,
+	);
+	return (
+		scene.tracks.main.elements.filter((element) => element.type === "video").length + overlay
+	);
+}
+
+async function plantedFileHasBytes({
+	bridge,
+	root,
+	relative,
+}: {
+	bridge: Awaited<ReturnType<typeof getNativeBridge>>;
+	root: string;
+	relative: string;
+}): Promise<boolean> {
+	try {
+		const response = await fetch(bridge.toPlaybackUri(`file://${root}/${relative}`));
+		if (!(response.ok || response.status === 0)) return false;
+		const bytes = await response.arrayBuffer();
+		return bytes.byteLength > 0;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * One custody copy + the real generateProxy stream + a main-track clip.
+ * `peak` must hit 100 and the clip must land inside `DOUBLE_IMPORT_BUDGET_MS`.
+ */
+async function importDoubleVideo({
+	editor,
+	bridge,
+	sourcePath,
+	fileName,
+}: {
+	editor: EditorCore;
+	bridge: Awaited<ReturnType<typeof getNativeBridge>>;
+	sourcePath: string;
+	fileName: string;
+}): Promise<number> {
+	const started = Date.now();
+	let peak = 0;
+	const copied = await bridge.importRemoteMedia({
+		url: absoluteFileUrl(sourcePath),
+		kind: "video",
+		fileName,
+	});
+	const handle: NativeMediaHandle = {
+		id: copied.id,
+		uri: copied.uri,
+		kind: copied.kind,
+		fileName: copied.fileName,
+		sizeBytes: copied.sizeBytes,
+		durationMicros: copied.durationMicros,
+		width: copied.width,
+		height: copied.height,
+		hasAudio: copied.hasAudio,
+		codec: copied.codec,
+		frameRate: copied.frameRate,
+		rotationDegrees: copied.rotationDegrees,
+	};
+	const source: NativeMediaSource = {
+		pickMedia: async () => [handle],
+		generateProxy: (params) => proxyPlantedMedia({ bridge, params }),
+		toPlaybackUri: bridge.toPlaybackUri,
+		getMediaRoot: () => bridge.getMediaRoot(),
+	};
+	const before = timelineVideoCount(editor);
+	const { imported, failed } = await importMediaFromNative({
+		editor,
+		projectId: editor.project.getActive().metadata.id,
+		source,
+		kinds: ["video"],
+		allowMultiple: false,
+		onProgress: (progress) => {
+			const fraction = Math.min(1, Math.max(0, progress.fraction));
+			const percent = Math.round(
+				((progress.index + fraction) / Math.max(1, progress.total)) * 100,
+			);
+			peak = Math.max(peak, progress.stage === "done" ? 100 : percent);
+			log(`double-import ${fileName} ${progress.stage} ${percent}%`);
+		},
+	});
+	const elapsed = Date.now() - started;
+	if (failed.length > 0 || imported.length !== 1) {
+		throw new Error(
+			`${fileName}: ${failed[0]?.error ?? `imported ${imported.length}`}`,
+		);
+	}
+	if (peak < 100) throw new Error(`${fileName} peaked at ${peak}%`);
+	if (elapsed > DOUBLE_IMPORT_BUDGET_MS) {
+		throw new Error(`${fileName} took ${elapsed}ms (budget ${DOUBLE_IMPORT_BUDGET_MS}ms)`);
+	}
+	const asset = imported[0];
+	if (!asset) throw new Error(`${fileName} produced no asset`);
+	editor.command.execute({
+		command: new InsertElementCommand({
+			element: buildElementFromMedia({
+				mediaId: asset.id,
+				mediaType: asset.type,
+				name: asset.name,
+				duration: mediaTimeFromSeconds({ seconds: asset.duration || 3 }),
+				startTime: mediaTimeFromSeconds({ seconds: 0 }),
+			}),
+			placement: { mode: "auto", trackType: "video" },
+		}),
+	});
+	const after = timelineVideoCount(editor);
+	if (after !== before + 1) {
+		throw new Error(`${fileName} did not land on the timeline (${before} -> ${after})`);
+	}
+	log(`double-import landed ${fileName} ${elapsed}ms timeline=${after}`);
+	return elapsed;
+}
+
+async function runDoubleImport({
+	editor,
+	root,
+}: {
+	editor: EditorCore;
+	root: string;
+}): Promise<void> {
+	const guard = installPhaseGuard({ phase: "double-import", watchdogMs: 420_000 });
+	const bridge = await getNativeBridge();
+	let step = "start";
+	try {
+		const mp4Path = `${root}/${SOURCE_RELATIVE}`;
+		const movRelative = "Media/autotest-source.mov";
+		const movPlanted = await plantedFileHasBytes({ bridge, root, relative: movRelative });
+		const movPath = movPlanted ? `${root}/${movRelative}` : mp4Path;
+		const movSource = movPlanted ? "planted" : "copied-mp4";
+		log(`double-import movSource=${movSource}`);
+
+		step = "blank mov";
+		await editor.project.createNewProject({ name: "Autotest Double Blank" });
+		videoCache.clearAll();
+		const blankMov = await importDoubleVideo({
+			editor,
+			bridge,
+			sourcePath: movPath,
+			fileName: "double-a.mov",
+		});
+		step = "blank mp4";
+		const blankMp4 = await importDoubleVideo({
+			editor,
+			bridge,
+			sourcePath: mp4Path,
+			fileName: "double-b.mp4",
+		});
+		if (timelineVideoCount(editor) < 2) throw new Error("blank pair did not leave two timeline videos");
+
+		step = "editor mov";
+		await editor.project.createNewProject({ name: "Autotest Double Editor" });
+		videoCache.clearAll();
+		const editorMov = await importDoubleVideo({
+			editor,
+			bridge,
+			sourcePath: movPath,
+			fileName: "double-a.mov",
+		});
+		step = "editor preview";
+		const warmAsset = editor.media.getAssets().find((asset) => asset.type === "video");
+		if (!warmAsset) throw new Error("editor variant has no video asset to preview");
+		try {
+			await withTimeout({
+				promise: videoCache.getFrameAt({
+					mediaId: warmAsset.id,
+					file: warmAsset.file,
+					url: warmAsset.url,
+					time: 0.2,
+				}),
+				ms: 15_000,
+				label: "editor-open preview",
+			});
+			log(`double-import editor-open sinks=${videoCache.getStats().totalSinks}`);
+		} catch (error) {
+			log(
+				`double-import editor-open preview ${error instanceof Error ? error.message : String(error)}`,
+			);
+			videoCache.clearAll();
+		}
+		step = "editor mp4";
+		const editorMp4 = await importDoubleVideo({
+			editor,
+			bridge,
+			sourcePath: mp4Path,
+			fileName: "double-b.mp4",
+		});
+		if (timelineVideoCount(editor) < 2) throw new Error("editor pair did not leave two timeline videos");
+		if (guard.claim()) {
+			log(
+				`VERDICT phase=double-import PASS movSource=${movSource} blank=${blankMov}+${blankMp4}ms editor=${editorMov}+${editorMp4}ms timeline=2`,
+			);
+		}
+	} catch (error) {
+		guard.note(
+			`step=${step} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+		);
+		if (error instanceof Error && error.stack) log(error.stack);
+	} finally {
+		guard.close();
+	}
+}
+
 export async function mountAutotest(): Promise<void> {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
@@ -2555,6 +2785,22 @@ export async function mountAutotest(): Promise<void> {
 		},
 	});
 	log("media root", root);
+
+	let doubleImport = window.location.hash.includes("double-import");
+	try {
+		const doubleFlag = await fetch(bridge.toPlaybackUri(`file://${root}/autotest-double-import.flag`));
+		if (doubleFlag.ok || doubleFlag.status === 0) doubleImport = true;
+	} catch {
+		// No flag — later phases decide.
+	}
+	if (doubleImport) {
+		log("phase: double-import");
+		await clearAutotestFlags({
+			names: ["autotest-double-import.flag", "autotest.flag"],
+		});
+		await runDoubleImport({ editor, root });
+		return;
+	}
 
 	let frameCapture = window.location.hash.includes("frame-capture");
 	try {

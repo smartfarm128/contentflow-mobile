@@ -58,6 +58,12 @@ export async function subscribeToEvents<T>({
 }): Promise<AsyncGenerator<T>> {
 	const queue: T[] = [];
 	const waiters: Array<(event: T) => void> = [];
+	// Bun will not interrupt an async generator suspended on `await`. A
+	// consumer that times out cannot `return()` the generator until this
+	// reject fires; otherwise the listener stays registered and the
+	// caller's timeout never surfaces.
+	const closed = new Error("import stream closed");
+	let stopWaiting: (() => void) | null = null;
 
 	const handle = await source.addListener(eventName, (event: T) => {
 		if (!filter(event)) return;
@@ -76,14 +82,30 @@ export async function subscribeToEvents<T>({
 				const event =
 					queue.length > 0
 						? queue.shift()!
-						: await new Promise<T>((resolve) => waiters.push(resolve));
+						: await new Promise<T>((resolve, reject) => {
+								waiters.push(resolve);
+								stopWaiting = () => {
+									const index = waiters.indexOf(resolve);
+									if (index !== -1) waiters.splice(index, 1);
+									reject(closed);
+								};
+							});
+				stopWaiting = null;
 				finished = isTerminal(event);
 				yield event;
 			}
+		} catch (error) {
+			if (error !== closed) throw error;
 		} finally {
+			stopWaiting = null;
 			await handle.remove();
 		}
 	}
 
-	return drain();
+	const generator = drain();
+	return Object.assign(generator, {
+		cancel() {
+			stopWaiting?.();
+		},
+	});
 }

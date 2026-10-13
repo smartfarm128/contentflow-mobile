@@ -76,10 +76,19 @@ extension NativeBridgePlugin {
 
 				let probed: ProbedMedia
 				do {
-					probed = try await MediaProbe.probe(url: custodyURL)
+					probed = try await withImportStepTimeout(step: "probe", seconds: 30) {
+						try await MediaProbe.probe(url: custodyURL)
+					}
 				} catch {
 					try? FileManager.default.removeItem(at: custodyURL)
-					call.reject("probe failed — unsupported or corrupt media", "IO_ERROR")
+					let message = String(describing: error)
+					let reason = message.contains("Import failed at ")
+						? message
+						: "Import failed at probe: unsupported or corrupt media"
+					if message.contains("Import failed at ") {
+						print("[import] stalled: \(message)")
+					}
+					call.reject(reason, "IO_ERROR")
 					return
 				}
 				let attrs = try? FileManager.default.attributesOfItem(atPath: custodyURL.path)

@@ -364,7 +364,14 @@ function HomeScreen({
 				)}
 
 			{(error ?? startError) && (
-				<div className="cf-home-error">{error ?? startError}</div>
+				<div className="cf-home-error">
+					<div>{error ?? startError}</div>
+					{startError?.startsWith("Import failed at ") && (
+						<button type="button" className="cf-home-error__retry" onClick={() => onStartCreating()}>
+							Retry
+						</button>
+					)}
+				</div>
 			)}
 
 			{/* Main Scrollable View Area */}

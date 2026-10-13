@@ -200,6 +200,9 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet, prepar
 		percent: number;
 		label: string;
 	} | null>(null);
+	/** Set when a post-copy step rejects with `Import failed at <step>: …`.
+	 *  Retry re-runs the same importer instead of leaving the spinner up. */
+	const [importRetry, setImportRetry] = useState<(() => void) | null>(null);
 	const timelineProject = useTimelineProjectVM();
 
 	// Engine-backed transitions -> the TimelineView's Record<afterClipId, vm>
@@ -263,6 +266,7 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet, prepar
 	) => {
 		if (importProgress) return; // one import at a time
 		setChromeError(null);
+		setImportRetry(null);
 		// Indeterminate 0% while the OS picker is up; the picker sheet
 		// covers it, and a cancelled pick clears it in `finally`.
 		setImportProgress({ percent: 0, label: "Choosing media…" });
@@ -273,7 +277,13 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet, prepar
 				setImportProgress({ percent: Math.round(percent), label });
 			},
 		})
-			.catch(reportChromeError)
+			.catch((error) => {
+				const message = error instanceof Error ? error.message : String(error);
+				reportChromeError(error);
+				if (message.startsWith("Import failed at ")) {
+					setImportRetry(() => () => runMediaImport(importer));
+				}
+			})
 			.finally(() => setImportProgress(null));
 	};
 
@@ -535,9 +545,32 @@ export function EditorShell({ className, onBack, bootstrap, initialSheet, prepar
 			)}
 
 			{chromeError && (
-				<button type="button" className="cc-chrome-error" onClick={() => setChromeError(null)}>
-					{chromeError}
-				</button>
+				<div className="cc-chrome-error" role="alert">
+					<button
+						type="button"
+						className="cc-chrome-error__dismiss"
+						onClick={() => {
+							setChromeError(null);
+							setImportRetry(null);
+						}}
+					>
+						{chromeError}
+					</button>
+					{importRetry && (
+						<button
+							type="button"
+							className="cc-chrome-error__retry"
+							onClick={() => {
+								const retry = importRetry;
+								setChromeError(null);
+								setImportRetry(null);
+								retry();
+							}}
+						>
+							Retry
+						</button>
+					)}
+				</div>
 			)}
 
 			{chromeNotice && (
