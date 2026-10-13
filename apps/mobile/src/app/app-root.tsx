@@ -40,7 +40,7 @@ import {
 	EditorShell,
 	ensurePreviewGpu,
 	KeyVaultSheet,
-	getAllHtmlTemplates,
+	getAllHtmlTemplateMeta,
 	TemplateThumbnail,
 	insertHtmlTemplateElement,
 	getActiveAnthropicKey,
@@ -48,7 +48,7 @@ import {
 	useVaultStore,
 	createProjectFromPickedMedia,
 	type SheetId,
-	type HtmlTemplate,
+	type HtmlTemplateMeta,
 } from "@kneecap/mobile-ui";
 import {
 	Home as HomeIcon,
@@ -275,7 +275,7 @@ function HomeScreen({
 		}
 	};
 
-	const useTemplateInNewProject = async (tmpl: HtmlTemplate) => {
+	const useTemplateInNewProject = async (tmpl: HtmlTemplateMeta) => {
 		await run(
 			async () => {
 				await editor.project.createNewProject({
@@ -293,7 +293,7 @@ function HomeScreen({
 	};
 
 	// ─── Templates Catalog ───────────────────────────────────────────────
-	const allTemplates = useMemo(() => getAllHtmlTemplates(), []);
+	const allTemplates = useMemo(() => getAllHtmlTemplateMeta(), []);
 	const categories = useMemo(() => {
 		const cats = new Set<string>();
 		cats.add("all");

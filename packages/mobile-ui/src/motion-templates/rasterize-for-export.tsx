@@ -27,9 +27,9 @@ import {
 	buildTransformFromParams,
 	readOpacityFromParams,
 } from "@kneecap/editor-core/rendering";
-import { getHtmlTemplate } from "./registry";
+import { loadHtmlTemplates } from "./load-template";
 import { isHtmlTemplateGraphic, templateIdFromDefinitionId } from "./engine-bridge";
-import type { EditingTemplatePrimitive, HtmlTemplateComponent } from "./types";
+import type { EditingTemplatePrimitive, HtmlTemplate, HtmlTemplateComponent } from "./types";
 
 /** Motion-graphics sample rate. Held for the whole on-screen span. */
 export const HTML_OVERLAY_TARGET_FPS = 15;
@@ -127,17 +127,19 @@ function clipsAtTime({
 
 function TemplateStage({
 	clips,
+	templates,
 	canvasWidth,
 	canvasHeight,
 }: {
 	clips: TemplateClipBox[];
+	templates: ReadonlyMap<string, HtmlTemplate>;
 	canvasWidth: number;
 	canvasHeight: number;
 }) {
 	return (
 		<div style={{ position: "relative", width: canvasWidth, height: canvasHeight }}>
 			{clips.map((clip) => {
-				const template = getHtmlTemplate(clip.templateId);
+				const template = templates.get(clip.templateId);
 				if (!template) return null;
 				const Component: HtmlTemplateComponent = template.Component;
 				const merged = {
@@ -544,11 +546,17 @@ export function createHtmlOverlayPainter({
 		canvasSize: TCanvasSize;
 	}): Promise<{ canvas: HTMLCanvasElement; misses: string[]; captured: string[] }> => {
 		const clips = clipsAtTime({ tracks, timeSeconds, canvasSize });
+		const templates = await loadHtmlTemplates({ ids: clips.map((clip) => clip.templateId) });
 		host.style.width = `${canvasSize.width}px`;
 		host.style.height = `${canvasSize.height}px`;
 		flushSync(() => {
 			root.render(
-				<TemplateStage clips={clips} canvasWidth={canvasSize.width} canvasHeight={canvasSize.height} />,
+				<TemplateStage
+					clips={clips}
+					templates={templates}
+					canvasWidth={canvasSize.width}
+					canvasHeight={canvasSize.height}
+				/>,
 			);
 		});
 		// useEffect (the WebGL render) runs after flushSync. A timeout lets

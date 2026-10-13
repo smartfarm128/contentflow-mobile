@@ -13,7 +13,7 @@
  * so a drag was half-owned by two systems and rendered the smeared duplicate
  * the founder screenshotted (2026-09-22).
  */
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useEditor } from "@kneecap/editor-core/react";
 import { mediaTimeToSeconds } from "@kneecap/editor-core";
 import type { TimelineElement } from "@kneecap/editor-core/timeline";
@@ -21,7 +21,8 @@ import {
 	buildTransformFromParams,
 	readOpacityFromParams,
 } from "@kneecap/editor-core/rendering";
-import { getHtmlTemplate } from "./registry";
+import { loadHtmlTemplates } from "./load-template";
+import type { HtmlTemplate } from "./types";
 import {
 	isHtmlTemplateGraphic,
 	registerHtmlTemplateGraphics,
@@ -62,6 +63,8 @@ export const HtmlMotionLayer: React.FC<HtmlMotionLayerProps> = ({
 	// Selector subscription: re-renders whenever the engine's scene changes,
 	// so edits/drags/undo land here without any store of our own.
 	const tracks = useEditor((editor) => editor.scenes.getActiveScene().tracks);
+
+	const [templates, setTemplates] = useState<ReadonlyMap<string, HtmlTemplate>>(() => new Map());
 
 	const activeClips = useMemo<ActiveTemplateClip[]>(() => {
 		const out: ActiveTemplateClip[] = [];
@@ -110,6 +113,25 @@ export const HtmlMotionLayer: React.FC<HtmlMotionLayerProps> = ({
 		return out;
 	}, [tracks, time, canvasWidth, canvasHeight]);
 
+	const neededIds = activeClips.map((clip) => clip.templateId).join("\0");
+	useEffect(() => {
+		const ids = neededIds.length > 0 ? neededIds.split("\0") : [];
+		const missing = ids.filter((id) => !templates.has(id));
+		if (missing.length === 0) return;
+		let cancelled = false;
+		void loadHtmlTemplates({ ids: missing }).then((loaded) => {
+			if (cancelled || loaded.size === 0) return;
+			setTemplates((current) => {
+				const next = new Map(current);
+				for (const [id, template] of loaded) next.set(id, template);
+				return next;
+			});
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [neededIds, templates]);
+
 	if (activeClips.length === 0) return null;
 
 	return (
@@ -128,7 +150,7 @@ export const HtmlMotionLayer: React.FC<HtmlMotionLayerProps> = ({
 			data-playing={isPlaying ? "true" : "false"}
 		>
 			{activeClips.map((clip) => {
-				const template = getHtmlTemplate(clip.templateId);
+				const template = templates.get(clip.templateId);
 				if (!template) return null;
 
 				const { Component } = template;

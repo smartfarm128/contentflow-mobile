@@ -49,8 +49,10 @@ import dev.kneecap.app.edl.EdlTrackType
  * these, and the rest of the timeline still encodes): graphic clips with no
  * sandbox file (motion templates, stickers, shapes), assets whose `sourceUri`
  * is null or a `blob:` URL (Pexels / ElevenLabs before a custody copy),
- * masks, keyframes on anything but `transform.*`/`opacity`, and every effect
- * including `adjust` and `filter` (no Media3 mapping yet). A missing main
+ * masks, keyframes on anything but `transform.*`/`opacity`, blur, and the
+ * sharpen/vignette sliders. `adjust`, `brightness`, and `filter` become an
+ * RGB matrix (`ColorGradeMatrix`) using the preview's color-adjust formula.
+ * A missing main
  * track, or a transition whose timing does not fit its neighbours, is still
  * a hard error: those are broken documents, not unsupported features.
  */
@@ -476,12 +478,21 @@ object EdlToComposition {
                 "clip ${clip.clipId}: leaving out keyframes on ${unsupportedKeyframes.joinToString()}",
             )
         }
-        if (clip.effects.isNotEmpty()) {
+        val skippedEffects = clip.effects.filter { it.enabled && it.type !in ColorGradeEffects.renderedTypes() }
+        if (skippedEffects.isNotEmpty()) {
             Log.i(
                 TAG,
-                "clip ${clip.clipId}: leaving out ${clip.effects.size} effect(s) " +
-                    clip.effects.joinToString { it.type },
+                "clip ${clip.clipId}: leaving out effects " +
+                    skippedEffects.joinToString { it.type },
             )
+        }
+        val adjust = clip.effects.firstOrNull { it.enabled && it.type == "adjust" }
+        if (adjust != null) {
+            val sharpen = (adjust.params["sharpen"] as? Number)?.toDouble() ?: 0.0
+            val vignette = (adjust.params["vignette"] as? Number)?.toDouble() ?: 0.0
+            if (sharpen > 0.0 || vignette > 0.0) {
+                Log.i(TAG, "clip ${clip.clipId}: leaving out sharpen/vignette (color sliders still apply)")
+            }
         }
 
         val sourceUri = requireNotNull(asset.sourceUri) // resolvableAsset() already guaranteed non-null.
@@ -509,6 +520,9 @@ object EdlToComposition {
         }
 
         val videoEffects = mutableListOf<Effect>()
+        if (!removeVideo) {
+            videoEffects.addAll(ColorGradeEffects.effectsFor(clip))
+        }
         val itemStartUs = us(itemStartTicks)
         val animated = KeyframeEvaluator.hasVisualAnimations(clip)
         if (animated || !EdlTransformEffect.isIdentity(clip.transform)) {

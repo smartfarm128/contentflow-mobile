@@ -50,7 +50,7 @@ export interface HtmlTemplateControl {
 
 // ─── Registry entry ───────────────────────────────────────────────────────────
 
-export interface HtmlTemplate {
+export interface HtmlTemplateMeta {
   id: string;
   name: string;
   description: string;
@@ -62,6 +62,9 @@ export interface HtmlTemplate {
   defaultDuration: number;
   /** "16:9" | "9:16" | "1:1" | "any" */
   aspectHint: string;
+}
+
+export interface HtmlTemplate extends HtmlTemplateMeta {
   Component: HtmlTemplateComponent;
 }
 

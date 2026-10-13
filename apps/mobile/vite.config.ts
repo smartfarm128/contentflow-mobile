@@ -111,13 +111,41 @@ export default defineConfig(({ mode }) => ({
 		outDir: "www",
 		emptyOutDir: true,
 		target: "esnext",
-		// Keep this readable in `git diff`-adjacent debugging for now; revisit
-		// once this harness is replaced by the real M2-item-6 SPA bundle.
-		minify: false,
+		minify: true,
 		rollupOptions: {
 			input: {
 				main: "index.html",
 				...(mode === "production" ? {} : { spike: "spike.html" }),
+			},
+			output: {
+				manualChunks(id) {
+					const path = id.replaceAll("\\", "/");
+					// React has to live in its own chunk. Templates and Remotion
+					// both import it; if Rollup parks it inside the template chunk,
+					// Remotion imports that chunk and the cycle is hoisted into the
+					// entry, so cold start downloads every template.
+					if (
+						path.includes("/node_modules/react/") ||
+						path.includes("/node_modules/react-dom/") ||
+						path.includes("/node_modules/scheduler/")
+					) {
+						return "vendor-react";
+					}
+					if (path.includes("/node_modules/three/")) return "vendor-three";
+					if (path.includes("/node_modules/d3/") || path.includes("/node_modules/d3-")) return "vendor-d3";
+					if (path.includes("/node_modules/remotion/") || path.includes("/node_modules/@remotion/")) {
+						return "vendor-remotion";
+					}
+					if (path.includes("/motion-templates/catalog/openchatcut-templates.compiled")) {
+						return "openchatcut-catalog";
+					}
+					// The registry, template components, catalog loader and Remotion
+					// host stay out of manualChunks. A named chunk here swallowed
+					// modules the entry also uses, and Rollup then statically
+					// imported that chunk from the entry. `import("./registry")`
+					// is what keeps them off the cold-start graph.
+					return undefined;
+				},
 			},
 		},
 	},

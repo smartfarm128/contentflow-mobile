@@ -14,7 +14,7 @@ import {
 	htmlGraphicDefinitionId,
 	registerHtmlTemplateGraphics,
 } from "../motion-templates/engine-bridge";
-import { getHtmlTemplate } from "../motion-templates/registry";
+import { getHtmlTemplateMeta } from "../motion-templates/template-meta";
 import {
 	DuplicateElementsCommand,
 	SplitElementsCommand,
@@ -1325,7 +1325,7 @@ export function insertHtmlTemplateElement({
 	startSeconds?: number;
 }): ElementRef | null {
 	registerHtmlTemplateGraphics();
-	const template = getHtmlTemplate(templateId);
+	const template = getHtmlTemplateMeta({ id: templateId });
 	if (!template) return null;
 
 	const create = buildGraphicElement({

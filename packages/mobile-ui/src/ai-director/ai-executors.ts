@@ -176,12 +176,10 @@ export async function executeTool(
 		}
 
 		case "list_motion_templates": {
-			// Lazy: the registry imports all 168 template components (three.js,
-			// R3F, framer-motion). Loading that eagerly costs app startup for a
-			// tool most turns never call, and cannot even be imported in a
-			// headless test runtime.
-			const { getAllHtmlTemplates } = await import("../motion-templates/registry");
-			const all = getAllHtmlTemplates();
+			// Metadata only. The component registry (three, remotion, d3, the
+			// OpenChatCut factories) stays out of this tool and out of startup.
+			const { getAllHtmlTemplateMeta } = await import("../motion-templates/template-meta");
+			const all = getAllHtmlTemplateMeta();
 			const q = String(input.search ?? "").toLowerCase();
 			const limit = Number(input.limit ?? 40);
 			const matched = (q
@@ -491,8 +489,8 @@ export async function executeTool(
 
 		case "apply_motion_template": {
 			const id = String(input.template_id ?? "");
-			const { getHtmlTemplate } = await import("../motion-templates/registry");
-			const tmpl = getHtmlTemplate(id);
+			const { getHtmlTemplateMeta } = await import("../motion-templates/template-meta");
+			const tmpl = getHtmlTemplateMeta({ id });
 			if (!tmpl) return { text: `Error: no motion template with id "${id}". Call list_motion_templates for valid ids.` };
 			const defaults: Record<string, string | number | boolean> = {};
 			for (const c of tmpl.controls) defaults[c.id] = c.defaultValue;

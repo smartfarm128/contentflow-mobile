@@ -63,20 +63,21 @@ public enum VideoCompositionBuilder {
 		var assetById: [String: EdlAsset] = [:]
 		for a in edl.assets { assetById[a.assetId] = a }
 
-		func enabledAdjust(_ clipId: String) -> AdjustSettings? {
-			guard let clip = clipById[clipId] else { return nil }
-			guard let fx = clip.effects.first(where: { $0.type == "adjust" && $0.enabled }) else { return nil }
-			let value = { (key: String) -> Double in fx.params[key]?.asDouble ?? 0 }
-			let settings = AdjustSettings(
-				brightness: value("brightness"),
-				contrast: value("contrast"),
-				saturation: value("saturation"),
-				temperature: value("temperature"),
-				tint: value("tint"),
-				sharpen: value("sharpen"),
-				vignette: value("vignette")
-			)
-			return settings.isNeutral ? nil : settings
+		func grades(for clip: EdlClip) -> [ShaderGrade] {
+			var out: [ShaderGrade] = []
+			for fx in clip.effects where fx.enabled {
+				if fx.type == "filter", let grade = ShaderGrade.fromFilter(fx.params) {
+					out.append(grade)
+				} else if fx.type == "adjust", let grade = ShaderGrade.fromAdjust(fx.params) {
+					out.append(grade)
+				}
+			}
+			return out
+		}
+
+		func blurIntensity(for clip: EdlClip) -> Double {
+			guard let fx = clip.effects.first(where: { $0.enabled && $0.type == "blur" }) else { return 0 }
+			return max(0, fx.params["intensity"]?.asDouble ?? 0)
 		}
 
 		func enabledBrightness(_ clipId: String) -> Double? {
@@ -161,7 +162,10 @@ public enum VideoCompositionBuilder {
 					source: source,
 					placement: placement,
 					timeRange: range,
-					zIndex: track.zIndex ?? 0
+					zIndex: track.zIndex ?? 0,
+					grades: grades(for: clip),
+					blurIntensity: blurIntensity(for: clip),
+					mask: ExportMask.fromClip(clip)
 				))
 			}
 		}
@@ -261,7 +265,9 @@ public enum VideoCompositionBuilder {
 						? (built.stillPacerTrackID ?? kCMPersistentTrackID_Invalid)
 						: kCMPersistentTrackID_Invalid,
 				primaryBrightness: enabledBrightness(placement.clipId),
-				primaryAdjust: enabledAdjust(placement.clipId),
+				primaryGrades: clipById[placement.clipId].map { grades(for: $0) } ?? [],
+				primaryBlurIntensity: clipById[placement.clipId].map { blurIntensity(for: $0) } ?? 0,
+				primaryMask: clipById[placement.clipId].flatMap(ExportMask.fromClip),
 				primaryPlacement: sourcePlacement(placement.clipId),
 				backgroundColor: backgroundColor,
 				overlayVideoLayers: pipLayersIntersecting(range),
@@ -300,8 +306,12 @@ public enum VideoCompositionBuilder {
 				transitionKind: window.kind,
 				primaryBrightness: enabledBrightness(outgoingId),
 				secondaryBrightness: enabledBrightness(incomingId),
-				primaryAdjust: enabledAdjust(outgoingId),
-				secondaryAdjust: enabledAdjust(incomingId),
+				primaryGrades: clipById[outgoingId].map { grades(for: $0) } ?? [],
+				secondaryGrades: clipById[incomingId].map { grades(for: $0) } ?? [],
+				primaryBlurIntensity: clipById[outgoingId].map { blurIntensity(for: $0) } ?? 0,
+				secondaryBlurIntensity: clipById[incomingId].map { blurIntensity(for: $0) } ?? 0,
+				primaryMask: clipById[outgoingId].flatMap(ExportMask.fromClip),
+				secondaryMask: clipById[incomingId].flatMap(ExportMask.fromClip),
 				primaryPlacement: sourcePlacement(outgoingId),
 				secondaryPlacement: sourcePlacement(incomingId),
 				backgroundColor: backgroundColor,
@@ -350,17 +360,20 @@ public enum VideoCompositionBuilder {
 		return composition
 	}
 
-	/// Effects other than adjust/brightness, masks, and reverse are preview-only.
-	/// Logging them keeps a device export honest; the export sheet is what the
-	/// user actually reads. The clip itself still exports.
+	/// Effects and masks the compositor does not draw. The export sheet is
+	/// what the user reads; the clip itself still exports.
+	private static let renderedEffects: Set<String> = ["adjust", "brightness", "filter", "blur"]
+
 	private static func logLeftOut(_ clip: EdlClip) {
-		let skipped = clip.effects.filter { $0.enabled && $0.type != "adjust" && $0.type != "brightness" }
+		let skipped = clip.effects.filter { $0.enabled && !Self.renderedEffects.contains($0.type) }
 		if !skipped.isEmpty {
 			let names = skipped.map(\.type).joined(separator: ", ")
 			print("[kneecap-export] clip \(clip.clipId): leaving out effects \(names)")
 		}
-		if !clip.masks.isEmpty {
-			print("[kneecap-export] clip \(clip.clipId): leaving out \(clip.masks.count) mask(s)")
+		let unsupportedMasks = clip.masks.filter { !ExportMask.renderedTypes.contains($0.type) }
+		if !unsupportedMasks.isEmpty {
+			let names = unsupportedMasks.map(\.type).joined(separator: ", ")
+			print("[kneecap-export] clip \(clip.clipId): leaving out masks \(names)")
 		}
 		if clip.params["reversed"]?.asBool == true {
 			print("[kneecap-export] clip \(clip.clipId): reverse plays forward")

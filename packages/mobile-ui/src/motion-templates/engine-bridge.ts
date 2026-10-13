@@ -34,8 +34,8 @@ import { graphicsRegistry, type GraphicDefinition } from "@kneecap/editor-core/g
 import type { ParamDefinition } from "@kneecap/editor-core/params";
 import type { EditorCore } from "@kneecap/editor-core";
 import type { ElementRef } from "@kneecap/editor-core/timeline";
-import { getAllHtmlTemplates, getHtmlTemplate } from "./registry";
-import type { HtmlTemplate, HtmlTemplateControl } from "./types";
+import { getAllHtmlTemplateMeta, getHtmlTemplateMeta } from "./template-meta";
+import type { HtmlTemplateControl, HtmlTemplateMeta } from "./types";
 
 /** Namespace for template-backed graphic ids, so they can never collide with
  *  editor-core's own built-in shapes (rectangle/ellipse/star/polygon). */
@@ -66,9 +66,9 @@ export function templateForDefinitionId({
 	definitionId,
 }: {
 	definitionId: string;
-}): HtmlTemplate | undefined {
+}): HtmlTemplateMeta | undefined {
 	const templateId = templateIdFromDefinitionId({ definitionId });
-	return templateId ? getHtmlTemplate(templateId) : undefined;
+	return templateId ? getHtmlTemplateMeta({ id: templateId }) : undefined;
 }
 
 /**
@@ -161,7 +161,7 @@ function paramFromControl({ control }: { control: HtmlTemplateControl }): ParamD
 	}
 }
 
-function definitionFromTemplate({ template }: { template: HtmlTemplate }): GraphicDefinition {
+function definitionFromTemplate({ template }: { template: HtmlTemplateMeta }): GraphicDefinition {
 	return {
 		id: htmlGraphicDefinitionId({ templateId: template.id }),
 		name: template.name,
@@ -185,7 +185,7 @@ let registered = false;
 export function registerHtmlTemplateGraphics(): void {
 	if (registered) return;
 	registered = true;
-	for (const template of getAllHtmlTemplates()) {
+	for (const template of getAllHtmlTemplateMeta()) {
 		graphicsRegistry.register({
 			key: htmlGraphicDefinitionId({ templateId: template.id }),
 			definition: definitionFromTemplate({ template }),

@@ -3,9 +3,9 @@ import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { SegmentedControl } from "../segmented-control";
 import { ParamRow, ToggleRow } from "../editor/param-row";
-import { getAllHtmlTemplates, getHtmlTemplate } from "../../motion-templates/registry";
+import { getAllHtmlTemplateMeta, getHtmlTemplateMeta } from "../../motion-templates/template-meta";
 import { TemplateThumbnail } from "../../motion-templates/ui/template-thumbnail";
-import type { HtmlTemplate } from "../../motion-templates/types";
+import type { HtmlTemplateMeta } from "../../motion-templates/types";
 import { Plus, Trash2, LayoutTemplate, Sliders } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { useEditor } from "@kneecap/editor-core/react";
@@ -75,7 +75,7 @@ export function MotionTemplatesPanel({
     updateHtmlTemplateValues({ editor, ref: selectedClip.ref, values });
   };
 
-  const allTemplates = useMemo(() => getAllHtmlTemplates(), []);
+  const allTemplates = useMemo(() => getAllHtmlTemplateMeta(), []);
 
   // Most-used tags first: with 378 templates, registry order would fill the
   // chip row with whichever library happens to be listed first.
@@ -93,7 +93,7 @@ export function MotionTemplatesPanel({
   }, [allTemplates]);
 
   const filteredTemplates = useMemo(() => {
-    return allTemplates.filter((t: HtmlTemplate) => {
+    return allTemplates.filter((t: HtmlTemplateMeta) => {
       const matchesCat =
         selectedCategory === "all" ||
         (t.tags && t.tags.includes(selectedCategory));
@@ -105,7 +105,7 @@ export function MotionTemplatesPanel({
     });
   }, [allTemplates, selectedCategory, searchQuery]);
 
-  const handleApplyTemplate = (tmpl: HtmlTemplate) => {
+  const handleApplyTemplate = (tmpl: HtmlTemplateMeta) => {
     const defaultVals: Record<string, string | number | boolean> = {};
     for (const c of tmpl.controls) {
       defaultVals[c.id] = c.defaultValue;
@@ -126,7 +126,7 @@ export function MotionTemplatesPanel({
   };
 
   const selectedTemplate = selectedClip
-    ? getHtmlTemplate(selectedClip.templateId)
+    ? getHtmlTemplateMeta({ id: selectedClip.templateId })
     : null;
 
   const segmentTabs = [
@@ -179,7 +179,7 @@ export function MotionTemplatesPanel({
 
           {/* Clean 2-column CapCut mobile Card Grid */}
           <div className="cc-motion-grid">
-            {filteredTemplates.map((tmpl: HtmlTemplate) => (
+            {filteredTemplates.map((tmpl: HtmlTemplateMeta) => (
               <div
                 key={tmpl.id}
                 onClick={() => setPreviewingId(previewingId === tmpl.id ? null : tmpl.id)}
