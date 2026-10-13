@@ -120,6 +120,17 @@ export default defineConfig(({ mode }) => ({
 			output: {
 				manualChunks(id) {
 					const path = id.replaceAll("\\", "/");
+					// React has to live in its own chunk. Templates and Remotion
+					// both import it; if Rollup parks it inside the template chunk,
+					// Remotion imports that chunk and the cycle is hoisted into the
+					// entry, so cold start downloads every template.
+					if (
+						path.includes("/node_modules/react/") ||
+						path.includes("/node_modules/react-dom/") ||
+						path.includes("/node_modules/scheduler/")
+					) {
+						return "vendor-react";
+					}
 					if (path.includes("/node_modules/three/")) return "vendor-three";
 					if (path.includes("/node_modules/d3/") || path.includes("/node_modules/d3-")) return "vendor-d3";
 					if (path.includes("/node_modules/remotion/") || path.includes("/node_modules/@remotion/")) {
@@ -128,14 +139,11 @@ export default defineConfig(({ mode }) => ({
 					if (path.includes("/motion-templates/catalog/openchatcut-templates.compiled")) {
 						return "openchatcut-catalog";
 					}
-					if (
-						path.includes("/motion-templates/registry") ||
-						path.includes("/motion-templates/templates/") ||
-						path.includes("/motion-templates/catalog-loader") ||
-						path.includes("/motion-templates/template-host")
-					) {
-						return "template-registry";
-					}
+					// The registry, template components, catalog loader and Remotion
+					// host stay out of manualChunks. A named chunk here swallowed
+					// modules the entry also uses, and Rollup then statically
+					// imported that chunk from the entry. `import("./registry")`
+					// is what keeps them off the cold-start graph.
 					return undefined;
 				},
 			},
